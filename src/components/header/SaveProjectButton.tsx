@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useUser } from "@clerk/nextjs";
-import { Loader2, Save } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import useFinModelStore from "@/store/useFinModelStore";
 import { buildAndSaveProject } from "@/lib/project-save";
 import SaveProjectModal from "@/components/modals/SaveProjectModal";
 import { useToast } from "@/components/ui/Toast";
+import { studyToolbarSaveBtn } from "@/components/ui/studyToolbarStyles";
 import type { FinModelStreamKey } from "@/store/useFinModelStore";
 
 type SaveProjectButtonProps = {
@@ -108,16 +109,9 @@ export default function SaveProjectButton({
         type="button"
         onClick={handleOpenModal}
         disabled={isSaving || !isLoaded}
-        className={
-          className ??
-          "inline-flex items-center gap-2 rounded-lg border border-emerald-700/60 bg-emerald-600/20 px-3 py-2 text-emerald-200 transition hover:bg-emerald-600/30 disabled:cursor-not-allowed disabled:opacity-60"
-        }
+        className={className ?? studyToolbarSaveBtn}
       >
-        {isSaving ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Save className="h-4 w-4" />
-        )}
+        {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {activeProjectId ? "Update Project" : label}
       </button>
 
