@@ -5,6 +5,7 @@ import useFinModelStore from "@/store/useFinModelStore";
 import { useAuditStore } from "@/store/useAuditStore";
 import AuditTrailDrawer from "@/components/AuditTrailDrawer";
 import SaveProjectButton from "@/components/header/SaveProjectButton";
+import BackToDashboardButton from "@/components/ui/BackToDashboardButton";
 import { ProjectHydrationLoader } from "@/hooks/useProjectHydration";
 
 export default function OperationalLayout({
@@ -29,6 +30,9 @@ export default function OperationalLayout({
       <Suspense fallback={null}>
         <ProjectHydrationLoader stream="operational" />
       </Suspense>
+      <div className="fixed left-4 top-4 z-[200]">
+        <BackToDashboardButton />
+      </div>
       <div className="fixed right-4 top-4 z-[200] flex items-center gap-2">
         <button
           type="button"
