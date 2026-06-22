@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import type { HotelOperatingType } from "@/config/hotel-cost-profiles";
 import {
   formatHotelProfileTooltip,
@@ -225,7 +226,7 @@ const HOTEL_STARS_BY_TYPE: Record<HotelOperatingType, number[]> = {
   resort: [4, 5],
 };
 
-export default function CashOutflowsPage() {
+function CashOutflowsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const streamPrefix = useStreamPrefix();
@@ -2787,3 +2788,10 @@ export default function CashOutflowsPage() {
   );
 }
 
+export default function CashOutflowsPage() {
+  return (
+    <SearchParamsBoundary>
+      <CashOutflowsPageContent />
+    </SearchParamsBoundary>
+  );
+}

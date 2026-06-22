@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import {
   buildCommonEquityTableRows,
@@ -148,7 +149,7 @@ const TAB_IDS: EquityTab[] = ["summary", "multiple", "payback", "waterfall"];
 /** Minimum redeemable preference tenor (months) when model horizon allows. */
 const MIN_PREFERENCE_TENOR_MONTHS = 12;
 
-export default function EquityReturnsPage() {
+function EquityReturnsPageContent() {
   const router = useRouter();
   const streamPrefix = useStreamPrefix();
   const finStream = streamKeyFromPrefix(streamPrefix);
@@ -168,8 +169,10 @@ export default function EquityReturnsPage() {
 
   const projectInfo = useFinModelStore((s) => s[finStream].projectInfo);
   const cashOutflows = useFinModelStore((s) => s[finStream].cashOutflows);
-  const projectIRR = useFinModelStore((s) => s.projectIRR);
-  const financing = useFinModelStore((s) => s.financing);
+  const projectIRR =
+    useFinModelStore((s) => (s as any)[finStream]?.projectIRR) ??
+    ({ projectMetrics: {} } as any);
+  const financing = useFinModelStore((s) => (s as any)[finStream]?.financing) ?? ({} as any);
   const updateEquityReturns = useFinModelStore((s) => s.updateEquityReturns);
   const updateFinancing = useFinModelStore((s) => s.updateFinancing);
   const updateProjectIRR = useFinModelStore((s) => s.updateProjectIRR);
@@ -183,13 +186,16 @@ export default function EquityReturnsPage() {
   }, [projectIRR.monthlyData]);
 
   useLayoutEffect(() => {
-    const store = useFinModelStore.getState();
-    const ps = store.financing.preferenceShares;
-    const flows = store.projectIRR.monthlyCashFlows || [];
+    const store = useFinModelStore.getState() as any;
+    const stream = store?.[finStream] ?? {};
+    const financingSnap = stream.financing ?? {};
+    const projectIrrSnap = stream.projectIRR ?? {};
+    const ps = financingSnap.preferenceShares ?? {};
+    const flows = projectIrrSnap.monthlyCashFlows || [];
     const h =
       flows.length > 0 ? flows[flows.length - 1].month + 1 : 0;
     const cp = store[finStream].cashOutflows.constructionPeriod || 30;
-    const hy = store.financing.holdPeriodYears || 10;
+    const hy = financingSnap.holdPeriodYears || 10;
     const exitM = Math.round(hy * 12);
     const totalHold = Math.max(cp + 90, exitM);
     const maxT = Math.max(1, h > 0 ? Math.min(h, totalHold) : totalHold);
@@ -204,7 +210,8 @@ export default function EquityReturnsPage() {
     );
     // Tenor is system-determined: preference principal repaid only after senior loan payoff.
     // Lock to the last principal repayment month (Row E), defaulting to M166.
-    const fixed = getLoanRepaymentMonthFromMonthlyData(store.projectIRR.monthlyData) ?? 166;
+    const fixed =
+      getLoanRepaymentMonthFromMonthlyData(projectIrrSnap.monthlyData) ?? 166;
     setPrefTenorMonths(fixed);
     setPrefTenorError(null);
   }, [finStream]);
@@ -222,16 +229,19 @@ export default function EquityReturnsPage() {
   };
 
   useEffect(() => {
-    const store = useFinModelStore.getState();
+    const store = useFinModelStore.getState() as any;
+    const stream = store?.[finStream] ?? {};
+    const financingSnap = stream.financing ?? {};
+    const projectIrrSnap = stream.projectIRR ?? {};
     // eslint-disable-next-line no-console
     console.log("📖 [Component 5] Reading from store (useFinModelStore):", {
-      projectIRR_projectMetrics: store.projectIRR.projectMetrics,
-      projectIRR_peakFunding: store.projectIRR.peakFunding,
-      projectIRR_unleveredIRR: store.projectIRR.unleveredIRR,
-      financing_totalDebt: store.financing.totalDebt,
+      projectIRR_projectMetrics: projectIrrSnap.projectMetrics,
+      projectIRR_peakFunding: projectIrrSnap.peakFunding,
+      projectIRR_unleveredIRR: projectIrrSnap.unleveredIRR,
+      financing_totalDebt: financingSnap.totalDebt,
       financing_monthlyDebtService_sample:
-        store.financing.monthlyDebtService?.[0]?.service ?? 0,
-      financing_preferenceShares: store.financing.preferenceShares,
+        financingSnap.monthlyDebtService?.[0]?.service ?? 0,
+      financing_preferenceShares: financingSnap.preferenceShares,
     });
   }, []);
 
@@ -387,43 +397,59 @@ export default function EquityReturnsPage() {
 
   useEffect(() => {
     if (!hasPreferenceShares) {
-      const pm = useFinModelStore.getState().projectIRR.projectMetrics;
+      const pm = (useFinModelStore.getState() as any)[finStream]?.projectIRR?.projectMetrics;
       if (pm?.preferenceCalculation != null) {
-        updateProjectIRR({
-          projectMetrics: { ...pm, preferenceCalculation: null },
-        });
+        updateProjectIRR(
+          {
+            projectMetrics: { ...pm, preferenceCalculation: null },
+          },
+          finStream === "sale" || finStream === "operational"
+            ? finStream
+            : undefined
+        );
       }
       return;
     }
 
     if (!preferenceAdjustments) return;
 
-    const pm = useFinModelStore.getState().projectIRR.projectMetrics;
+    const pm = (useFinModelStore.getState() as any)[finStream]?.projectIRR?.projectMetrics;
     const totalDiv = preferenceAdjustments.preferenceDividendsPaid.reduce(
       (s, v) => s + v,
       0
     );
-    updateProjectIRR({
-      projectMetrics: {
-        leveredEquityIRR: pm?.leveredEquityIRR ?? 0,
-        equityMultiple: pm?.equityMultiple ?? 0,
-        equityPaybackMonth: pm?.equityPaybackMonth ?? 0,
-        peakEquityInjected: pm?.peakEquityInjected ?? 0,
-        totalEquityInvested: pm?.totalEquityInvested ?? 0,
-        totalDistributions: pm?.totalDistributions ?? 0,
-        ...(pm?.unleveredIRR != null ? { unleveredIRR: pm.unleveredIRR } : {}),
-        ...(pm?.peakFunding != null ? { peakFunding: pm.peakFunding } : {}),
-        preferenceCalculation: {
-          quarterlyDividendDue: preferenceAdjustments.annualDividend,
-          dividendsPaid: preferenceAdjustments.preferenceDividendsPaid,
-          principalRepaid: preferenceAdjustments.principalRepaid,
-          error: null,
-          totalDividendsPaid: totalDiv,
-          tenorMonths: resolvedTenorMonths,
+    updateProjectIRR(
+      {
+        projectMetrics: {
+          leveredEquityIRR: pm?.leveredEquityIRR ?? 0,
+          equityMultiple: pm?.equityMultiple ?? 0,
+          equityPaybackMonth: pm?.equityPaybackMonth ?? 0,
+          peakEquityInjected: pm?.peakEquityInjected ?? 0,
+          totalEquityInvested: pm?.totalEquityInvested ?? 0,
+          totalDistributions: pm?.totalDistributions ?? 0,
+          ...(pm?.unleveredIRR != null ? { unleveredIRR: pm.unleveredIRR } : {}),
+          ...(pm?.peakFunding != null ? { peakFunding: pm.peakFunding } : {}),
+          preferenceCalculation: {
+            quarterlyDividendDue: preferenceAdjustments.annualDividend,
+            dividendsPaid: preferenceAdjustments.preferenceDividendsPaid,
+            principalRepaid: preferenceAdjustments.principalRepaid,
+            error: null,
+            totalDividendsPaid: totalDiv,
+            tenorMonths: resolvedTenorMonths,
+          },
         },
       },
-    });
-  }, [hasPreferenceShares, preferenceAdjustments, resolvedTenorMonths, updateProjectIRR]);
+      finStream === "sale" || finStream === "operational"
+        ? finStream
+        : undefined
+    );
+  }, [
+    hasPreferenceShares,
+    preferenceAdjustments,
+    resolvedTenorMonths,
+    updateProjectIRR,
+    finStream,
+  ]);
 
   const waterfall = useMemo(() => {
     if (horizonMonths <= 0) return null;
@@ -574,16 +600,19 @@ export default function EquityReturnsPage() {
   }, [waterfall]);
 
   useEffect(() => {
-    const store = useFinModelStore.getState();
+    const store = useFinModelStore.getState() as any;
+    const stream = store?.[finStream] ?? {};
+    const financingSnap = stream.financing ?? {};
+    const projectIrrSnap = stream.projectIRR ?? {};
     // eslint-disable-next-line no-console
     console.log("🧮 [Component 5] Calculating Equity Returns (useFinModelStore):", {
-      projectIRR_projectMetrics: store.projectIRR.projectMetrics,
-      monthlyCashFlows_sample: store.projectIRR.monthlyCashFlows?.slice(0, 6),
-      debtService_sample: store.financing.monthlyDebtService?.slice(0, 6),
-      financing_preferenceShares: store.financing.preferenceShares,
-      equityInjectionByMonth_len: store.projectIRR.equityInjectionByMonth?.length ?? 0,
-      equityInjectionByMonth_M0: store.projectIRR.equityInjectionByMonth?.[0] ?? null,
-      equityInjectionByMonth_M15: store.projectIRR.equityInjectionByMonth?.[15] ?? null,
+      projectIRR_projectMetrics: projectIrrSnap.projectMetrics,
+      monthlyCashFlows_sample: projectIrrSnap.monthlyCashFlows?.slice(0, 6),
+      debtService_sample: financingSnap.monthlyDebtService?.slice(0, 6),
+      financing_preferenceShares: financingSnap.preferenceShares,
+      equityInjectionByMonth_len: projectIrrSnap.equityInjectionByMonth?.length ?? 0,
+      equityInjectionByMonth_M0: projectIrrSnap.equityInjectionByMonth?.[0] ?? null,
+      equityInjectionByMonth_M15: projectIrrSnap.equityInjectionByMonth?.[15] ?? null,
     });
   }, [projectIRR.monthlyCashFlows, financing.monthlyDebtService, financing.preferenceShares]);
 
@@ -717,7 +746,8 @@ export default function EquityReturnsPage() {
       ? commonPayback
       : (commonEquityHeadline?.commonEquityPaybackMonth ?? commonPayback);
 
-    updateEquityReturns({
+    updateEquityReturns(
+      {
       leveredIRR,
       equityMultiple,
       paybackPeriod,
@@ -727,11 +757,15 @@ export default function EquityReturnsPage() {
         "Preference dividends and redemption (if any).",
         "Residual cash flows to common equity.",
       ],
-      dscrProfile: financing.dscrProfile.map((d) => ({
+      dscrProfile: financing.dscrProfile.map(
+        (d: { month: number; dscr: number | null }) => ({
         month: d.month,
         dscr: d.dscr,
-      })),
-    });
+      })
+      ),
+    },
+    "sale"
+    );
     console.log("💾 [Component 5] Saving to store:", {
       leveredIRR,
       equityMultiple,
@@ -1724,5 +1758,13 @@ export default function EquityReturnsPage() {
         showDownload={false}
       />
     </div>
+  );
+}
+
+export default function EquityReturnsPage() {
+  return (
+    <SearchParamsBoundary>
+      <EquityReturnsPageContent />
+    </SearchParamsBoundary>
   );
 }

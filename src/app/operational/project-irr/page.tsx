@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+import BenchmarkProfile from "@/components/BenchmarkProfile";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
+import { useAuditLog } from "@/hooks/useAuditLog";
 import useFinModelStore from "@/store/useFinModelStore";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 
@@ -10,6 +13,22 @@ export default function OperationalProjectIRRPage() {
   const exitCapRate = useFinModelStore((s) => s.projectIRR.exitCapRate ?? 7);
   const updateExitCapRate = useFinModelStore((s) => s.updateExitCapRate);
 
+  const logExitCapRate = useAuditLog(
+    "operational.projectIRR.exitCapRate",
+    "Exit Cap Rate (%)",
+    "Component 3",
+    "Step 1: Exit Assumptions",
+    "/operational/project-irr",
+    "input"
+  );
+
+  const initialLogged = useRef(false);
+  useEffect(() => {
+    if (initialLogged.current) return;
+    initialLogged.current = true;
+    logExitCapRate(exitCapRate);
+  }, [exitCapRate, logExitCapRate]);
+
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-8 pb-32">
       <div className="mx-auto max-w-3xl">
@@ -18,6 +37,10 @@ export default function OperationalProjectIRRPage() {
             FinModel App — Component 3
           </h1>
           <p className="text-slate-400">Project IRR — Exit Assumptions</p>
+        </div>
+
+        <div className="mb-6">
+          <BenchmarkProfile />
         </div>
 
         <div className="mb-8">
@@ -49,7 +72,9 @@ export default function OperationalProjectIRRPage() {
             value={exitCapRate}
             onChange={(e) => {
               const v = Number(e.target.value);
-              updateExitCapRate(Number.isFinite(v) ? v : 7);
+              const next = Number.isFinite(v) ? v : 7;
+              updateExitCapRate(next);
+              logExitCapRate(next);
             }}
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
           />

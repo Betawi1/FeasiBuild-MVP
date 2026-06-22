@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import {
   Bar,
   BarChart,
@@ -13,6 +14,56 @@ import {
   YAxis,
 } from "recharts";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
+import HotelRevenueStep, {
+  getOperationalHotelHoldSnapshot,
+  useHotelRoomRevenueFromStore,
+  validateHotelRevenueStep,
+} from "./steps/HotelRevenueStep";
+import RetailDepreciationStep, {
+  buildRetailDepreciationFromSnapshot,
+  validateRetailDepreciationStep,
+} from "./steps/RetailDepreciationStep";
+import RetailOpexStep, {
+  buildRetailOpexFromSnapshot,
+  validateRetailOpexStep,
+} from "./steps/RetailOpexStep";
+import RetailOtherIncomeStep, {
+  validateRetailOtherIncomeStep,
+} from "./steps/RetailOtherIncomeStep";
+import OfficeOtherIncomeStep, {
+  validateOfficeOtherIncomeStep,
+} from "./steps/OfficeOtherIncomeStep";
+import OfficeDepreciationStep, {
+  buildOfficeDepreciationFromSnapshot,
+  validateOfficeDepreciationStep,
+} from "./steps/OfficeDepreciationStep";
+import OfficeOpexStep, {
+  buildOfficeOpexFromSnapshot,
+  validateOfficeOpexStep,
+} from "./steps/OfficeOpexStep";
+import OfficeRevenueStep, {
+  getOperationalOfficeHoldSnapshot,
+  validateOfficeRevenueStep,
+} from "./steps/OfficeRevenueStep";
+import RetailRevenueStep, {
+  getOperationalRetailHoldSnapshot,
+  validateRetailRevenueStep,
+} from "./steps/RetailRevenueStep";
+import ResidentialRevenueStep, {
+  getOperationalResidentialHoldSnapshot,
+  validateResidentialRevenueStep,
+} from "./steps/ResidentialRevenueStep";
+import ResidentialOtherIncomeStep, {
+  validateResidentialOtherIncomeStep,
+} from "./steps/ResidentialOtherIncomeStep";
+import ResidentialOpexStep, {
+  buildResidentialOpexFromSnapshot,
+  validateResidentialOpexStep,
+} from "./steps/ResidentialOpexStep";
+import ResidentialDepreciationStep, {
+  buildResidentialDepreciationFromSnapshot,
+  validateResidentialDepreciationStep,
+} from "./steps/ResidentialDepreciationStep";
 import {
   isValidHotelCombo,
   type HotelOperatingType,
@@ -63,37 +114,1186 @@ import {
 } from "@/config/hotel-revenue-profiles";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { ProjectInfo } from "@/store/useFinModelStore";
+import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
+import { logBenchmarkValues, logResetToBenchmark } from "@/lib/audit-batch";
+import { logAuditChange } from "@/lib/audit-utils";
 import {
-  buildDefaultAdrSeries,
-  compoundAdrForYearIndex,
-  computeRoomRevenueSeries,
-  DUBAI_BUSINESS_HOTEL_DEFAULT_ADR,
-  DUBAI_BUSINESS_HOTEL_DEFAULT_OCCUPANCY,
-  OPERATIONAL_ROOM_REVENUE_YEARS,
-  roomRevenueToChartData,
-  type RoomRevenueChartRow,
-} from "@/lib/operational-cash-inflows-chart";
+  CASH_INFLOWS_COMPONENT,
+  cashInflowAuditRoute,
+} from "@/lib/operational-audit-fields";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 import type { OperationalHotelHoldSnapshot } from "@/lib/operational-pnl";
 
-const TOTAL_STEPS = 5;
+const HOTEL_STEP2_TITLE = "Step 2: F&B and Other Sources of Revenues";
+const HOTEL_STEP3_TITLE = "Step 3: Direct costs";
+const HOTEL_STEP4_TITLE = "Step 4: Undistributed & fixed expenses";
+const HOTEL_STEP5_TITLE = "Step 5: Depreciation & working capital";
 
-function getOperationalHotelHoldSnapshot():
-  | OperationalHotelHoldSnapshot
-  | undefined {
-  return useFinModelStore.getState().operational.hotelHoldSnapshot;
+/** Wizard length: retail 4 steps, hotel (and other hold types) 5 steps. */
+function totalStepsForBuildingType(
+  buildingType: ProjectInfo["buildingType"] | undefined
+): number {
+  if (buildingType === "retail") return 4;
+  if (buildingType === "office") return 4;
+  if (buildingType === "residential") return 4;
+  return 5;
 }
 
-function padOperationalYearSeries(
-  values: number[] | undefined,
-  fallback: readonly number[]
-): number[] {
-  if (!values?.length) return [...fallback];
-  const out = [...values];
-  while (out.length < OPERATIONAL_ROOM_REVENUE_YEARS) {
-    out.push(out[out.length - 1] ?? 0);
+const PROFILE_DEFAULTS: Record<
+  string,
+  {
+    adrBenchmark: number;
+    occupancyBenchmark: number;
+    regionBucket: string;
   }
-  return out.slice(0, OPERATIONAL_ROOM_REVENUE_YEARS);
+> = {
+  "United Arab Emirates:Dubai:Business:5": {
+    adrBenchmark: 650,
+    occupancyBenchmark: 75,
+    regionBucket: "dubai",
+  },
+  "United Arab Emirates:Dubai:Resort:5": {
+    adrBenchmark: 950,
+    occupancyBenchmark: 68,
+    regionBucket: "dubai",
+  },
+  "United Arab Emirates:Abu Dhabi:Business:5": {
+    adrBenchmark: 600,
+    occupancyBenchmark: 70,
+    regionBucket: "abudhabi",
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:5": {
+    adrBenchmark: 800,
+    occupancyBenchmark: 65,
+    regionBucket: "abudhabi",
+  },
+};
+
+// F&B and Other Revenue Benchmarks (% of Total Hotel Revenue)
+// Sources: HVS Resort Development Cost Survey, STR, HVS Global, CBRE Hotels
+const STEP2_PROFILE_DEFAULTS: Record<
+  string,
+  {
+    roomsPercent: number;
+    foodPercent: number;
+    beveragePercent: number;
+    roomServicePercent: number;
+    telecomPercent: number;
+    spaPercent: number;
+    rentalPercent: number;
+  }
+> = {
+  // === UNITED ARAB EMIRATES ===
+  "United Arab Emirates:Dubai:Business:5": {
+    roomsPercent: 60,
+    foodPercent: 20,
+    beveragePercent: 8,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 3,
+  },
+  "United Arab Emirates:Dubai:Resort:5": {
+    roomsPercent: 55,
+    foodPercent: 22,
+    beveragePercent: 10,
+    roomServicePercent: 2,
+    telecomPercent: 0.5,
+    spaPercent: 8,
+    rentalPercent: 2.5,
+  },
+  "United Arab Emirates:Dubai:Business:4": {
+    roomsPercent: 65,
+    foodPercent: 18,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 3,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:5": {
+    roomsPercent: 60,
+    foodPercent: 20,
+    beveragePercent: 8,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 3,
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:5": {
+    roomsPercent: 55,
+    foodPercent: 22,
+    beveragePercent: 10,
+    roomServicePercent: 2,
+    telecomPercent: 0.5,
+    spaPercent: 8,
+    rentalPercent: 2.5,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:4": {
+    roomsPercent: 65,
+    foodPercent: 18,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 3,
+  },
+
+  // === SAUDI ARABIA ===
+  "Saudi Arabia:Riyadh:Business:5": {
+    roomsPercent: 62,
+    foodPercent: 18,
+    beveragePercent: 7,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 6,
+    rentalPercent: 4,
+  },
+  "Saudi Arabia:Riyadh:Business:4": {
+    roomsPercent: 67,
+    foodPercent: 16,
+    beveragePercent: 6,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 4,
+    rentalPercent: 4,
+  },
+  "Saudi Arabia:Jeddah:Business:5": {
+    roomsPercent: 60,
+    foodPercent: 20,
+    beveragePercent: 8,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 6,
+    rentalPercent: 4,
+  },
+  "Saudi Arabia:Makkah:Business:5": {
+    roomsPercent: 65,
+    foodPercent: 18,
+    beveragePercent: 6,
+    roomServicePercent: 1,
+    telecomPercent: 0.5,
+    spaPercent: 5,
+    rentalPercent: 4,
+  },
+
+  // === MALAYSIA ===
+  "Malaysia:Kuala Lumpur:Business:5": {
+    roomsPercent: 60,
+    foodPercent: 18,
+    beveragePercent: 8,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 4,
+  },
+  "Malaysia:Kuala Lumpur:Business:4": {
+    roomsPercent: 65,
+    foodPercent: 16,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 4,
+  },
+  "Malaysia:Kuala Lumpur:Budget:3": {
+    roomsPercent: 72,
+    foodPercent: 16,
+    beveragePercent: 5,
+    roomServicePercent: 0.5,
+    telecomPercent: 1,
+    spaPercent: 2,
+    rentalPercent: 3.5,
+  },
+
+  // === VIETNAM ===
+  "Vietnam:Ho Chi Minh City:Business:5": {
+    roomsPercent: 58,
+    foodPercent: 20,
+    beveragePercent: 9,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 4,
+  },
+  "Vietnam:Ho Chi Minh City:Business:4": {
+    roomsPercent: 63,
+    foodPercent: 18,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 4,
+  },
+
+  // === THAILAND ===
+  "Thailand:Bangkok:Business:5": {
+    roomsPercent: 58,
+    foodPercent: 20,
+    beveragePercent: 9,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 4,
+  },
+  "Thailand:Bangkok:Business:4": {
+    roomsPercent: 63,
+    foodPercent: 18,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 4,
+  },
+  "Thailand:Phuket:Resort:5": {
+    roomsPercent: 52,
+    foodPercent: 24,
+    beveragePercent: 11,
+    roomServicePercent: 2.5,
+    telecomPercent: 0.5,
+    spaPercent: 8,
+    rentalPercent: 2.5,
+  },
+
+  // === AUSTRALIA ===
+  "Australia:Sydney:Business:5": {
+    roomsPercent: 60,
+    foodPercent: 18,
+    beveragePercent: 8,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 4,
+  },
+  "Australia:Sydney:Business:4": {
+    roomsPercent: 65,
+    foodPercent: 16,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 4,
+  },
+
+  // === GENERIC FALLBACKS ===
+  "generic:5": {
+    roomsPercent: 58,
+    foodPercent: 20,
+    beveragePercent: 9,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 4,
+  },
+  "generic:4": {
+    roomsPercent: 65,
+    foodPercent: 17,
+    beveragePercent: 7,
+    roomServicePercent: 1,
+    telecomPercent: 1,
+    spaPercent: 5,
+    rentalPercent: 3,
+  },
+  "generic:3": {
+    roomsPercent: 72,
+    foodPercent: 16,
+    beveragePercent: 5,
+    roomServicePercent: 0.5,
+    telecomPercent: 1,
+    spaPercent: 2,
+    rentalPercent: 3.5,
+  },
+};
+
+// Helper function for Step 2 profile lookup
+function getStep2ProfileDefaults(profileKey: string) {
+  // eslint-disable-next-line no-console
+  console.log("🔍 Looking up Step 2 profile:", profileKey);
+
+  // Try exact match first
+  const exact = STEP2_PROFILE_DEFAULTS[profileKey];
+  if (exact) {
+    // eslint-disable-next-line no-console
+    console.log("  ✅ Found exact match");
+    return exact;
+  }
+
+  // eslint-disable-next-line no-console
+  console.log("  ❌ No exact match, trying fallback...");
+
+  // Try fallback by star rating
+  const stars = profileKey.split(":")[3];
+  const genericKey = `generic:${stars}`;
+
+  // eslint-disable-next-line no-console
+  console.log("  Fallback key:", genericKey);
+
+  const fallback = STEP2_PROFILE_DEFAULTS[genericKey];
+  if (fallback) {
+    // eslint-disable-next-line no-console
+    console.log("  ✅ Found generic fallback");
+    return fallback;
+  }
+
+  // eslint-disable-next-line no-console
+  console.log("  ❌ No fallback, using hard defaults");
+
+  // Hard defaults
+  return {
+    roomsPercent: 58,
+    foodPercent: 20,
+    beveragePercent: 9,
+    roomServicePercent: 1.5,
+    telecomPercent: 0.5,
+    spaPercent: 7,
+    rentalPercent: 4,
+  };
+}
+
+// Direct Costs Benchmarks (% of respective revenue streams)
+// Sources: HVS Resort Development Cost Survey, STR, HVS Global, CBRE Hotels
+const STEP3_PROFILE_DEFAULTS: Record<
+  string,
+  {
+    roomsPayrollPercent: number;
+    roomsOtherPercent: number;
+    foodCostPercent: number;
+    beverageCostPercent: number;
+    fnbPayrollPercent: number;
+    fnbOtherPercent: number;
+    telecomPercent: number;
+    spaPercent: number;
+    rentalPercent: number;
+  }
+> = {
+  // === UNITED ARAB EMIRATES ===
+  "United Arab Emirates:Dubai:Business:5": {
+    roomsPayrollPercent: 8.5,
+    roomsOtherPercent: 7,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 24,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "United Arab Emirates:Dubai:Resort:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 20,
+    fnbPayrollPercent: 26,
+    fnbOtherPercent: 11,
+    telecomPercent: 40,
+    spaPercent: 56,
+    rentalPercent: 20,
+  },
+  "United Arab Emirates:Dubai:Business:4": {
+    roomsPayrollPercent: 10,
+    roomsOtherPercent: 8,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:5": {
+    roomsPayrollPercent: 8.5,
+    roomsOtherPercent: 7,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 24,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 20,
+    fnbPayrollPercent: 26,
+    fnbOtherPercent: 11,
+    telecomPercent: 40,
+    spaPercent: 56,
+    rentalPercent: 20,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:4": {
+    roomsPayrollPercent: 10,
+    roomsOtherPercent: 8,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+
+  // === SAUDI ARABIA ===
+  "Saudi Arabia:Riyadh:Business:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 25,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "Saudi Arabia:Riyadh:Business:4": {
+    roomsPayrollPercent: 10.5,
+    roomsOtherPercent: 8.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+  "Saudi Arabia:Jeddah:Business:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 25,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "Saudi Arabia:Makkah:Business:5": {
+    roomsPayrollPercent: 8.5,
+    roomsOtherPercent: 7,
+    foodCostPercent: 29,
+    beverageCostPercent: 18,
+    fnbPayrollPercent: 24,
+    fnbOtherPercent: 9,
+    telecomPercent: 40,
+    spaPercent: 50,
+    rentalPercent: 20,
+  },
+
+  // === MALAYSIA ===
+  "Malaysia:Kuala Lumpur:Business:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 25,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "Malaysia:Kuala Lumpur:Business:4": {
+    roomsPayrollPercent: 10.5,
+    roomsOtherPercent: 8.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+  "Malaysia:Kuala Lumpur:Budget:3": {
+    roomsPayrollPercent: 12,
+    roomsOtherPercent: 10,
+    foodCostPercent: 35,
+    beverageCostPercent: 23,
+    fnbPayrollPercent: 32,
+    fnbOtherPercent: 12,
+    telecomPercent: 46,
+    spaPercent: 50,
+    rentalPercent: 25,
+  },
+
+  // === VIETNAM ===
+  "Vietnam:Ho Chi Minh City:Business:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 25,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "Vietnam:Ho Chi Minh City:Business:4": {
+    roomsPayrollPercent: 10.5,
+    roomsOtherPercent: 8.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+
+  // === THAILAND ===
+  "Thailand:Bangkok:Business:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 25,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "Thailand:Bangkok:Business:4": {
+    roomsPayrollPercent: 10.5,
+    roomsOtherPercent: 8.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+  "Thailand:Phuket:Resort:5": {
+    roomsPayrollPercent: 9.5,
+    roomsOtherPercent: 8,
+    foodCostPercent: 33,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 12,
+    telecomPercent: 40,
+    spaPercent: 58,
+    rentalPercent: 20,
+  },
+
+  // === AUSTRALIA ===
+  "Australia:Sydney:Business:5": {
+    roomsPayrollPercent: 10,
+    roomsOtherPercent: 8,
+    foodCostPercent: 32,
+    beverageCostPercent: 20,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 56,
+    rentalPercent: 22,
+  },
+  "Australia:Sydney:Business:4": {
+    roomsPayrollPercent: 11.5,
+    roomsOtherPercent: 9,
+    foodCostPercent: 34,
+    beverageCostPercent: 22,
+    fnbPayrollPercent: 30,
+    fnbOtherPercent: 12,
+    telecomPercent: 46,
+    spaPercent: 54,
+    rentalPercent: 24,
+  },
+
+  // === GENERIC FALLBACKS ===
+  "generic:5": {
+    roomsPayrollPercent: 9,
+    roomsOtherPercent: 7.5,
+    foodCostPercent: 30,
+    beverageCostPercent: 19,
+    fnbPayrollPercent: 25,
+    fnbOtherPercent: 10,
+    telecomPercent: 42,
+    spaPercent: 54,
+    rentalPercent: 22,
+  },
+  "generic:4": {
+    roomsPayrollPercent: 10.5,
+    roomsOtherPercent: 8.5,
+    foodCostPercent: 32,
+    beverageCostPercent: 21,
+    fnbPayrollPercent: 28,
+    fnbOtherPercent: 11,
+    telecomPercent: 44,
+    spaPercent: 52,
+    rentalPercent: 24,
+  },
+  "generic:3": {
+    roomsPayrollPercent: 12,
+    roomsOtherPercent: 10,
+    foodCostPercent: 35,
+    beverageCostPercent: 23,
+    fnbPayrollPercent: 32,
+    fnbOtherPercent: 12,
+    telecomPercent: 46,
+    spaPercent: 50,
+    rentalPercent: 25,
+  },
+};
+
+// Helper function for Step 3 profile lookup
+function getStep3ProfileDefaults(profileKey: string) {
+  // Try exact match first
+  const exact = STEP3_PROFILE_DEFAULTS[profileKey];
+  if (exact) return exact;
+
+  // Try fallback by star rating
+  const stars = profileKey.split(":")[3];
+  const genericKey = `generic:${stars}`;
+
+  return (
+    STEP3_PROFILE_DEFAULTS[genericKey] || {
+      roomsPayrollPercent: 9,
+      roomsOtherPercent: 7.5,
+      foodCostPercent: 30,
+      beverageCostPercent: 19,
+      fnbPayrollPercent: 25,
+      fnbOtherPercent: 10,
+      telecomPercent: 42,
+      spaPercent: 54,
+      rentalPercent: 22,
+    }
+  );
+}
+
+// Undistributed & Fixed Expenses Benchmarks (% of respective revenue bases)
+// Sources: HVS Resort Development Cost Survey, STR, HVS Global, CBRE Hotels, PKF
+const STEP4_PROFILE_DEFAULTS: Record<
+  string,
+  {
+    gnaPercent: number; // % of total hotel revenue
+    marketingPercent: number; // % of total hotel revenue
+    propertyOMPercent: number; // % of total hotel revenue
+    utilitiesPercent: number; // % of total hotel revenue
+    baseManagementPercent: number; // % of room revenue
+    incentiveFeePercent: number; // % of EBITDA
+    renovationYear1Percent: number; // % of total hotel revenue
+    renovationYear2Percent: number; // % of total hotel revenue
+    renovationYear3to10Percent: number; // % of total hotel revenue
+  }
+> = {
+  // === UNITED ARAB EMIRATES ===
+  "United Arab Emirates:Dubai:Business:5": {
+    gnaPercent: 7,
+    marketingPercent: 3.5,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "United Arab Emirates:Dubai:Resort:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 3,
+    incentiveFeePercent: 10,
+    renovationYear1Percent: 2,
+    renovationYear2Percent: 3,
+    renovationYear3to10Percent: 4,
+  },
+  "United Arab Emirates:Dubai:Business:4": {
+    gnaPercent: 8,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:5": {
+    gnaPercent: 7,
+    marketingPercent: 3.5,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 3,
+    incentiveFeePercent: 10,
+    renovationYear1Percent: 2,
+    renovationYear2Percent: 3,
+    renovationYear3to10Percent: 4,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:4": {
+    gnaPercent: 8,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+
+  // === SAUDI ARABIA ===
+  "Saudi Arabia:Riyadh:Business:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 3.5,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Saudi Arabia:Riyadh:Business:4": {
+    gnaPercent: 8.5,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Saudi Arabia:Jeddah:Business:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 3.5,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Saudi Arabia:Makkah:Business:5": {
+    gnaPercent: 7,
+    marketingPercent: 3,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 2,
+    renovationYear2Percent: 3,
+    renovationYear3to10Percent: 4,
+  },
+
+  // === MALAYSIA ===
+  "Malaysia:Kuala Lumpur:Business:5": {
+    gnaPercent: 7,
+    marketingPercent: 3.5,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Malaysia:Kuala Lumpur:Business:4": {
+    gnaPercent: 8,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Malaysia:Kuala Lumpur:Budget:3": {
+    gnaPercent: 9,
+    marketingPercent: 4.5,
+    propertyOMPercent: 5,
+    utilitiesPercent: 5,
+    baseManagementPercent: 2,
+    incentiveFeePercent: 8,
+    renovationYear1Percent: 1,
+    renovationYear2Percent: 2,
+    renovationYear3to10Percent: 3,
+  },
+
+  // === VIETNAM ===
+  "Vietnam:Ho Chi Minh City:Business:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 4,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Vietnam:Ho Chi Minh City:Business:4": {
+    gnaPercent: 8.5,
+    marketingPercent: 4.5,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+
+  // === THAILAND ===
+  "Thailand:Bangkok:Business:5": {
+    gnaPercent: 7,
+    marketingPercent: 3.5,
+    propertyOMPercent: 4,
+    utilitiesPercent: 4,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Thailand:Bangkok:Business:4": {
+    gnaPercent: 8,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "Thailand:Phuket:Resort:5": {
+    gnaPercent: 8,
+    marketingPercent: 4.5,
+    propertyOMPercent: 5,
+    utilitiesPercent: 5,
+    baseManagementPercent: 3,
+    incentiveFeePercent: 10,
+    renovationYear1Percent: 2,
+    renovationYear2Percent: 3,
+    renovationYear3to10Percent: 4.5,
+  },
+
+  // === AUSTRALIA ===
+  "Australia:Sydney:Business:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 2,
+    renovationYear2Percent: 3,
+    renovationYear3to10Percent: 4,
+  },
+  "Australia:Sydney:Business:4": {
+    gnaPercent: 8.5,
+    marketingPercent: 4.5,
+    propertyOMPercent: 5,
+    utilitiesPercent: 5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 2,
+    renovationYear2Percent: 3,
+    renovationYear3to10Percent: 4,
+  },
+
+  // === GENERIC FALLBACKS ===
+  "generic:5": {
+    gnaPercent: 7.5,
+    marketingPercent: 4,
+    propertyOMPercent: 4.5,
+    utilitiesPercent: 4.5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "generic:4": {
+    gnaPercent: 8.5,
+    marketingPercent: 4.5,
+    propertyOMPercent: 5,
+    utilitiesPercent: 5,
+    baseManagementPercent: 2.5,
+    incentiveFeePercent: 9,
+    renovationYear1Percent: 1.5,
+    renovationYear2Percent: 2.5,
+    renovationYear3to10Percent: 3.5,
+  },
+  "generic:3": {
+    gnaPercent: 9.5,
+    marketingPercent: 5,
+    propertyOMPercent: 5.5,
+    utilitiesPercent: 5.5,
+    baseManagementPercent: 2,
+    incentiveFeePercent: 8,
+    renovationYear1Percent: 1,
+    renovationYear2Percent: 2,
+    renovationYear3to10Percent: 3,
+  },
+};
+
+// Helper function for Step 4 profile lookup
+function getStep4ProfileDefaults(profileKey: string) {
+  // Try exact match first
+  const exact = STEP4_PROFILE_DEFAULTS[profileKey];
+  if (exact) return exact;
+
+  // Try fallback by star rating
+  const stars = profileKey.split(":")[3];
+  const genericKey = `generic:${stars}`;
+
+  return (
+    STEP4_PROFILE_DEFAULTS[genericKey] || {
+      gnaPercent: 7.5,
+      marketingPercent: 4,
+      propertyOMPercent: 4.5,
+      utilitiesPercent: 4.5,
+      baseManagementPercent: 2.5,
+      incentiveFeePercent: 9,
+      renovationYear1Percent: 1.5,
+      renovationYear2Percent: 2.5,
+      renovationYear3to10Percent: 3.5,
+    }
+  );
+}
+
+// Depreciation & Working Capital Benchmarks
+// Sources: HVS Resort Development Cost Survey, STR, HVS Global, industry standards
+const STEP5_PROFILE_DEFAULTS: Record<
+  string,
+  {
+    constructionUsefulLife: number; // years
+    ffeUsefulLife: number; // years
+    ffeRenovationPercent: number; // % of initial FFE
+    accountsReceivableMonths: number; // months of revenue
+    accountsPayableMonths: number; // months of expenses
+  }
+> = {
+  // === UNITED ARAB EMIRATES ===
+  "United Arab Emirates:Dubai:Business:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "United Arab Emirates:Dubai:Resort:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 6,
+    ffeRenovationPercent: 60,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "United Arab Emirates:Dubai:Business:4": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 6,
+    ffeRenovationPercent: 60,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "United Arab Emirates:Abu Dhabi:Business:4": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+
+  // === SAUDI ARABIA ===
+  "Saudi Arabia:Riyadh:Business:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "Saudi Arabia:Riyadh:Business:4": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "Saudi Arabia:Jeddah:Business:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "Saudi Arabia:Makkah:Business:5": {
+    constructionUsefulLife: 20,
+    ffeUsefulLife: 6,
+    ffeRenovationPercent: 55,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+
+  // === MALAYSIA ===
+  "Malaysia:Kuala Lumpur:Business:5": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "Malaysia:Kuala Lumpur:Business:4": {
+    constructionUsefulLife: 35,
+    ffeUsefulLife: 9,
+    ffeRenovationPercent: 40,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "Malaysia:Kuala Lumpur:Budget:3": {
+    constructionUsefulLife: 40,
+    ffeUsefulLife: 10,
+    ffeRenovationPercent: 35,
+    accountsReceivableMonths: 2,
+    accountsPayableMonths: 2,
+  },
+
+  // === VIETNAM ===
+  "Vietnam:Ho Chi Minh City:Business:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "Vietnam:Ho Chi Minh City:Business:4": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+
+  // === THAILAND ===
+  "Thailand:Bangkok:Business:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "Thailand:Bangkok:Business:4": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "Thailand:Phuket:Resort:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 6,
+    ffeRenovationPercent: 60,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+
+  // === AUSTRALIA ===
+  "Australia:Sydney:Business:5": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+  "Australia:Sydney:Business:4": {
+    constructionUsefulLife: 35,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1,
+    accountsPayableMonths: 1,
+  },
+
+  // === GENERIC FALLBACKS ===
+  "generic:5": {
+    constructionUsefulLife: 25,
+    ffeUsefulLife: 7,
+    ffeRenovationPercent: 50,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "generic:4": {
+    constructionUsefulLife: 30,
+    ffeUsefulLife: 8,
+    ffeRenovationPercent: 45,
+    accountsReceivableMonths: 1.5,
+    accountsPayableMonths: 1.5,
+  },
+  "generic:3": {
+    constructionUsefulLife: 40,
+    ffeUsefulLife: 10,
+    ffeRenovationPercent: 35,
+    accountsReceivableMonths: 2,
+    accountsPayableMonths: 2,
+  },
+};
+
+// Helper function for Step 5 profile lookup
+function getStep5ProfileDefaults(profileKey: string) {
+  // Try exact match first
+  const exact = STEP5_PROFILE_DEFAULTS[profileKey];
+  if (exact) return exact;
+
+  // Try fallback by star rating
+  const stars = profileKey.split(":")[3];
+  const genericKey = `generic:${stars}`;
+
+  return (
+    STEP5_PROFILE_DEFAULTS[genericKey] || {
+      constructionUsefulLife: 25,
+      ffeUsefulLife: 7,
+      ffeRenovationPercent: 50,
+      accountsReceivableMonths: 1.5,
+      accountsPayableMonths: 1.5,
+    }
+  );
+}
+
+function normalizeProfileKey(key: string): string {
+  return key.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getProfileDefaults(profileKey: string) {
+  const exact = PROFILE_DEFAULTS[profileKey];
+  if (exact) return exact;
+  const norm = normalizeProfileKey(profileKey);
+  for (const k of Object.keys(PROFILE_DEFAULTS)) {
+    if (normalizeProfileKey(k) === norm) return PROFILE_DEFAULTS[k]!;
+  }
+  return undefined;
+}
+
+function capitalizeFirst(str: string) {
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 }
 
 type Errors = Record<string, string>;
@@ -106,76 +1306,10 @@ function overrideFieldClass(overridden: boolean): string {
     : `${inputBase} border border-slate-600`;
 }
 
-function RoomRevenueBarChart({
-  data,
-  currencyCode,
-}: {
-  data: RoomRevenueChartRow[];
-  currencyCode: string;
-}) {
-  const fmt = useMemo(
-    () =>
-      new Intl.NumberFormat("en-US", {
-        notation: "compact",
-        maximumFractionDigits: 1,
-      }),
-    []
-  );
-
-  if (!data.length) {
-    return (
-      <div className="flex h-72 w-full items-center justify-center rounded-lg border border-slate-700 bg-slate-900/50 text-sm text-slate-500">
-        Enter rooms, ADR, and occupancy to see projected room revenue.
-      </div>
-    );
-  }
-
-  const maxR = Math.max(...data.map((d) => d.revenue), 1);
-
-  return (
-    <div className="h-80 w-full rounded-lg border border-slate-700/80 bg-slate-900/40 p-2">
-      <p className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-        Projected room revenue by year ({currencyCode})
-      </p>
-      <ResponsiveContainer width="100%" height="90%">
-        <BarChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis
-            dataKey="label"
-            stroke="#64748b"
-            tick={{ fill: "#94a3b8", fontSize: 11 }}
-          />
-          <YAxis
-            stroke="#64748b"
-            tick={{ fill: "#94a3b8", fontSize: 10 }}
-            tickFormatter={(v) => fmt.format(Number(v))}
-            width={48}
-            domain={[0, maxR * 1.08]}
-          />
-          <Tooltip
-            content={({ active, payload, label }) => {
-              if (!active || !payload?.length) return null;
-              const raw = payload[0].value;
-              const v = typeof raw === "number" ? raw : Number(raw ?? 0);
-              return (
-                <div className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs shadow-lg">
-                  <p className="mb-1 text-slate-400">{String(label)}</p>
-                  <p className="font-semibold text-emerald-400">
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: currencyCode,
-                      maximumFractionDigits: 0,
-                    }).format(v)}
-                  </p>
-                </div>
-              );
-            }}
-          />
-          <Bar dataKey="revenue" fill="#10b981" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
+function useClientMounted(): boolean {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return mounted;
 }
 
 const REVENUE_STACK_LABELS: Record<HotelRevenuePctKey, string> = {
@@ -647,6 +1781,7 @@ function DirectCostsStackedChart({
   data: Array<Record<string, string | number>>;
   currencyCode: string;
 }) {
+  const mounted = useClientMounted();
   const fmtCompact = useMemo(
     () =>
       new Intl.NumberFormat("en-US", {
@@ -687,65 +1822,72 @@ function DirectCostsStackedChart({
       <p className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
         Direct costs by year — stacked ({currencyCode})
       </p>
-      <ResponsiveContainer width="100%" height="88%">
-        <BarChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis
-            dataKey="label"
-            stroke="#64748b"
-            tick={{ fill: "#94a3b8", fontSize: 11 }}
-          />
-          <YAxis
-            stroke="#64748b"
-            tick={{ fill: "#94a3b8", fontSize: 10 }}
-            tickFormatter={(v) => fmtCompact.format(Number(v))}
-            width={48}
-            domain={[0, maxT * 1.06]}
-          />
-          <Tooltip
-            content={({ active, payload, label }) => {
-              if (!active || !payload?.length) return null;
-              return (
-                <div className="max-w-xs rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs shadow-lg">
-                  <p className="mb-2 font-medium text-slate-300">
-                    {String(label)}
-                  </p>
-                  <ul className="space-y-1">
-                    {payload
-                      .filter((p) => p.name && p.value != null)
-                      .map((p) => (
-                        <li
-                          key={String(p.dataKey)}
-                          className="flex justify-between gap-4"
-                        >
-                          <span className="text-slate-400">{p.name}</span>
-                          <span className="font-mono text-slate-100">
-                            {fmtMoney.format(Number(p.value))}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              );
-            }}
-          />
-          <Legend
-            wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-            formatter={(value) => (
-              <span className="text-slate-400">{value}</span>
-            )}
-          />
-          {DIRECT_COST_STACK_KEYS.map((k: DirectCostStackKey) => (
-            <Bar
-              key={k}
-              dataKey={k}
-              name={DIRECT_COST_STACK_LABELS[k]}
-              stackId="dc"
-              fill={DIRECT_COST_STACK_COLORS[k]}
+      {mounted ? (
+        <ResponsiveContainer width="100%" height="88%">
+          <BarChart
+            data={data}
+            margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis
+              dataKey="label"
+              stroke="#64748b"
+              tick={{ fill: "#94a3b8", fontSize: 11 }}
             />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+            <YAxis
+              stroke="#64748b"
+              tick={{ fill: "#94a3b8", fontSize: 10 }}
+              tickFormatter={(v) => fmtCompact.format(Number(v))}
+              width={48}
+              domain={[0, maxT * 1.06]}
+            />
+            <Tooltip
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="max-w-xs rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs shadow-lg">
+                    <p className="mb-2 font-medium text-slate-300">
+                      {String(label)}
+                    </p>
+                    <ul className="space-y-1">
+                      {payload
+                        .filter((p) => p.name && p.value != null)
+                        .map((p) => (
+                          <li
+                            key={String(p.dataKey)}
+                            className="flex justify-between gap-4"
+                          >
+                            <span className="text-slate-400">{p.name}</span>
+                            <span className="font-mono text-slate-100">
+                              {fmtMoney.format(Number(p.value))}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                );
+              }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+              formatter={(value) => (
+                <span className="text-slate-400">{value}</span>
+              )}
+            />
+            {DIRECT_COST_STACK_KEYS.map((k: DirectCostStackKey) => (
+              <Bar
+                key={k}
+                dataKey={k}
+                name={DIRECT_COST_STACK_LABELS[k]}
+                stackId="dc"
+                fill={DIRECT_COST_STACK_COLORS[k]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="h-[88%] w-full" />
+      )}
     </div>
   );
 }
@@ -757,6 +1899,7 @@ function TotalOperatingExpenseStackedChart({
   data: Array<Record<string, string | number>>;
   currencyCode: string;
 }) {
+  const mounted = useClientMounted();
   const fmtCompact = useMemo(
     () =>
       new Intl.NumberFormat("en-US", {
@@ -797,127 +1940,248 @@ function TotalOperatingExpenseStackedChart({
       <p className="px-2 pb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
         Total operating expenses by year — stacked ({currencyCode})
       </p>
-      <ResponsiveContainer width="100%" height="88%">
-        <BarChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis
-            dataKey="label"
-            stroke="#64748b"
-            tick={{ fill: "#94a3b8", fontSize: 11 }}
-          />
-          <YAxis
-            stroke="#64748b"
-            tick={{ fill: "#94a3b8", fontSize: 10 }}
-            tickFormatter={(v) => fmtCompact.format(Number(v))}
-            width={48}
-            domain={[0, maxT * 1.06]}
-          />
-          <Tooltip
-            content={({ active, payload, label }) => {
-              if (!active || !payload?.length) return null;
-              return (
-                <div className="max-w-xs rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs shadow-lg">
-                  <p className="mb-2 font-medium text-slate-300">
-                    {String(label)}
-                  </p>
-                  <ul className="space-y-1">
-                    {payload
-                      .filter((p) => p.name && p.value != null)
-                      .map((p) => (
-                        <li
-                          key={String(p.dataKey)}
-                          className="flex justify-between gap-4"
-                        >
-                          <span className="text-slate-400">{p.name}</span>
-                          <span className="font-mono text-slate-100">
-                            {fmtMoney.format(Number(p.value))}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              );
-            }}
-          />
-          <Legend
-            wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-            formatter={(value) => (
-              <span className="text-slate-400">{value}</span>
-            )}
-          />
-          {TOTAL_EXPENSE_STACK_KEYS.map((k: TotalExpenseStackKey) => (
-            <Bar
-              key={k}
-              dataKey={k}
-              name={TOTAL_EXPENSE_STACK_LABELS[k]}
-              stackId="opex"
-              fill={TOTAL_EXPENSE_STACK_COLORS[k]}
+      {mounted ? (
+        <ResponsiveContainer width="100%" height="88%">
+          <BarChart
+            data={data}
+            margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis
+              dataKey="label"
+              stroke="#64748b"
+              tick={{ fill: "#94a3b8", fontSize: 11 }}
             />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+            <YAxis
+              stroke="#64748b"
+              tick={{ fill: "#94a3b8", fontSize: 10 }}
+              tickFormatter={(v) => fmtCompact.format(Number(v))}
+              width={48}
+              domain={[0, maxT * 1.06]}
+            />
+            <Tooltip
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="max-w-xs rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs shadow-lg">
+                    <p className="mb-2 font-medium text-slate-300">
+                      {String(label)}
+                    </p>
+                    <ul className="space-y-1">
+                      {payload
+                        .filter((p) => p.name && p.value != null)
+                        .map((p) => (
+                          <li
+                            key={String(p.dataKey)}
+                            className="flex justify-between gap-4"
+                          >
+                            <span className="text-slate-400">{p.name}</span>
+                            <span className="font-mono text-slate-100">
+                              {fmtMoney.format(Number(p.value))}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                );
+              }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+              formatter={(value) => (
+                <span className="text-slate-400">{value}</span>
+              )}
+            />
+            {TOTAL_EXPENSE_STACK_KEYS.map((k: TotalExpenseStackKey) => (
+              <Bar
+                key={k}
+                dataKey={k}
+                name={TOTAL_EXPENSE_STACK_LABELS[k]}
+                stackId="opex"
+                fill={TOTAL_EXPENSE_STACK_COLORS[k]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="h-[88%] w-full" />
+      )}
     </div>
   );
 }
 
-export default function OperationalCashInflowsPage() {
+function OperationalCashInflowsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const streamPrefix = useStreamPrefix();
+  const mounted = useClientMounted();
 
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const updateProjectInfo = useFinModelStore((s) => s.updateProjectInfo);
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
+
+  const isRetail = projectInfo.buildingType === "retail";
+  const isResidential = projectInfo.buildingType === "residential";
+  const TOTAL_STEPS = totalStepsForBuildingType(projectInfo.buildingType);
+  const lastStepIndex = TOTAL_STEPS - 1;
+  const cashInflows = useFinModelStore((s) => s.operational?.cashInflows);
   const currencyCode = projectInfo.currency || "AED";
+
+  const { defaultOfficeGlaSqft, defaultRetailGlaSqft, defaultResidentialGlaSqft } =
+    useMemo(() => {
+      const totalBua = cashOutflows.buildingBUA || 0;
+      const retailPct = projectInfo.buildingConfig?.hasRetailComponent
+        ? (projectInfo.buildingConfig.retailPercentage || 0) / 100
+        : projectInfo.buildingType === "office"
+          ? totalBua > 0
+            ? 0.2
+            : 0
+          : projectInfo.buildingType === "residential"
+            ? totalBua > 0
+              ? 0.15
+              : 0
+            : 0;
+      const retail = Math.round(totalBua * retailPct);
+      const main = Math.max(0, totalBua - retail);
+      return {
+        defaultOfficeGlaSqft: main > 0 ? main : 200_000,
+        defaultResidentialGlaSqft: main > 0 ? main : 200_000,
+        defaultRetailGlaSqft: retail > 0 ? retail : 50_000,
+      };
+    }, [
+      cashOutflows.buildingBUA,
+      projectInfo.buildingConfig?.hasRetailComponent,
+      projectInfo.buildingConfig?.retailPercentage,
+      projectInfo.buildingType,
+    ]);
+
+  const {
+    numberOfRooms,
+    adrValues,
+    occupancyValues,
+    roomRevenue,
+    tenYearRoomRevenueTotal,
+  } = useHotelRoomRevenueFromStore(projectInfo);
+
+  const step2ProfileKey = useMemo(() => {
+    if (
+      !projectInfo.country ||
+      !projectInfo.city ||
+      !projectInfo.hotelOperatingType ||
+      !projectInfo.hotelStarRating
+    ) {
+      return null;
+    }
+    return `${projectInfo.country}:${projectInfo.city}:${capitalizeFirst(
+      projectInfo.hotelOperatingType
+    )}:${projectInfo.hotelStarRating}`;
+  }, [
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.hotelOperatingType,
+    projectInfo.hotelStarRating,
+  ]);
+
+  const step2ProfileDefaults = useMemo(() => {
+    if (!step2ProfileKey) return null;
+    return getStep2ProfileDefaults(step2ProfileKey);
+  }, [step2ProfileKey]);
+
+  const step3ProfileKey = useMemo(() => {
+    if (
+      !projectInfo.country ||
+      !projectInfo.city ||
+      !projectInfo.hotelOperatingType ||
+      !projectInfo.hotelStarRating
+    ) {
+      return null;
+    }
+    return `${projectInfo.country}:${projectInfo.city}:${capitalizeFirst(
+      projectInfo.hotelOperatingType
+    )}:${projectInfo.hotelStarRating}`;
+  }, [
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.hotelOperatingType,
+    projectInfo.hotelStarRating,
+  ]);
+
+  const step3ProfileDefaults = useMemo(() => {
+    if (!step3ProfileKey) return null;
+    return getStep3ProfileDefaults(step3ProfileKey);
+  }, [step3ProfileKey]);
+
+  const step4ProfileKey = useMemo(() => {
+    if (
+      !projectInfo.country ||
+      !projectInfo.city ||
+      !projectInfo.hotelOperatingType ||
+      !projectInfo.hotelStarRating
+    ) {
+      return null;
+    }
+    return `${projectInfo.country}:${projectInfo.city}:${capitalizeFirst(
+      projectInfo.hotelOperatingType
+    )}:${projectInfo.hotelStarRating}`;
+  }, [
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.hotelOperatingType,
+    projectInfo.hotelStarRating,
+  ]);
+
+  const step4ProfileDefaults = useMemo(() => {
+    if (!step4ProfileKey) return null;
+    return getStep4ProfileDefaults(step4ProfileKey);
+  }, [step4ProfileKey]);
+
+  const step5ProfileKey = useMemo(() => {
+    if (
+      !projectInfo.country ||
+      !projectInfo.city ||
+      !projectInfo.hotelOperatingType ||
+      !projectInfo.hotelStarRating
+    ) {
+      return null;
+    }
+    return `${projectInfo.country}:${projectInfo.city}:${capitalizeFirst(
+      projectInfo.hotelOperatingType
+    )}:${projectInfo.hotelStarRating}`;
+  }, [
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.hotelOperatingType,
+    projectInfo.hotelStarRating,
+  ]);
+
+  const step5ProfileDefaults = useMemo(() => {
+    if (!step5ProfileKey) return null;
+    return getStep5ProfileDefaults(step5ProfileKey);
+  }, [step5ProfileKey]);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
+  const hotelBenchmarkStepsLogged = useRef<Set<number>>(new Set());
 
-  // Step 1: Hotel Room Revenue State (Dubai business 4–5★ benchmarks).
-  // Initialize from persisted hotel hold snapshot so returning from preview keeps edits.
-  const [numberOfRooms, setNumberOfRooms] = useState(
-    () => getOperationalHotelHoldSnapshot()?.numberOfRooms ?? 300
-  );
-
-  const [adrYear1, setAdrYear1] = useState(
-    () =>
-      getOperationalHotelHoldSnapshot()?.adrValues?.[0] ?? 1050
-  );
-  const [adrInflationRate, setAdrInflationRate] = useState(4);
-  const [adrValues, setAdrValues] = useState<number[]>(() =>
-    padOperationalYearSeries(
-      getOperationalHotelHoldSnapshot()?.adrValues,
-      DUBAI_BUSINESS_HOTEL_DEFAULT_ADR
-    )
-  );
-
-  const [occupancyYear1, setOccupancyYear1] = useState(
-    () =>
-      getOperationalHotelHoldSnapshot()?.occupancyValues?.[0] ?? 68
-  );
-  const [occupancyValues, setOccupancyValues] = useState<number[]>(() =>
-    padOperationalYearSeries(
-      getOperationalHotelHoldSnapshot()?.occupancyValues,
-      DUBAI_BUSINESS_HOTEL_DEFAULT_OCCUPANCY
-    )
-  );
-
-  const [adrOverrides, setAdrOverrides] = useState<boolean[]>(() => {
-    const snap = getOperationalHotelHoldSnapshot();
-    if (snap?.adrValues?.length)
-      return Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(true);
-    return Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false);
-  });
-  const [occupancyOverrides, setOccupancyOverrides] = useState<boolean[]>(
-    () => {
-      const snap = getOperationalHotelHoldSnapshot();
-      if (snap?.occupancyValues?.length)
-        return Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(true);
-      return Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false);
-    }
-  );
-
-  const [roomRevenue, setRoomRevenue] = useState<number[]>(() =>
-    Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(0)
+  const logC2HotelField = useCallback(
+    (
+      uiStep: number,
+      stepTitle: string,
+      fieldKey: string,
+      label: string,
+      value: string | number | boolean
+    ) => {
+      logAuditChange({
+        id: `operational.cashInflows.step${uiStep}.${fieldKey}`,
+        label,
+        value,
+        component: CASH_INFLOWS_COMPONENT,
+        step: stepTitle,
+        route: cashInflowAuditRoute(uiStep),
+        type: "input",
+      });
+    },
+    []
   );
 
   const [revenueProfileKey, setRevenueProfileKey] = useState("default");
@@ -1029,6 +2293,24 @@ export default function OperationalCashInflowsPage() {
   useEffect(() => {
     const snap = getOperationalHotelHoldSnapshot();
     if (snap?.revPcts && Object.keys(snap.revPcts).length > 0) return;
+    if (step2ProfileKey && step2ProfileDefaults) {
+      setRevenueProfileKey(`mvp:${step2ProfileKey}`);
+      setRevenueProfileSource("HVS / STR / CBRE (MVP mix)");
+      setRevPcts({
+        rooms: step2ProfileDefaults.roomsPercent,
+        food: step2ProfileDefaults.foodPercent,
+        beverage: step2ProfileDefaults.beveragePercent,
+        roomService: step2ProfileDefaults.roomServicePercent,
+        telecom: step2ProfileDefaults.telecomPercent,
+        spaHealth: step2ProfileDefaults.spaPercent,
+        rentalOther: step2ProfileDefaults.rentalPercent,
+      });
+      setRevPctOverrides(emptyRevPctOverrides());
+      // eslint-disable-next-line no-console
+      console.log("📊 Step 2 Profile applied:", step2ProfileDefaults);
+      return;
+    }
+
     const { key, profile } = resolveRevenueBenchmarkFromProject(projectInfo);
     setRevenueProfileKey(key);
     setRevenueProfileSource(profile.source);
@@ -1041,6 +2323,25 @@ export default function OperationalCashInflowsPage() {
     const snap = getOperationalHotelHoldSnapshot();
     if (snap?.directCostPcts && Object.keys(snap.directCostPcts).length > 0)
       return;
+    if (step3ProfileKey && step3ProfileDefaults) {
+      setDirectCostProfileKey(`mvp:${step3ProfileKey}`);
+      setDirectCostProfileSource("HVS / STR / CBRE (MVP direct costs)");
+      setDirectCostPcts({
+        roomsPayroll: step3ProfileDefaults.roomsPayrollPercent,
+        roomsOther: step3ProfileDefaults.roomsOtherPercent,
+        foodCostOfSale: step3ProfileDefaults.foodCostPercent,
+        beverageCostOfSale: step3ProfileDefaults.beverageCostPercent,
+        fbPayroll: step3ProfileDefaults.fnbPayrollPercent,
+        fbOther: step3ProfileDefaults.fnbOtherPercent,
+        telecomCost: step3ProfileDefaults.telecomPercent,
+        healthLeisureCost: step3ProfileDefaults.spaPercent,
+        otherDeptsCost: step3ProfileDefaults.rentalPercent,
+      });
+      setDirectCostPctOverrides(emptyDirectCostPctOverrides());
+      // eslint-disable-next-line no-console
+      console.log("📊 Step 3 Profile applied:", step3ProfileDefaults);
+      return;
+    }
     const { key, profile } = resolveDirectCostBenchmarkFromProject(projectInfo);
     setDirectCostProfileKey(key);
     setDirectCostProfileSource(profile.source);
@@ -1052,6 +2353,25 @@ export default function OperationalCashInflowsPage() {
   useEffect(() => {
     const snap = getOperationalHotelHoldSnapshot();
     if (snap?.expensePcts && Object.keys(snap.expensePcts).length > 0) return;
+    if (step4ProfileKey && step4ProfileDefaults) {
+      setExpenseProfileKey(`mvp:${step4ProfileKey}`);
+      setExpenseProfileSource("HVS / STR / CBRE / PKF (MVP undistributed & fixed)");
+      setExpensePcts({
+        gaExpenses: step4ProfileDefaults.gnaPercent,
+        marketingSales: step4ProfileDefaults.marketingPercent,
+        propertyOpsMaintenance: step4ProfileDefaults.propertyOMPercent,
+        utilities: step4ProfileDefaults.utilitiesPercent,
+        baseManagementFee: step4ProfileDefaults.baseManagementPercent,
+        incentiveFee: step4ProfileDefaults.incentiveFeePercent,
+        renovationProvisionY1: step4ProfileDefaults.renovationYear1Percent,
+        renovationProvisionY2: step4ProfileDefaults.renovationYear2Percent,
+        renovationProvisionY3to10: step4ProfileDefaults.renovationYear3to10Percent,
+      });
+      setExpensePctOverrides(emptyExpensePctOverrides());
+      // eslint-disable-next-line no-console
+      console.log("📊 Step 4 Profile applied:", step4ProfileDefaults);
+      return;
+    }
     const { key, profile } = resolveExpenseBenchmarkFromProject(projectInfo);
     setExpenseProfileKey(key);
     setExpenseProfileSource(profile.source);
@@ -1064,6 +2384,23 @@ export default function OperationalCashInflowsPage() {
     const snap = getOperationalHotelHoldSnapshot();
     if (snap?.depFieldValues && Object.keys(snap.depFieldValues).length > 0)
       return;
+    if (step5ProfileKey && step5ProfileDefaults) {
+      setDepreciationProfileKey(`mvp:${step5ProfileKey}`);
+      setDepreciationProfileSource(
+        "HVS / STR / industry standards (MVP depreciation & WC)"
+      );
+      setDepFieldValues({
+        constructionUsefulLife: step5ProfileDefaults.constructionUsefulLife,
+        ffeUsefulLife: step5ProfileDefaults.ffeUsefulLife,
+        ffeRenovationRate: step5ProfileDefaults.ffeRenovationPercent,
+        accountsReceivableMonths: step5ProfileDefaults.accountsReceivableMonths,
+        accountsPayableMonths: step5ProfileDefaults.accountsPayableMonths,
+      });
+      setDepFieldOverrides(emptyDepreciationFieldOverrides());
+      // eslint-disable-next-line no-console
+      console.log("📊 Step 5 Profile applied:", step5ProfileDefaults);
+      return;
+    }
     const { key, profile } =
       resolveDepreciationBenchmarkFromProject(projectInfo);
     setDepreciationProfileKey(key);
@@ -1129,71 +2466,21 @@ export default function OperationalCashInflowsPage() {
     if (!raw) return;
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return;
-    const desired = Math.min(
-      TOTAL_STEPS - 1,
-      Math.max(0, Math.round(parsed) - 1)
-    );
+    const steps = totalStepsForBuildingType(projectInfo.buildingType);
+    const desired = Math.min(steps - 1, Math.max(0, Math.round(parsed) - 1));
     setCurrentStep(desired);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-fill ADR from Year 1 + inflation where not manually overridden
   useEffect(() => {
-    setAdrValues((prev) => {
-      const next = [...prev];
-      for (let i = 0; i < OPERATIONAL_ROOM_REVENUE_YEARS; i++) {
-        if (!adrOverrides[i]) {
-          next[i] = compoundAdrForYearIndex(
-            adrYear1,
-            adrInflationRate,
-            i
-          );
-        }
-      }
-      while (next.length < OPERATIONAL_ROOM_REVENUE_YEARS) {
-        next.push(
-          compoundAdrForYearIndex(
-            adrYear1,
-            adrInflationRate,
-            next.length
-          )
-        );
-      }
-      return next.slice(0, OPERATIONAL_ROOM_REVENUE_YEARS);
-    });
-  }, [adrYear1, adrInflationRate, adrOverrides]);
-
-  // Sync Year 1 occupancy from headline input when not overridden
-  useEffect(() => {
-    if (occupancyOverrides[0]) return;
-    setOccupancyValues((prev) => {
-      const next = [...prev];
-      next[0] = occupancyYear1;
-      return next;
-    });
-  }, [occupancyYear1, occupancyOverrides]);
-
-  useEffect(() => {
-    setRoomRevenue(
-      computeRoomRevenueSeries(numberOfRooms, adrValues, occupancyValues)
-    );
-  }, [numberOfRooms, adrValues, occupancyValues]);
-
-  const chartData = useMemo(
-    () => roomRevenueToChartData(roomRevenue),
-    [roomRevenue]
-  );
-
-  const tenYearRoomRevenueTotal = useMemo(
-    () => roomRevenue.reduce((s, v) => s + (v || 0), 0),
-    [roomRevenue]
-  );
-
-  const hasAnyOverride = useMemo(
-    () =>
-      adrOverrides.some(Boolean) || occupancyOverrides.some(Boolean),
-    [adrOverrides, occupancyOverrides]
-  );
+    const buildingType = projectInfo.buildingType;
+    if (
+      (buildingType === "retail" || buildingType === "office") &&
+      currentStep > lastStepIndex
+    ) {
+      setCurrentStep(lastStepIndex);
+    }
+  }, [projectInfo.buildingType, currentStep, lastStepIndex]);
 
   const hasAnyRevPctOverride = useMemo(
     () => HOTEL_REVENUE_PCT_KEYS.some((k) => revPctOverrides[k]),
@@ -1262,12 +2549,79 @@ export default function OperationalCashInflowsPage() {
   );
 
   const resetRevenuePctsToBenchmark = useCallback(() => {
-    const { key, profile } = resolveRevenueBenchmarkFromProject(projectInfo);
-    setRevenueProfileKey(key);
-    setRevenueProfileSource(profile.source);
-    setRevPcts(pctsFromRevenueProfile(profile));
-    setRevPctOverrides(emptyRevPctOverrides());
-  }, [projectInfo]);
+    let nextPcts: Record<HotelRevenuePctKey, number>;
+    if (step2ProfileKey && step2ProfileDefaults) {
+      setRevenueProfileKey(`mvp:${step2ProfileKey}`);
+      setRevenueProfileSource("HVS / STR / CBRE (MVP mix)");
+      nextPcts = {
+        rooms: step2ProfileDefaults.roomsPercent,
+        food: step2ProfileDefaults.foodPercent,
+        beverage: step2ProfileDefaults.beveragePercent,
+        roomService: step2ProfileDefaults.roomServicePercent,
+        telecom: step2ProfileDefaults.telecomPercent,
+        spaHealth: step2ProfileDefaults.spaPercent,
+        rentalOther: step2ProfileDefaults.rentalPercent,
+      };
+      setRevPcts(nextPcts);
+      setRevPctOverrides(emptyRevPctOverrides());
+    } else {
+      const { key, profile } = resolveRevenueBenchmarkFromProject(projectInfo);
+      setRevenueProfileKey(key);
+      setRevenueProfileSource(profile.source);
+      nextPcts = pctsFromRevenueProfile(profile);
+      setRevPcts(nextPcts);
+      setRevPctOverrides(emptyRevPctOverrides());
+    }
+    HOTEL_REVENUE_PCT_KEYS.forEach((k) => {
+      logResetToBenchmark(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP2_TITLE,
+        cashInflowAuditRoute(2),
+        `${REVENUE_STACK_LABELS[k]} %`,
+        nextPcts[k]
+      );
+    });
+  }, [projectInfo, step2ProfileDefaults, step2ProfileKey]);
+
+  // Auto-populate all 7 revenue streams when profile changes (only if user has not overridden).
+  useEffect(() => {
+    if (!step2ProfileKey || !step2ProfileDefaults) return;
+    if (hasAnyRevPctOverride) return;
+
+    // Prevent repeated setState loops when values already applied.
+    const nextRevPcts = {
+      rooms: step2ProfileDefaults.roomsPercent,
+      food: step2ProfileDefaults.foodPercent,
+      beverage: step2ProfileDefaults.beveragePercent,
+      roomService: step2ProfileDefaults.roomServicePercent,
+      telecom: step2ProfileDefaults.telecomPercent,
+      spaHealth: step2ProfileDefaults.spaPercent,
+      rentalOther: step2ProfileDefaults.rentalPercent,
+    } as const;
+
+    const already =
+      revenueProfileKey === `mvp:${step2ProfileKey}` &&
+      HOTEL_REVENUE_PCT_KEYS.every(
+        (k) => Math.abs((revPcts[k] ?? 0) - (nextRevPcts as any)[k]) < 1e-9
+      );
+    if (already) return;
+
+    setRevenueProfileKey(`mvp:${step2ProfileKey}`);
+    setRevenueProfileSource("HVS / STR / CBRE (MVP mix)");
+    setRevPcts(nextRevPcts as any);
+    if (Object.values(revPctOverrides).some(Boolean)) {
+      setRevPctOverrides(emptyRevPctOverrides());
+    }
+    // eslint-disable-next-line no-console
+    console.log("📊 Step 2 Profile applied:", step2ProfileDefaults);
+  }, [
+    step2ProfileDefaults,
+    step2ProfileKey,
+    hasAnyRevPctOverride,
+    revenueProfileKey,
+    revPcts,
+    revPctOverrides,
+  ]);
 
   const directCostStackedData = useMemo(() => {
     return totalHotelRevenueStackedData.map((revRow) =>
@@ -1284,12 +2638,162 @@ export default function OperationalCashInflowsPage() {
   );
 
   const resetDirectCostsToBenchmark = useCallback(() => {
-    const { key, profile } = resolveDirectCostBenchmarkFromProject(projectInfo);
-    setDirectCostProfileKey(key);
-    setDirectCostProfileSource(profile.source);
-    setDirectCostPcts(pctsFromDirectCostProfile(profile));
-    setDirectCostPctOverrides(emptyDirectCostPctOverrides());
-  }, [projectInfo]);
+    let nextPcts: Record<HotelDirectCostPctKey, number>;
+    if (step3ProfileKey && step3ProfileDefaults) {
+      setDirectCostProfileKey(`mvp:${step3ProfileKey}`);
+      setDirectCostProfileSource("HVS / STR / CBRE (MVP direct costs)");
+      nextPcts = {
+        roomsPayroll: step3ProfileDefaults.roomsPayrollPercent,
+        roomsOther: step3ProfileDefaults.roomsOtherPercent,
+        foodCostOfSale: step3ProfileDefaults.foodCostPercent,
+        beverageCostOfSale: step3ProfileDefaults.beverageCostPercent,
+        fbPayroll: step3ProfileDefaults.fnbPayrollPercent,
+        fbOther: step3ProfileDefaults.fnbOtherPercent,
+        telecomCost: step3ProfileDefaults.telecomPercent,
+        healthLeisureCost: step3ProfileDefaults.spaPercent,
+        otherDeptsCost: step3ProfileDefaults.rentalPercent,
+      };
+      setDirectCostPcts(nextPcts);
+      setDirectCostPctOverrides(emptyDirectCostPctOverrides());
+    } else {
+      const { key, profile } = resolveDirectCostBenchmarkFromProject(projectInfo);
+      setDirectCostProfileKey(key);
+      setDirectCostProfileSource(profile.source);
+      nextPcts = pctsFromDirectCostProfile(profile);
+      setDirectCostPcts(nextPcts);
+      setDirectCostPctOverrides(emptyDirectCostPctOverrides());
+    }
+    HOTEL_DIRECT_COST_PCT_KEYS.forEach((k) => {
+      logResetToBenchmark(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP3_TITLE,
+        cashInflowAuditRoute(3),
+        `${DIRECT_COST_INPUT_LABELS[k]} %`,
+        nextPcts[k]
+      );
+    });
+  }, [projectInfo, step3ProfileDefaults, step3ProfileKey]);
+
+  // Auto-populate Step 3 direct cost %s when profile changes (skip if user has overrides).
+  useEffect(() => {
+    if (!step3ProfileKey || !step3ProfileDefaults) return;
+    if (hasAnyDirectCostPctOverride) return;
+
+    const next = {
+      roomsPayroll: step3ProfileDefaults.roomsPayrollPercent,
+      roomsOther: step3ProfileDefaults.roomsOtherPercent,
+      foodCostOfSale: step3ProfileDefaults.foodCostPercent,
+      beverageCostOfSale: step3ProfileDefaults.beverageCostPercent,
+      fbPayroll: step3ProfileDefaults.fnbPayrollPercent,
+      fbOther: step3ProfileDefaults.fnbOtherPercent,
+      telecomCost: step3ProfileDefaults.telecomPercent,
+      healthLeisureCost: step3ProfileDefaults.spaPercent,
+      otherDeptsCost: step3ProfileDefaults.rentalPercent,
+    } as const;
+
+    const already =
+      directCostProfileKey === `mvp:${step3ProfileKey}` &&
+      Object.keys(next).every(
+        (k) => Math.abs((directCostPcts as any)[k] - (next as any)[k]) < 1e-9
+      );
+    if (already) return;
+
+    setDirectCostProfileKey(`mvp:${step3ProfileKey}`);
+    setDirectCostProfileSource("HVS / STR / CBRE (MVP direct costs)");
+    setDirectCostPcts(next as any);
+    if (Object.values(directCostPctOverrides).some(Boolean)) {
+      setDirectCostPctOverrides(emptyDirectCostPctOverrides());
+    }
+    // eslint-disable-next-line no-console
+    console.log("📊 Step 3 Profile applied:", step3ProfileDefaults);
+  }, [
+    step3ProfileDefaults,
+    step3ProfileKey,
+    hasAnyDirectCostPctOverride,
+    directCostProfileKey,
+    directCostPcts,
+    directCostPctOverrides,
+  ]);
+
+  // Auto-populate Step 4 expense %s when profile changes (skip if user has overrides).
+  useEffect(() => {
+    if (!step4ProfileKey || !step4ProfileDefaults) return;
+    if (hasAnyExpensePctOverride) return;
+
+    const next = {
+      gaExpenses: step4ProfileDefaults.gnaPercent,
+      marketingSales: step4ProfileDefaults.marketingPercent,
+      propertyOpsMaintenance: step4ProfileDefaults.propertyOMPercent,
+      utilities: step4ProfileDefaults.utilitiesPercent,
+      baseManagementFee: step4ProfileDefaults.baseManagementPercent,
+      incentiveFee: step4ProfileDefaults.incentiveFeePercent,
+      renovationProvisionY1: step4ProfileDefaults.renovationYear1Percent,
+      renovationProvisionY2: step4ProfileDefaults.renovationYear2Percent,
+      renovationProvisionY3to10: step4ProfileDefaults.renovationYear3to10Percent,
+    } as const;
+
+    const already =
+      expenseProfileKey === `mvp:${step4ProfileKey}` &&
+      Object.keys(next).every(
+        (k) => Math.abs((expensePcts as any)[k] - (next as any)[k]) < 1e-9
+      );
+    if (already) return;
+
+    setExpenseProfileKey(`mvp:${step4ProfileKey}`);
+    setExpenseProfileSource("HVS / STR / CBRE / PKF (MVP undistributed & fixed)");
+    setExpensePcts(next as any);
+    if (Object.values(expensePctOverrides).some(Boolean)) {
+      setExpensePctOverrides(emptyExpensePctOverrides());
+    }
+    // eslint-disable-next-line no-console
+    console.log("📊 Step 4 Profile applied:", step4ProfileDefaults);
+  }, [
+    step4ProfileDefaults,
+    step4ProfileKey,
+    hasAnyExpensePctOverride,
+    expenseProfileKey,
+    expensePcts,
+    expensePctOverrides,
+  ]);
+
+  // Auto-populate Step 5 depreciation & WC fields when profile changes (skip if user has overrides).
+  useEffect(() => {
+    if (!step5ProfileKey || !step5ProfileDefaults) return;
+    if (hasAnyDepreciationFieldOverride) return;
+
+    const next = {
+      constructionUsefulLife: step5ProfileDefaults.constructionUsefulLife,
+      ffeUsefulLife: step5ProfileDefaults.ffeUsefulLife,
+      ffeRenovationRate: step5ProfileDefaults.ffeRenovationPercent,
+      accountsReceivableMonths: step5ProfileDefaults.accountsReceivableMonths,
+      accountsPayableMonths: step5ProfileDefaults.accountsPayableMonths,
+    } as const;
+
+    const already =
+      depreciationProfileKey === `mvp:${step5ProfileKey}` &&
+      Object.keys(next).every(
+        (k) => Math.abs((depFieldValues as any)[k] - (next as any)[k]) < 1e-9
+      );
+    if (already) return;
+
+    setDepreciationProfileKey(`mvp:${step5ProfileKey}`);
+    setDepreciationProfileSource(
+      "HVS / STR / industry standards (MVP depreciation & WC)"
+    );
+    setDepFieldValues(next as any);
+    if (Object.values(depFieldOverrides).some(Boolean)) {
+      setDepFieldOverrides(emptyDepreciationFieldOverrides());
+    }
+    // eslint-disable-next-line no-console
+    console.log("📊 Step 5 Profile applied:", step5ProfileDefaults);
+  }, [
+    step5ProfileDefaults,
+    step5ProfileKey,
+    hasAnyDepreciationFieldOverride,
+    depreciationProfileKey,
+    depFieldValues,
+    depFieldOverrides,
+  ]);
 
   const yearlyTotalExpenseBreakdown = useMemo(() => {
     return totalHotelRevenue.map((T, i) => {
@@ -1316,12 +2820,44 @@ export default function OperationalCashInflowsPage() {
   );
 
   const resetExpensesToBenchmark = useCallback(() => {
-    const { key, profile } = resolveExpenseBenchmarkFromProject(projectInfo);
-    setExpenseProfileKey(key);
-    setExpenseProfileSource(profile.source);
-    setExpensePcts(pctsFromExpenseProfile(profile));
-    setExpensePctOverrides(emptyExpensePctOverrides());
-  }, [projectInfo]);
+    let nextPcts: Record<HotelExpensePctKey, number>;
+    if (step4ProfileKey && step4ProfileDefaults) {
+      setExpenseProfileKey(`mvp:${step4ProfileKey}`);
+      setExpenseProfileSource(
+        "HVS / STR / CBRE / PKF (MVP undistributed & fixed)"
+      );
+      nextPcts = {
+        gaExpenses: step4ProfileDefaults.gnaPercent,
+        marketingSales: step4ProfileDefaults.marketingPercent,
+        propertyOpsMaintenance: step4ProfileDefaults.propertyOMPercent,
+        utilities: step4ProfileDefaults.utilitiesPercent,
+        baseManagementFee: step4ProfileDefaults.baseManagementPercent,
+        incentiveFee: step4ProfileDefaults.incentiveFeePercent,
+        renovationProvisionY1: step4ProfileDefaults.renovationYear1Percent,
+        renovationProvisionY2: step4ProfileDefaults.renovationYear2Percent,
+        renovationProvisionY3to10:
+          step4ProfileDefaults.renovationYear3to10Percent,
+      };
+      setExpensePcts(nextPcts);
+      setExpensePctOverrides(emptyExpensePctOverrides());
+    } else {
+      const { key, profile } = resolveExpenseBenchmarkFromProject(projectInfo);
+      setExpenseProfileKey(key);
+      setExpenseProfileSource(profile.source);
+      nextPcts = pctsFromExpenseProfile(profile);
+      setExpensePcts(nextPcts);
+      setExpensePctOverrides(emptyExpensePctOverrides());
+    }
+    HOTEL_EXPENSE_PCT_KEYS.forEach((k) => {
+      logResetToBenchmark(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP4_TITLE,
+        cashInflowAuditRoute(4),
+        `${EXPENSE_INPUT_LABELS[k]} %`,
+        nextPcts[k]
+      );
+    });
+  }, [projectInfo, step4ProfileDefaults, step4ProfileKey]);
 
   const yearlyDepreciationWcRows = useMemo(() => {
     const cc = Math.max(0, cashOutflows.constructionCost || 0);
@@ -1360,108 +2896,247 @@ export default function OperationalCashInflowsPage() {
   ]);
 
   const resetDepreciationToBenchmark = useCallback(() => {
-    const { key, profile } =
-      resolveDepreciationBenchmarkFromProject(projectInfo);
-    setDepreciationProfileKey(key);
-    setDepreciationProfileSource(profile.source);
-    setDepFieldValues(valuesFromDepreciationProfile(profile));
-    setDepFieldOverrides(emptyDepreciationFieldOverrides());
-  }, [projectInfo]);
+    let nextValues: Record<HotelDepreciationFieldKey, number>;
+    if (step5ProfileKey && step5ProfileDefaults) {
+      setDepreciationProfileKey(`mvp:${step5ProfileKey}`);
+      setDepreciationProfileSource(
+        "HVS / STR / industry standards (MVP depreciation & WC)"
+      );
+      nextValues = {
+        constructionUsefulLife: step5ProfileDefaults.constructionUsefulLife,
+        ffeUsefulLife: step5ProfileDefaults.ffeUsefulLife,
+        ffeRenovationRate: step5ProfileDefaults.ffeRenovationPercent,
+        accountsReceivableMonths: step5ProfileDefaults.accountsReceivableMonths,
+        accountsPayableMonths: step5ProfileDefaults.accountsPayableMonths,
+      };
+      setDepFieldValues(nextValues);
+      setDepFieldOverrides(emptyDepreciationFieldOverrides());
+    } else {
+      const { key, profile } =
+        resolveDepreciationBenchmarkFromProject(projectInfo);
+      setDepreciationProfileKey(key);
+      setDepreciationProfileSource(profile.source);
+      nextValues = valuesFromDepreciationProfile(profile);
+      setDepFieldValues(nextValues);
+      setDepFieldOverrides(emptyDepreciationFieldOverrides());
+    }
+    HOTEL_DEPRECIATION_FIELD_KEYS.forEach((k) => {
+      logResetToBenchmark(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP5_TITLE,
+        cashInflowAuditRoute(5),
+        DEPRECIATION_FIELD_LABELS[k],
+        nextValues[k]
+      );
+    });
+  }, [projectInfo, step5ProfileDefaults, step5ProfileKey]);
 
-  const resetAdrToFormula = useCallback(() => {
-    setAdrOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
-    setAdrValues(
-      buildDefaultAdrSeries(adrYear1, adrInflationRate)
+  useEffect(() => {
+    if (projectInfo.buildingType !== "hotel") return;
+    const uiStep = currentStep + 1;
+    if (uiStep < 2 || uiStep > 5) return;
+    if (hotelBenchmarkStepsLogged.current.has(uiStep)) return;
+    hotelBenchmarkStepsLogged.current.add(uiStep);
+
+    if (uiStep === 2) {
+      logBenchmarkValues(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP2_TITLE,
+        cashInflowAuditRoute(2),
+        Object.fromEntries(
+          HOTEL_REVENUE_PCT_KEYS.map((k) => [
+            k,
+            {
+              label: `${REVENUE_STACK_LABELS[k]} % of total hotel revenue`,
+              value: revPcts[k],
+            },
+          ])
+        )
+      );
+      return;
+    }
+    if (uiStep === 3) {
+      logBenchmarkValues(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP3_TITLE,
+        cashInflowAuditRoute(3),
+        Object.fromEntries(
+          HOTEL_DIRECT_COST_PCT_KEYS.map((k) => [
+            k,
+            {
+              label: `${DIRECT_COST_INPUT_LABELS[k]} %`,
+              value: directCostPcts[k],
+            },
+          ])
+        )
+      );
+      return;
+    }
+    if (uiStep === 4) {
+      logBenchmarkValues(
+        CASH_INFLOWS_COMPONENT,
+        HOTEL_STEP4_TITLE,
+        cashInflowAuditRoute(4),
+        Object.fromEntries(
+          HOTEL_EXPENSE_PCT_KEYS.map((k) => [
+            k,
+            {
+              label: `${EXPENSE_INPUT_LABELS[k]} %`,
+              value: expensePcts[k],
+            },
+          ])
+        )
+      );
+      return;
+    }
+    logBenchmarkValues(
+      CASH_INFLOWS_COMPONENT,
+      HOTEL_STEP5_TITLE,
+      cashInflowAuditRoute(5),
+      Object.fromEntries(
+        HOTEL_DEPRECIATION_FIELD_KEYS.map((k) => [
+          k,
+          {
+            label: DEPRECIATION_FIELD_LABELS[k],
+            value: depFieldValues[k],
+          },
+        ])
+      )
     );
-  }, [adrYear1, adrInflationRate]);
-
-  const resetOccupancyToDefaults = useCallback(() => {
-    setOccupancyOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
-    const ramp = [...DUBAI_BUSINESS_HOTEL_DEFAULT_OCCUPANCY];
-    setOccupancyValues(ramp);
-    setOccupancyYear1(ramp[0] ?? 68);
-  }, []);
+  }, [
+    currentStep,
+    depFieldValues,
+    directCostPcts,
+    expensePcts,
+    projectInfo.buildingType,
+    revPcts,
+  ]);
 
   const validateStep = (step: number): boolean => {
     const next: Errors = {};
     if (step === 0) {
-      if (!Number.isFinite(numberOfRooms) || numberOfRooms <= 0) {
-        next.numberOfRooms = "Number of rooms must be greater than 0.";
-      }
-      if (!Number.isFinite(adrYear1) || adrYear1 <= 0) {
-        next.adrYear1 = "Year 1 ADR must be greater than 0.";
-      }
-      if (
-        !Number.isFinite(adrInflationRate) ||
-        adrInflationRate < 0 ||
-        adrInflationRate > 25
-      ) {
-        next.adrInflation =
-          "ADR inflation must be between 0% and 25% (typical annual uplift).";
-      }
-      if (
-        !Number.isFinite(occupancyYear1) ||
-        occupancyYear1 < 0 ||
-        occupancyYear1 > 100
-      ) {
-        next.occupancyYear1 = "Year 1 occupancy must be between 0% and 100%.";
-      }
-      for (let i = 0; i < OPERATIONAL_ROOM_REVENUE_YEARS; i++) {
-        const o = occupancyValues[i];
-        if (!Number.isFinite(o) || o < 0 || o > 100) {
-          next[`occ_${i}`] = `Year ${i + 1} occupancy must be 0–100%.`;
-        }
-        const a = adrValues[i];
-        if (!Number.isFinite(a) || a <= 0) {
-          next[`adr_${i}`] = `Year ${i + 1} ADR must be greater than 0.`;
-        }
+      if (projectInfo.buildingType === "retail") {
+        Object.assign(
+          next,
+          validateRetailRevenueStep(getOperationalRetailHoldSnapshot())
+        );
+      } else if (projectInfo.buildingType === "office") {
+        Object.assign(
+          next,
+          validateOfficeRevenueStep(getOperationalOfficeHoldSnapshot())
+        );
+      } else if (projectInfo.buildingType === "residential") {
+        Object.assign(
+          next,
+          validateResidentialRevenueStep(getOperationalResidentialHoldSnapshot())
+        );
+      } else {
+        Object.assign(
+          next,
+          validateHotelRevenueStep(getOperationalHotelHoldSnapshot())
+        );
       }
     }
     if (step === 1) {
-      if (!Number.isFinite(revPcts.rooms) || revPcts.rooms <= 0) {
-        next.revPct_rooms =
-          "Rooms % of total hotel revenue must be greater than 0.";
-      }
-      if (revPcts.rooms > 100) {
-        next.revPct_rooms = "Rooms % cannot exceed 100%.";
-      }
-      for (const k of HOTEL_REVENUE_PCT_KEYS) {
-        const v = revPcts[k];
-        if (!Number.isFinite(v) || v < 0) {
-          next[`revPct_${k}`] = `${REVENUE_STACK_LABELS[k]} % must be ≥ 0.`;
+      if (projectInfo.buildingType === "office") {
+        Object.assign(
+          next,
+          validateOfficeOtherIncomeStep(getOperationalOfficeHoldSnapshot())
+        );
+      } else if (projectInfo.buildingType === "retail") {
+        Object.assign(
+          next,
+          validateRetailOtherIncomeStep(getOperationalRetailHoldSnapshot())
+        );
+      } else if (projectInfo.buildingType === "residential") {
+        Object.assign(
+          next,
+          validateResidentialOtherIncomeStep(
+            getOperationalResidentialHoldSnapshot()
+          )
+        );
+      } else {
+        if (!Number.isFinite(revPcts.rooms) || revPcts.rooms <= 0) {
+          next.revPct_rooms =
+            "Rooms % of total hotel revenue must be greater than 0.";
         }
-        if (v > 100) {
-          next[`revPct_${k}`] = `${REVENUE_STACK_LABELS[k]} % cannot exceed 100%.`;
+        if (revPcts.rooms > 100) {
+          next.revPct_rooms = "Rooms % cannot exceed 100%.";
         }
-      }
-      if (revenuePctSum < 99.5 || revenuePctSum > 100.5) {
-        next.revPct_sum =
-          `Revenue mix should sum to 100% (currently ${revenuePctSum.toFixed(1)}%). Adjust categories or reset to benchmark.`;
+        for (const k of HOTEL_REVENUE_PCT_KEYS) {
+          const v = revPcts[k];
+          if (!Number.isFinite(v) || v < 0) {
+            next[`revPct_${k}`] = `${REVENUE_STACK_LABELS[k]} % must be ≥ 0.`;
+          }
+          if (v > 100) {
+            next[`revPct_${k}`] = `${REVENUE_STACK_LABELS[k]} % cannot exceed 100%.`;
+          }
+        }
+        if (revenuePctSum < 99.5 || revenuePctSum > 100.5) {
+          next.revPct_sum =
+            `Revenue mix should sum to 100% (currently ${revenuePctSum.toFixed(1)}%). Adjust categories or reset to benchmark.`;
+        }
       }
     }
     if (step === 2) {
-      for (const k of HOTEL_DIRECT_COST_PCT_KEYS) {
-        const v = directCostPcts[k];
-        if (!Number.isFinite(v) || v < 0) {
-          next[`dcPct_${k}`] = `${DIRECT_COST_INPUT_LABELS[k]} % must be ≥ 0.`;
-        }
-        if (v > 100) {
-          next[`dcPct_${k}`] = `${DIRECT_COST_INPUT_LABELS[k]} % cannot exceed 100%.`;
+      if (isRetail) {
+        Object.assign(
+          next,
+          validateRetailOpexStep(getOperationalRetailHoldSnapshot())
+        );
+      } else if (projectInfo.buildingType === "office") {
+        Object.assign(
+          next,
+          validateOfficeOpexStep(getOperationalOfficeHoldSnapshot())
+        );
+      } else if (isResidential) {
+        Object.assign(
+          next,
+          validateResidentialOpexStep(getOperationalResidentialHoldSnapshot())
+        );
+      } else {
+        for (const k of HOTEL_DIRECT_COST_PCT_KEYS) {
+          const v = directCostPcts[k];
+          if (!Number.isFinite(v) || v < 0) {
+            next[`dcPct_${k}`] = `${DIRECT_COST_INPUT_LABELS[k]} % must be ≥ 0.`;
+          }
+          if (v > 100) {
+            next[`dcPct_${k}`] = `${DIRECT_COST_INPUT_LABELS[k]} % cannot exceed 100%.`;
+          }
         }
       }
     }
     if (step === 3) {
-      for (const k of HOTEL_EXPENSE_PCT_KEYS) {
-        const v = expensePcts[k];
-        if (!Number.isFinite(v) || v < 0) {
-          next[`exPct_${k}`] = `${EXPENSE_INPUT_LABELS[k]} % must be ≥ 0.`;
-        }
-        if (v > 100) {
-          next[`exPct_${k}`] = `${EXPENSE_INPUT_LABELS[k]} % cannot exceed 100%.`;
+      if (isRetail) {
+        Object.assign(
+          next,
+          validateRetailDepreciationStep(getOperationalRetailHoldSnapshot())
+        );
+      } else if (isResidential) {
+        Object.assign(
+          next,
+          validateResidentialDepreciationStep(
+            getOperationalResidentialHoldSnapshot()
+          )
+        );
+      } else if (projectInfo.buildingType === "office") {
+        Object.assign(
+          next,
+          validateOfficeDepreciationStep(getOperationalOfficeHoldSnapshot())
+        );
+      } else {
+        for (const k of HOTEL_EXPENSE_PCT_KEYS) {
+          const v = expensePcts[k];
+          if (!Number.isFinite(v) || v < 0) {
+            next[`exPct_${k}`] = `${EXPENSE_INPUT_LABELS[k]} % must be ≥ 0.`;
+          }
+          if (v > 100) {
+            next[`exPct_${k}`] = `${EXPENSE_INPUT_LABELS[k]} % cannot exceed 100%.`;
+          }
         }
       }
     }
-    if (step === 4) {
+    if (step === 4 && !isRetail) {
       for (const k of HOTEL_DEPRECIATION_FIELD_KEYS) {
         const v = depFieldValues[k];
         const { min, max } = depreciationInputBounds(k);
@@ -1477,6 +3152,106 @@ export default function OperationalCashInflowsPage() {
   };
 
   const handleNext = () => {
+    if (currentStep === 2 && isRetail) {
+      const snap = getOperationalRetailHoldSnapshot();
+      const retailOpex = buildRetailOpexFromSnapshot(snap);
+      if (retailOpex) {
+        updateProjectInfo({ retailOpex }, "operational");
+      }
+    }
+    if (currentStep === 2 && projectInfo.buildingType === "office") {
+      const snap = getOperationalOfficeHoldSnapshot();
+      const officeOpex = buildOfficeOpexFromSnapshot(snap);
+      if (officeOpex) {
+        updateProjectInfo({ officeOpex }, "operational");
+      }
+    }
+    if (currentStep === 2 && isResidential) {
+      const snap = getOperationalResidentialHoldSnapshot();
+      const residentialOpex = buildResidentialOpexFromSnapshot(snap);
+      if (residentialOpex) {
+        updateProjectInfo({ residentialOpex }, "operational");
+      }
+    }
+    if (currentStep === 3 && isResidential) {
+      const snap = getOperationalResidentialHoldSnapshot();
+      const residentialDepreciation =
+        buildResidentialDepreciationFromSnapshot(snap);
+      if (residentialDepreciation) {
+        updateProjectInfo({ residentialDepreciation }, "operational");
+      }
+    }
+    if (currentStep === 3 && isRetail) {
+      const snap = getOperationalRetailHoldSnapshot();
+      const rows =
+        snap?.depTotalValues?.map((totalDep, i) => ({
+          year: i + 1,
+          constructionDep: snap?.depConstructionValues?.[i] ?? 0,
+          ffeDep: snap?.depFfeValues?.[i] ?? 0,
+          tiAmort: snap?.depTiValues?.[i] ?? 0,
+          leasingCommAmort: snap?.depLeasingCommValues?.[i] ?? 0,
+          totalDep,
+          ar: snap?.wcArValues?.[i] ?? 0,
+          ap: snap?.wcApValues?.[i] ?? 0,
+          netWc: snap?.wcNetValues?.[i] ?? 0,
+          totalRevenue:
+            (snap?.revenueValues?.[i] ?? 0) +
+            (snap?.otherIncomeTotalValues?.[i] ?? 0),
+        })) ?? [];
+      const retailDepreciation = buildRetailDepreciationFromSnapshot(snap, rows);
+      if (retailDepreciation) {
+        updateProjectInfo({ retailDepreciation }, "operational");
+      }
+    }
+    if (currentStep === 3 && projectInfo.buildingType === "office") {
+      const snap = getOperationalOfficeHoldSnapshot();
+      const cashOutflowsState = useFinModelStore.getState().operational.cashOutflows;
+      const constructionBase = Math.max(
+        0,
+        cashOutflowsState.constructionCost || 0
+      );
+      const ffeBase = Math.max(0, cashOutflowsState.ffe || 0);
+      const rows =
+        snap?.depTotalValues?.map((totalDep, i) => ({
+          year: i + 1,
+          constructionDep: snap?.depConstructionValues?.[i] ?? 0,
+          ffeDep: snap?.depFfeValues?.[i] ?? 0,
+          officeTiAmort: snap?.depOfficeTiValues?.[i] ?? 0,
+          retailTiAmort: snap?.depRetailTiValues?.[i] ?? 0,
+          officeLeasingCommAmort: snap?.depOfficeLeasingCommValues?.[i] ?? 0,
+          retailLeasingCommAmort: snap?.depRetailLeasingCommValues?.[i] ?? 0,
+          totalDep,
+          ar: snap?.wcArValues?.[i] ?? 0,
+          ap: snap?.wcApValues?.[i] ?? 0,
+          netWc: snap?.wcNetValues?.[i] ?? 0,
+          totalRevenue:
+            (snap?.totalBaseRentValues?.[i] ?? 0) +
+            (snap?.otherIncomeTotalValues?.[i] ?? 0),
+        })) ?? [];
+      const officeDepreciation = buildOfficeDepreciationFromSnapshot(
+        snap,
+        rows,
+        {
+          constructionCost: constructionBase,
+          ffe: ffeBase,
+          officeTi:
+            cashOutflowsState.officeTiAllowance ?? snap?.officeTiCapital ?? 0,
+          retailTi:
+            cashOutflowsState.retailTiAllowance ?? snap?.retailTiCapital ?? 0,
+          officeLeasingComm:
+            cashOutflowsState.officeLeasingCommissions ??
+            snap?.officeLeasingCommCapital ??
+            0,
+          retailLeasingComm:
+            cashOutflowsState.retailLeasingCommissions ??
+            snap?.retailLeasingCommCapital ??
+            0,
+        }
+      );
+      if (officeDepreciation) {
+        updateProjectInfo({ officeDepreciation }, "operational");
+      }
+    }
     if (!validateStep(currentStep)) return;
     if (currentStep === TOTAL_STEPS - 1) {
       router.push(withStreamPrefix(streamPrefix, "/preview/pnl"));
@@ -1496,6 +3271,54 @@ export default function OperationalCashInflowsPage() {
   };
 
   const fieldError = (name: string) => errors[name];
+
+  // 🔍 TEMP DEBUG: Diagnose hydration + project info mismatch (remove after investigation)
+  useEffect(() => {
+    const state = useFinModelStore.getState() as any;
+
+    // eslint-disable-next-line no-console
+    console.log("=== COMPONENT 2: FULL STORE DEBUG ===");
+
+    // Check store paths
+    // eslint-disable-next-line no-console
+    console.log("Root projectInfo:", state.projectInfo);
+    // eslint-disable-next-line no-console
+    console.log("Operational projectInfo:", state.operational?.projectInfo);
+    // eslint-disable-next-line no-console
+    console.log("Root cashInflows:", state.cashInflows);
+    // eslint-disable-next-line no-console
+    console.log("Operational cashInflows:", state.operational?.cashInflows);
+
+    // Check component-level values
+    // eslint-disable-next-line no-console
+    console.log("Local projectInfo:", projectInfo);
+    // eslint-disable-next-line no-console
+    console.log("Local cashInflows:", cashInflows);
+    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console
+    console.log("typeof window:", typeof window);
+
+    // eslint-disable-next-line no-console
+    console.log("step routing deps:", {
+      cashInflows_keys: cashInflows ? Object.keys(cashInflows as any) : "undefined",
+      projectInfo_city: projectInfo?.city,
+      projectInfo_buildingType: projectInfo?.buildingType,
+    });
+
+    // Flag potential issues
+    if (state.projectInfo && !state.operational?.projectInfo) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "⚠️ WARNING: Root projectInfo has data but operational does not - possible root-level read!"
+      );
+    }
+    if (!projectInfo?.city) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "⚠️ WARNING: projectInfo.city is empty - may cause fallback to defaults"
+      );
+    }
+  }, [cashInflows, projectInfo]);
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-12 pb-32">
@@ -1527,290 +3350,64 @@ export default function OperationalCashInflowsPage() {
         </div>
 
         <div className="space-y-8 rounded-xl border border-slate-800 bg-slate-900 p-8">
-          {currentStep === 0 && (
-            <div className="space-y-8">
-              <div>
-                <h2 className="mb-2 text-xl font-semibold text-white">
-                  Step 1 — Room Revenues
-                </h2>
-                <p className="text-sm text-slate-400">
-                  Dubai business 4–5★ benchmarks as defaults. Adjust ADR
-                  inflation to roll forward Years 2–10; edit any year to lock
-                  that cell to your value. Manual cells use the same{" "}
-                  <span className="text-amber-400/90">amber border</span> as
-                  Component 1 Step 8.
-                </p>
-                {hasAnyOverride ? (
-                  <p className="mt-3">
-                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
-                      Manual overrides
-                    </span>
-                  </p>
-                ) : null}
+          {currentStep === 0 &&
+            (projectInfo.buildingType === "office" ? (
+              <OfficeRevenueStep
+                fieldError={fieldError}
+                defaultOfficeGlaSqft={defaultOfficeGlaSqft}
+                defaultRetailGlaSqft={defaultRetailGlaSqft}
+              />
+            ) : projectInfo.buildingType === "retail" ? (
+              <RetailRevenueStep
+                fieldError={fieldError}
+                defaultGlaSqft={cashOutflows.buildingBUA || 0}
+              />
+            ) : projectInfo.buildingType === "residential" ? (
+              <ResidentialRevenueStep
+                fieldError={fieldError}
+                defaultResidentialGlaSqft={defaultResidentialGlaSqft}
+                defaultRetailGlaSqft={defaultRetailGlaSqft}
+              />
+            ) : projectInfo.buildingType === "hotel" ? (
+              <HotelRevenueStep fieldError={fieldError} />
+            ) : (
+              <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-6 text-sm text-slate-400">
+                Select <span className="text-slate-200">Hotel</span>,{" "}
+                <span className="text-slate-200">Office</span>,{" "}
+                <span className="text-slate-200">Residential</span>, or{" "}
+                <span className="text-slate-200">Shopping Mall / Retail</span> in
+                Component 1 to configure revenue assumptions.
               </div>
+            ))}
 
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    Number of rooms (keys)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={numberOfRooms}
-                    onChange={(e) =>
-                      setNumberOfRooms(Math.max(0, Number(e.target.value) || 0))
-                    }
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  {fieldError("numberOfRooms") && (
-                    <p className="mt-1 text-sm text-red-400">
-                      {fieldError("numberOfRooms")}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    ADR Year 1 ({currencyCode})
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={adrYear1}
-                    onChange={(e) =>
-                      setAdrYear1(Math.max(0, Number(e.target.value) || 0))
-                    }
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  {fieldError("adrYear1") && (
-                    <p className="mt-1 text-sm text-red-400">
-                      {fieldError("adrYear1")}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    ADR inflation (annual %)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.1}
-                    value={adrInflationRate}
-                    onChange={(e) =>
-                      setAdrInflationRate(Number(e.target.value) || 0)
-                    }
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  {fieldError("adrInflation") && (
-                    <p className="mt-1 text-sm text-red-400">
-                      {fieldError("adrInflation")}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    Occupancy Year 1 (%)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={occupancyYear1}
-                    onChange={(e) => {
-                      const v = Math.min(
-                        100,
-                        Math.max(0, Number(e.target.value) || 0)
-                      );
-                      setOccupancyOverrides((o) => {
-                        const n = [...o];
-                        n[0] = false;
-                        return n;
-                      });
-                      setOccupancyYear1(v);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  {fieldError("occupancyYear1") && (
-                    <p className="mt-1 text-sm text-red-400">
-                      {fieldError("occupancyYear1")}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={resetAdrToFormula}
-                  className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
-                >
-                  Reset ADR to formula
-                </button>
-                <button
-                  type="button"
-                  onClick={resetOccupancyToDefaults}
-                  className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
-                >
-                  Reset occupancy to defaults
-                </button>
-                <p className="text-xs text-slate-500">
-                  ADR formula: Year{" "}
-                  <i>t</i> = Year 1 ADR × (1 + inflation%)
-                  <sup>t − 1</sup>
-                </p>
-              </div>
-
-              <div className="overflow-x-auto rounded-lg border border-slate-700">
-                <table className="w-full min-w-[640px] text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-700 bg-slate-800/80 text-left text-slate-400">
-                      <th className="px-3 py-3 font-medium">Year</th>
-                      <th className="px-3 py-3 font-medium">
-                        ADR ({currencyCode}){" "}
-                        <span className="block text-[10px] font-normal normal-case text-slate-500">
-                          amber = override
-                        </span>
-                      </th>
-                      <th className="px-3 py-3 font-medium">
-                        Occ %{" "}
-                        <span className="block text-[10px] font-normal normal-case text-slate-500">
-                          amber = override
-                        </span>
-                      </th>
-                      <th className="px-3 py-3 font-medium text-right">
-                        Room revenue ({currencyCode})
-                      </th>
-                      <th className="px-3 py-3 font-medium text-center">
-                        Notes
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: OPERATIONAL_ROOM_REVENUE_YEARS }, (_, i) => (
-                      <tr
-                        key={i}
-                        className="border-b border-slate-800/80 text-slate-200"
-                      >
-                        <td className="px-3 py-2 font-medium text-slate-300">
-                          {i + 1}
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            value={adrValues[i] ?? ""}
-                            onChange={(e) => {
-                              const v = Number(e.target.value) || 0;
-                              setAdrOverrides((o) => {
-                                const n = [...o];
-                                n[i] = true;
-                                return n;
-                              });
-                              setAdrValues((prev) => {
-                                const n = [...prev];
-                                n[i] = v;
-                                return n;
-                              });
-                              if (i === 0) setAdrYear1(v);
-                            }}
-                            className={`w-full min-w-[100px] ${overrideFieldClass(adrOverrides[i])}`}
-                          />
-                          {fieldError(`adr_${i}`) && (
-                            <p className="text-xs text-red-400">
-                              {fieldError(`adr_${i}`)}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={occupancyValues[i] ?? ""}
-                            onChange={(e) => {
-                              const v = Math.min(
-                                100,
-                                Math.max(0, Number(e.target.value) || 0)
-                              );
-                              setOccupancyOverrides((o) => {
-                                const n = [...o];
-                                n[i] = true;
-                                return n;
-                              });
-                              setOccupancyValues((prev) => {
-                                const n = [...prev];
-                                n[i] = v;
-                                return n;
-                              });
-                              if (i === 0) setOccupancyYear1(v);
-                            }}
-                            className={`w-full min-w-[80px] ${overrideFieldClass(occupancyOverrides[i])}`}
-                          />
-                          {fieldError(`occ_${i}`) && (
-                            <p className="text-xs text-red-400">
-                              {fieldError(`occ_${i}`)}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-emerald-400/95">
-                          {new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency: currencyCode,
-                            maximumFractionDigits: 0,
-                          }).format(roomRevenue[i] ?? 0)}
-                        </td>
-                        <td className="px-3 py-2 text-center text-xs text-slate-500">
-                          {adrOverrides[i] ? (
-                            <span className="text-amber-400/90">ADR override</span>
-                          ) : (
-                            "ADR auto"
-                          )}
-                          <br />
-                          {occupancyOverrides[i] ? (
-                            <span className="text-amber-400/90">Occ override</span>
-                          ) : i === 0 ? (
-                            "Occ from Y1"
-                          ) : (
-                            "Occ default"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-600 bg-slate-800/60 text-sm font-semibold text-white">
-                      <td className="px-3 py-3" colSpan={3}>
-                        10-year total (room revenue)
-                      </td>
-                      <td className="px-3 py-3 text-right font-mono text-emerald-400">
-                        {new Intl.NumberFormat("en-US", {
-                          style: "currency",
-                          currency: currencyCode,
-                          maximumFractionDigits: 0,
-                        }).format(tenYearRoomRevenueTotal)}
-                      </td>
-                      <td className="px-3 py-3" />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              <RoomRevenueBarChart data={chartData} currencyCode={currencyCode} />
-            </div>
+          {currentStep === 1 && projectInfo.buildingType === "residential" && (
+            <ResidentialOtherIncomeStep />
           )}
 
-          {currentStep === 1 && (
+          {currentStep === 1 && projectInfo.buildingType === "office" && (
+            <OfficeOtherIncomeStep />
+          )}
+
+          {currentStep === 1 && projectInfo.buildingType === "retail" && (
+            <RetailOtherIncomeStep />
+          )}
+
+          {currentStep === 1 && projectInfo.buildingType === "hotel" && (
             <div className="space-y-8">
               <div>
                 <h2 className="mb-2 text-xl font-semibold text-white">
                   Step 2 — F&B and Other Sources of Revenues
                 </h2>
+                <div className="text-sm text-slate-400">
+                  BENCHMARK &nbsp;{" "}
+                  <span suppressHydrationWarning>
+                    {mounted
+                      ? `${projectInfo.hotelOperatingType || "resort"} · ${
+                          projectInfo.hotelStarRating || "5"
+                        } · ${(projectInfo.city || "dubai").toLowerCase()}`
+                      : "—"}
+                  </span>
+                </div>
                 <p className="text-sm text-slate-400">
                   Room revenue from Step 1 drives total hotel revenue:{" "}
                   <span className="text-slate-300">
@@ -1933,6 +3530,13 @@ export default function OperationalCashInflowsPage() {
                                 [k]: true,
                               }));
                               setRevPcts((prev) => ({ ...prev, [k]: v }));
+                              logC2HotelField(
+                                2,
+                                HOTEL_STEP2_TITLE,
+                                `revPct_${k}`,
+                                `${REVENUE_STACK_LABELS[k]} % of total hotel revenue`,
+                                v
+                              );
                             }}
                             className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(revPctOverrides[k])}`}
                           />
@@ -2139,12 +3743,30 @@ export default function OperationalCashInflowsPage() {
             </div>
           )}
 
-          {currentStep === 2 && (
+          {currentStep === 2 && isRetail && <RetailOpexStep />}
+
+          {currentStep === 2 && isResidential && <ResidentialOpexStep />}
+
+          {currentStep === 2 && projectInfo.buildingType === "office" && (
+            <OfficeOpexStep />
+          )}
+
+          {currentStep === 2 && projectInfo.buildingType === "hotel" && (
             <div className="space-y-8">
               <div>
                 <h2 className="mb-2 text-xl font-semibold text-white">
                   Step 3 — Direct costs
                 </h2>
+                <div className="text-sm text-slate-400">
+                  BENCHMARK &nbsp;{" "}
+                  <span suppressHydrationWarning>
+                    {mounted
+                      ? `${projectInfo.hotelOperatingType || "resort"} · ${
+                          projectInfo.hotelStarRating || "5"
+                        } · ${(projectInfo.city || "dubai").toLowerCase()}`
+                      : "—"}
+                  </span>
+                </div>
                 <p className="text-sm text-slate-400">
                   Revenue streams from Step 2 drive direct costs: each line is
                   revenue × cost % for that department. F&B payroll and other
@@ -2232,6 +3854,13 @@ export default function OperationalCashInflowsPage() {
                                 ...prev,
                                 [k]: v,
                               }));
+                              logC2HotelField(
+                                3,
+                                HOTEL_STEP3_TITLE,
+                                `dcPct_${k}`,
+                                `${DIRECT_COST_INPUT_LABELS[k]} %`,
+                                v
+                              );
                             }}
                             className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(directCostPctOverrides[k])}`}
                           />
@@ -2330,12 +3959,32 @@ export default function OperationalCashInflowsPage() {
             </div>
           )}
 
-          {currentStep === 3 && (
+          {currentStep === 3 && isRetail && <RetailDepreciationStep />}
+
+          {currentStep === 3 && isResidential && (
+            <ResidentialDepreciationStep />
+          )}
+
+          {currentStep === 3 && projectInfo.buildingType === "office" && (
+            <OfficeDepreciationStep />
+          )}
+
+          {currentStep === 3 && projectInfo.buildingType === "hotel" && (
             <div className="space-y-8">
               <div>
                 <h2 className="mb-2 text-xl font-semibold text-white">
                   Step 4 — Undistributed & fixed expenses
                 </h2>
+                <div className="text-sm text-slate-400">
+                  BENCHMARK &nbsp;{" "}
+                  <span suppressHydrationWarning>
+                    {mounted
+                      ? `${projectInfo.hotelOperatingType || "resort"} · ${
+                          projectInfo.hotelStarRating || "5"
+                        } · ${(projectInfo.city || "dubai").toLowerCase()}`
+                      : "—"}
+                  </span>
+                </div>
                 <p className="text-sm text-slate-400">
                   Undistributed lines use total hotel revenue from Step 2; base
                   management uses room revenue. Incentive fee uses EBITDA before
@@ -2427,6 +4076,13 @@ export default function OperationalCashInflowsPage() {
                                 ...prev,
                                 [k]: v,
                               }));
+                              logC2HotelField(
+                                4,
+                                HOTEL_STEP4_TITLE,
+                                `exPct_${k}`,
+                                `${EXPENSE_INPUT_LABELS[k]} %`,
+                                v
+                              );
                             }}
                             className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(expensePctOverrides[k])}`}
                           />
@@ -2571,7 +4227,7 @@ export default function OperationalCashInflowsPage() {
             </div>
           )}
 
-          {currentStep === 4 && (
+          {currentStep === 4 && !isRetail && (
             <div className="space-y-8">
               <div>
                 <h2 className="mb-2 text-xl font-semibold text-white">
@@ -2593,14 +4249,21 @@ export default function OperationalCashInflowsPage() {
                     </span>
                   </p>
                 ) : null}
-                <p className="mt-3 text-xs text-slate-500">
-                  Profile:{" "}
-                  <span className="font-mono text-slate-400">
-                    {depreciationProfileKey}
-                  </span>
-                  <span className="mx-2 text-slate-600">·</span>
-                  {depreciationProfileSource}
-                </p>
+                <div className="mt-3">
+                  <div className="text-sm text-slate-400">
+                    BENCHMARK &nbsp; {projectInfo.hotelOperatingType || "resort"}{" "}
+                    · {projectInfo.hotelStarRating || "5"} ·{" "}
+                    {(projectInfo.city || "dubai").toLowerCase()}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Profile:{" "}
+                    <span className="font-mono text-slate-400">
+                      {depreciationProfileKey}
+                    </span>
+                    <span className="mx-2 text-slate-600">·</span>
+                    {depreciationProfileSource}
+                  </p>
+                </div>
               </div>
 
               <div className="grid gap-4 rounded-lg border border-slate-700/80 bg-slate-800/30 p-4 md:grid-cols-2">
@@ -2700,6 +4363,13 @@ export default function OperationalCashInflowsPage() {
                                     ...prev,
                                     [k]: v,
                                   }));
+                                  logC2HotelField(
+                                    5,
+                                    HOTEL_STEP5_TITLE,
+                                    `dep_${k}`,
+                                    DEPRECIATION_FIELD_LABELS[k],
+                                    v
+                                  );
                                 }}
                                 className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(depFieldOverrides[k])}`}
                               />
@@ -2801,11 +4471,17 @@ export default function OperationalCashInflowsPage() {
         onPreviousClick={handleBack}
         onNextClick={handleNext}
         nextLabel={
-          currentStep === TOTAL_STEPS - 1
-            ? "Generate P&L →"
-            : "Next →"
+          currentStep === TOTAL_STEPS - 1 ? "Generate P&L →" : "Next →"
         }
       />
     </div>
+  );
+}
+
+export default function OperationalCashInflowsPage() {
+  return (
+    <SearchParamsBoundary>
+      <OperationalCashInflowsPageContent />
+    </SearchParamsBoundary>
   );
 }

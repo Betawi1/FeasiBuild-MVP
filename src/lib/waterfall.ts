@@ -37,6 +37,11 @@ export interface WaterfallCashFlows {
   promoteHurdleMultiple: number;
   /** Carry rate applied for this run. */
   promoteCarryRate: number;
+  /**
+   * When set by callers (e.g. equity returns preview): annual levered common equity IRR as a decimal (0.1204 = 12.04%).
+   * Not populated by `allocateWaterfallCashFlows` alone.
+   */
+  commonIRR?: number;
 }
 
 export function allocateWaterfallCashFlows(

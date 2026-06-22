@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useFinModelStore, {
   buildCashOutflowProfile,
@@ -10,6 +11,7 @@ import useFinModelStore, {
   OPERATIONAL_PERIOD_YEARS,
   PRE_OPERATION_BUFFER_MONTHS,
 } from "@/store/useFinModelStore";
+import BenchmarkProfile from "@/components/BenchmarkProfile";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { exportToCSV } from "@/lib/downloads/exportToCSV";
 import { exportToExcel } from "@/lib/downloads/exportToExcel";
@@ -19,7 +21,11 @@ import {
   withStreamPrefix,
 } from "@/lib/stream-path";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
-import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
+import {
+  computeOperationalProjectIrrPnl,
+  computeOperatingTotalNetCashFlows,
+  OPERATIONAL_ASSET_LABELS,
+} from "@/lib/operational-project-irr-pnl";
 import {
   calculateCapitalMetrics,
   calculateIRRYearly,
@@ -176,10 +182,28 @@ export default function OperationalPreviewProjectIRRPage() {
   const streamPrefix = useStreamPrefix();
   const finStream = streamKeyFromPrefix(streamPrefix);
   const projectInfo = useFinModelStore((s) => s[finStream].projectInfo);
+  const buildingType = projectInfo.buildingType;
+  const assetLabel =
+    OPERATIONAL_ASSET_LABELS[buildingType ?? ""] ?? "Asset";
+
   const cashOutflows = useFinModelStore((s) => s[finStream].cashOutflows);
-  const snapshot = useFinModelStore((s) => s[finStream].hotelHoldSnapshot);
-  const cashInflows = useFinModelStore((s) => s.cashInflows);
-  const exitCapRateStored = useFinModelStore((s) => s.projectIRR.exitCapRate);
+  const hotelSnapshot = useFinModelStore((s) => s[finStream].hotelHoldSnapshot);
+  const retailSnapshot = useFinModelStore((s) => s[finStream].retailHoldSnapshot);
+  const officeSnapshot = useFinModelStore((s) => s[finStream].officeHoldSnapshot);
+  const residentialSnapshot = useFinModelStore(
+    (s) => s[finStream].residentialHoldSnapshot
+  );
+  const retailOpex = projectInfo.retailOpex;
+  const retailDepreciation = projectInfo.retailDepreciation;
+  const officeOpex = projectInfo.officeOpex;
+  const officeDepreciation = projectInfo.officeDepreciation;
+  const residentialOpex = projectInfo.residentialOpex;
+  const residentialDepreciation = projectInfo.residentialDepreciation;
+
+  const cashInflows = useFinModelStore((s) => s[finStream].cashInflows);
+  const exitCapRateStored = useFinModelStore(
+    (s) => s[finStream].projectIRR.exitCapRate
+  );
   const updateProjectIRR = useFinModelStore((s) => s.updateProjectIRR);
   const ffeInvestment = cashOutflows.ffe || 0;
   const constructionPeriod = Math.max(0, cashOutflows.constructionPeriod || 0);
@@ -229,14 +253,60 @@ export default function OperationalPreviewProjectIRRPage() {
   const tableDataColumnCount = npvColumns.length;
   const TABLE_COL_SPAN = tableDataColumnCount + 2;
 
-  const pnl = useMemo(() => {
-    if (!snapshot) return null;
-    return computeOperationalHotelHoldPnl(
-      snapshot,
-      cashOutflows.constructionCost || 0,
-      cashOutflows.ffe || 0
-    );
-  }, [snapshot, cashOutflows.constructionCost, cashOutflows.ffe]);
+  const pnl = useMemo(
+    () =>
+      computeOperationalProjectIrrPnl(buildingType, {
+        hotelSnapshot,
+        retailSnapshot,
+        officeSnapshot,
+        residentialSnapshot,
+        retailOpex,
+        retailDepreciation,
+        officeOpex,
+        officeDepreciation,
+        residentialOpex,
+        residentialDepreciation,
+        constructionCost: cashOutflows.constructionCost || 0,
+        ffe: cashOutflows.ffe || 0,
+      }),
+    [
+      buildingType,
+      hotelSnapshot,
+      retailSnapshot,
+      officeSnapshot,
+      residentialSnapshot,
+      retailOpex,
+      retailDepreciation,
+      officeOpex,
+      officeDepreciation,
+      residentialOpex,
+      residentialDepreciation,
+      cashOutflows.constructionCost,
+      cashOutflows.ffe,
+    ]
+  );
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    // eslint-disable-next-line no-console
+    console.log("=== Project IRR P&L Debug ===");
+    // eslint-disable-next-line no-console
+    console.log("Building type:", buildingType);
+    // eslint-disable-next-line no-console
+    console.log("P&L:", pnl);
+    // eslint-disable-next-line no-console
+    console.log("Net income years:", pnl?.netIncome?.length);
+    // eslint-disable-next-line no-console
+    console.log("Depreciation years:", pnl?.depreciationTotal?.length);
+    // eslint-disable-next-line no-console
+    console.log("WC change years:", pnl?.changeInWorkingCapital?.length);
+    // eslint-disable-next-line no-console
+    console.log("Y1 net income:", pnl?.netIncome?.[0]);
+    // eslint-disable-next-line no-console
+    console.log("Y1 depreciation:", pnl?.depreciationTotal?.[0]);
+    // eslint-disable-next-line no-console
+    console.log("Y1 WC change:", pnl?.changeInWorkingCapital?.[0]);
+  }, [buildingType, pnl]);
 
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement | null>(null);
@@ -251,7 +321,14 @@ export default function OperationalPreviewProjectIRRPage() {
         (cashOutflows.softCosts || 0) +
         (cashOutflows.powc || 0);
 
-    const totalReturns = cashInflows.netProceeds || 0;
+    let totalReturns = cashInflows.netProceeds || 0;
+    if (totalReturns <= 0 && pnl) {
+      const lastIdx = Math.min(9, pnl.netIncome.length - 1);
+      const stabilized =
+        (pnl.netIncome[lastIdx] ?? 0) + (pnl.depreciationTotal[lastIdx] ?? 0);
+      totalReturns = Math.max(0, stabilized * 10);
+    }
+
     const equityMultiple =
       capitalInvested > 0 ? totalReturns / capitalInvested : 0;
     const netSurplus = totalReturns - capitalInvested;
@@ -264,6 +341,7 @@ export default function OperationalPreviewProjectIRRPage() {
     cashOutflows.softCosts,
     cashOutflows.powc,
     cashInflows.netProceeds,
+    pnl,
   ]);
 
   const npvTableYearly = useMemo(() => {
@@ -280,20 +358,14 @@ export default function OperationalPreviewProjectIRRPage() {
     let depreciationYearly: number[];
     let changeInWorkingCapitalYearly: number[];
 
-    if (pnl && snapshot) {
-      const arM = Number(snapshot.depFieldValues?.accountsReceivableMonths) || 0;
-      const apM = Number(snapshot.depFieldValues?.accountsPayableMonths) || 0;
-      const nwcLevels = Array.from({ length: nYears }, (_, i) => {
-        const rev = pnl.totalHotelRevenue[i] ?? 0;
-        const opex = pnl.totalExpenses[i] ?? 0;
-        return (arM / 12) * rev - (apM / 12) * opex;
-      });
-      const changeInWC = nwcLevels.map(
-        (w, i) => w - (i > 0 ? nwcLevels[i - 1]! : 0)
-      );
+    if (pnl) {
       netIncomeYearly = padToYearCount(pnl.netIncome.slice(0, nYears));
-      depreciationYearly = padToYearCount(pnl.depreciationTotal.slice(0, nYears));
-      changeInWorkingCapitalYearly = padToYearCount(changeInWC);
+      depreciationYearly = padToYearCount(
+        pnl.depreciationTotal.slice(0, nYears)
+      );
+      changeInWorkingCapitalYearly = padToYearCount(
+        pnl.changeInWorkingCapital.slice(0, nYears)
+      );
     } else {
       const z = padToYearCount([]);
       netIncomeYearly = z;
@@ -305,8 +377,9 @@ export default function OperationalPreviewProjectIRRPage() {
     const depreciationShifted = shiftBy3(depreciationYearly);
     const changeInWCShifted = shiftBy3(changeInWorkingCapitalYearly);
 
+    const ffeRenovPct = (pnl?.ffeRenovationPctYear6 ?? 50) / 100;
     const ffeRenovationShifted = Array.from({ length: YEAR_COUNT }, () => 0);
-    ffeRenovationShifted[8] = -ffeInvestment * 0.5;
+    ffeRenovationShifted[8] = -ffeInvestment * ffeRenovPct;
 
     const exitCapRate =
       exitCapRateStored != null && exitCapRateStored > 0
@@ -380,7 +453,7 @@ export default function OperationalPreviewProjectIRRPage() {
       discountedCashFlowsYearly,
       cumulativeNPVsYearly,
     };
-  }, [pnl, snapshot, ffeInvestment, cashOutflows, exitCapRateStored]);
+  }, [pnl, ffeInvestment, cashOutflows, exitCapRateStored]);
 
   const {
     netIncomeShifted,
@@ -502,9 +575,22 @@ export default function OperationalPreviewProjectIRRPage() {
   const sumDevelopmentCostYears = (arr: number[]) =>
     arr.slice(0, 3).reduce((a, b) => a + b, 0);
 
-  const operatingActivitiesTotal = sumDisplayedYears(netIncomeShifted) +
-    sumDisplayedYears(depreciationShifted) -
-    sumDisplayedYears(changeInWCShifted);
+  const operatingActivitiesTotal = useMemo(
+    () => computeOperatingTotalNetCashFlows(pnl),
+    [pnl]
+  );
+
+  useEffect(() => {
+    const prev =
+      useFinModelStore.getState().operational.projectIRR
+        .operatingTotalNetCashFlows ?? 0;
+    if (Math.abs(prev - operatingActivitiesTotal) > 1) {
+      updateProjectIRR(
+        { operatingTotalNetCashFlows: operatingActivitiesTotal },
+        finStream
+      );
+    }
+  }, [operatingActivitiesTotal, updateProjectIRR]);
 
   const netCashFlowYearlySum = sumDisplayedYears(netCashFlowsYearly);
   const discountedCashFlowYearlySum = discountedCashFlowsYearly.reduce(
@@ -556,8 +642,8 @@ export default function OperationalPreviewProjectIRRPage() {
     const irrAnnual = monthlyIrrVerification.irrAnnual;
     if (irrAnnual == null || !Number.isFinite(irrAnnual)) return;
     const irrPct = irrAnnual * 100;
-    updateProjectIRR({ unleveredIRR: irrPct });
-  }, [monthlyIrrVerification.irrAnnual, updateProjectIRR]);
+    updateProjectIRR({ unleveredIRR: irrPct }, finStream);
+  }, [monthlyIrrVerification.irrAnnual, updateProjectIRR, finStream]);
 
   const exportRows = useMemo(() => {
     const header = ["Line Item", ...npvColumns.map((c) => c.label), "TOTAL"];
@@ -612,7 +698,7 @@ export default function OperationalPreviewProjectIRRPage() {
       devCostsTotalK === 0 ? null : devCostsTotalK,
     ];
 
-    const ffeY9k = roundK(-ffeInvestment * 0.5);
+    const ffeY9k = roundK(-ffeInvestment * ((pnl?.ffeRenovationPctYear6 ?? 50) / 100));
     const ffeRenovRow: (string | number | null)[] = [
       "FFE Renovation",
       ...npvColumns.map((col) =>
@@ -763,6 +849,7 @@ export default function OperationalPreviewProjectIRRPage() {
     discountedCashFlowYearlySum,
     cumulativeNPVYearlyEnd,
     ffeInvestment,
+    pnl?.ffeRenovationPctYear6,
     yearlyIrrVerification,
   ]);
 
@@ -822,12 +909,55 @@ export default function OperationalPreviewProjectIRRPage() {
     setDownloadOpen((v) => !v);
   };
 
+  const cashOutflowsHref = withStreamPrefix(streamPrefix, "/cash-outflows");
+  const cashInflowsHref = withStreamPrefix(streamPrefix, "/cash-inflows");
+
+  if (!buildingType) {
+    return (
+      <div className="min-h-screen bg-slate-950 px-4 py-20 text-center text-slate-100">
+        <h2 className="mb-2 text-xl font-semibold text-white">
+          No asset type selected
+        </h2>
+        <p className="mb-4 text-slate-400">
+          Complete Component 1 and Component 2 for your asset type (Hotel,
+          Retail, Office, or Residential) to view the Project IRR preview.
+        </p>
+        <Link
+          href={cashOutflowsHref}
+          className="inline-block rounded bg-emerald-600 px-4 py-2 text-white transition hover:bg-emerald-500"
+        >
+          Go to Component 1
+        </Link>
+      </div>
+    );
+  }
+
+  if (!pnl) {
+    return (
+      <div className="min-h-screen bg-slate-950 px-4 py-20 text-center text-slate-100">
+        <h2 className="mb-2 text-xl font-semibold text-white">
+          Incomplete {assetLabel} data
+        </h2>
+        <p className="mb-4 text-slate-400">
+          Complete all Component 2 steps for {assetLabel.toLowerCase()} to view
+          the Project IRR preview.
+        </p>
+        <Link
+          href={cashInflowsHref}
+          className="inline-block rounded bg-emerald-600 px-4 py-2 text-white transition hover:bg-emerald-500"
+        >
+          Go to Component 2
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 py-8 px-4 pb-32">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6">
           <h1 className="mb-2 text-2xl font-bold text-white">
-            Project IRR Preview — Cash Flow &amp; NPV (monthly timeline)
+            Project IRR Preview — {assetLabel} Cash Flow &amp; NPV
           </h1>
           <p className="text-sm text-slate-400">
             Timeline: development M0–M{constructionPeriod} (
@@ -843,6 +973,9 @@ export default function OperationalPreviewProjectIRRPage() {
             {constructionPeriod}). Orange and green column rules separate
             development, pre-operating, and operations.
           </p>
+          <div className="mt-4">
+            <BenchmarkProfile />
+          </div>
         </div>
 
         {/* IRR Calculation Verification — compact */}
@@ -1598,26 +1731,21 @@ export default function OperationalPreviewProjectIRRPage() {
           </table>
 
           <p className="mt-4 text-xs text-slate-500">
-            Operating lines use Component 2 hotel-hold P&amp;L ({OPERATIONAL_PERIOD_YEARS}{" "}
-            years), shown on operations columns at the last month of each
-            operating year (same yearly amounts as spreadsheet Y4–Y13). Total
-            development costs use the Component 1 &quot;Monthly Total&quot; row from
-            cash outflows (M0–M{constructionPeriod}). Pre-operating (
-            {PRE_OPERATION_BUFFER_MONTHS} months) is a scheduling buffer before
-            M{calculateOperationsStartMonth(constructionPeriod)}. Terminal value
+            Operating lines use Component 2 {assetLabel.toLowerCase()}{" "}
+            hold P&amp;L ({OPERATIONAL_PERIOD_YEARS} years), shown on operations
+            columns at the last month of each operating year (same yearly amounts
+            as spreadsheet Y4–Y13). Total development costs use the Component 1
+            &quot;Monthly Total&quot; row from cash outflows (M0–M
+            {constructionPeriod}). Pre-operating ({PRE_OPERATION_BUFFER_MONTHS}{" "}
+            months) is a scheduling buffer before M
+            {calculateOperationsStartMonth(constructionPeriod)}. Terminal value
             (spreadsheet Y13) uses stabilized NOI from Op year 9 (Y12: net income +
             depreciation) ÷ exit cap from{" "}
             <code className="text-slate-400">projectIRR.exitCapRate</code>{" "}
-            (Component 3 only; not financing), default 7%. FFE renovation is 50%
-            of FFE in spreadsheet Y9. Discount
+            (Component 3 only; not financing), default 7%. FFE renovation is{" "}
+            {pnl.ffeRenovationPctYear6}% of FFE in spreadsheet Y9. Discount
             factors and cumulative NPV use the yearly unlevered IRR; end value at
             last operations column: {formatNumber(cumulativeNPVYearlyEnd)} &apos;000.
-            {!snapshot ? (
-              <span className="block mt-1 text-amber-500/90">
-                Complete the operational hotel-hold wizard to populate P&amp;L
-                drivers (net income, depreciation, working capital).
-              </span>
-            ) : null}
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-300">

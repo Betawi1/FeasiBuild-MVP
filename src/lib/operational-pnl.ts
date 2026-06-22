@@ -42,6 +42,437 @@ export type OperationalHotelHoldSnapshot = {
   depFieldValues: Record<string, number>;
 };
 
+/** Persisted wizard inputs for operational retail hold (Steps 1–2). */
+export type OperationalRetailHoldSnapshot = {
+  glaSqft: number;
+  rentEscalationPct: number;
+  baseRentPerSqftValues: number[];
+  occupancyValues: number[];
+  /** GLA × leased % (sqft leased per year). */
+  effectiveLeasedValues: number[];
+  /** Annual base rent revenue per year. */
+  revenueValues: number[];
+  /** Average rent-free period (months) — profile benchmark. */
+  freeRentMonths?: number;
+
+  /** Step 2 — percentage rent */
+  avgTenantSalesPsf?: number;
+  salesGrowthPct?: number;
+  percentageRentRate?: number;
+  breakpointType?: "natural" | "fixed";
+  breakpointMultiple?: number;
+  fixedBreakpointPsf?: number;
+  percentageRentValues?: number[];
+  percentageRentOverrides?: boolean[];
+
+  /** Step 2 — CAM / tax recoveries (annual totals in local currency) */
+  camExpensesAed?: number;
+  propertyTaxAed?: number;
+  insuranceAed?: number;
+  camExpensesPerSqft?: number;
+  propertyTaxPerSqft?: number;
+  insurancePerSqft?: number;
+  recoveryRate?: number;
+  camRecoveryValues?: number[];
+  camRecoveryOverrides?: boolean[];
+
+  /** Step 2 — parking */
+  parkingSpaces?: number;
+  parkingRevenuePerSpaceDay?: number;
+  parkingUtilization?: number;
+  operatingDays?: number;
+  parkingRevenueValues?: number[];
+  parkingOverrides?: boolean[];
+
+  /** Step 2 — advertising / kiosks */
+  advertisingIncomeYear1?: number;
+  advertisingGrowthPct?: number;
+  advertisingValues?: number[];
+  advertisingOverrides?: boolean[];
+
+  /** Step 2 — combined other mall income per year */
+  otherIncomeTotalValues?: number[];
+
+  /** Step 3 — operating expenses inputs */
+  camFixedBase?: number;
+  camVariableRate?: number;
+  propertyTaxAnnual?: number;
+  insuranceAnnual?: number;
+  marketingPctOfRevenue?: number;
+  gAndAAnnual?: number;
+  mgmtFeePctOfRevenue?: number;
+  renovationYear1?: number;
+  renovationYear2?: number;
+  renovationYears3to10?: number;
+
+  /** Step 3 — annual opex series */
+  opexCamValues?: number[];
+  opexPropertyTaxValues?: number[];
+  opexInsuranceValues?: number[];
+  opexMarketingValues?: number[];
+  opexGaValues?: number[];
+  opexMgmtFeeValues?: number[];
+  opexRenovationValues?: number[];
+  opexTotalValues?: number[];
+
+  /** Step 4 — depreciation & working capital */
+  constructionLife?: number;
+  ffeLife?: number;
+  ffeRenovationPctYear6?: number;
+  tiLife?: number;
+  leasingCommLife?: number;
+  tiCapital?: number;
+  leasingCommCapital?: number;
+  arMonths?: number;
+  apMonths?: number;
+  depConstructionValues?: number[];
+  depFfeValues?: number[];
+  depTiValues?: number[];
+  depLeasingCommValues?: number[];
+  depTotalValues?: number[];
+  wcArValues?: number[];
+  wcApValues?: number[];
+  wcNetValues?: number[];
+};
+
+export const defaultOperationalRetailHoldSnapshot: OperationalRetailHoldSnapshot =
+  {
+    glaSqft: 0,
+    rentEscalationPct: 0,
+    baseRentPerSqftValues: [],
+    occupancyValues: [],
+    effectiveLeasedValues: [],
+    revenueValues: [],
+  };
+
+/** Component 2 operational office hold — Step 1 (office + podium retail rent). */
+export type OperationalOfficeHoldSnapshot = {
+  officeGlaSqft: number;
+  officeRentPsfYear1: number;
+  officeRentEscalationPct: number;
+  officeLeasedOpeningPct: number;
+  officeLeasedTargetPct: number;
+  officeLeaseUpYears: number;
+  officeFreeRentMonths: number;
+  officeLeasedPctValues: number[];
+  officeRentValues: number[];
+
+  retailGlaSqft: number;
+  retailRentPsfYear1: number;
+  retailRentEscalationPct: number;
+  retailLeasedOpeningPct: number;
+  retailLeasedTargetPct: number;
+  retailLeaseUpYears: number;
+  retailFreeRentMonths: number;
+  retailLeasedPctValues: number[];
+  retailMinRentValues: number[];
+
+  includePercentageRent: boolean;
+  retailSalesPsfYear1: number;
+  retailSalesGrowthPct: number;
+  percentageRentRate: number;
+  breakpointType: "natural" | "fixed";
+  breakpointMultiple: number;
+  fixedBreakpointPsf: number;
+  percentageRentValues: number[];
+  totalBaseRentValues: number[];
+
+  /** Per-input manual override flags (benchmark fields). */
+  fieldOverrides?: Record<string, boolean>;
+  /** Per-year manual overrides for table cells (year → stream → value). */
+  manualYearValues?: Record<number, Record<string, number>>;
+
+  /** Step 2 — parking */
+  totalParkingSpaces?: number;
+  officeReservedSpaces?: number;
+  monthlyPassPrice?: number;
+  officePassOccupancy?: number;
+  retailHourlyRate?: number;
+  retailAvgDailyHours?: number;
+  retailAvailableSpaces?: number;
+  retailUtilization?: number;
+  parkingOperatingDays?: number;
+  parkingIncomeValues?: number[];
+
+  /** Step 2 — CAM / tax recoveries (annual totals) */
+  camExpensesAed?: number;
+  propertyTaxAed?: number;
+  insuranceAed?: number;
+  recoveryRate?: number;
+  camRecoveryValues?: number[];
+
+  /** Step 2 — advertising */
+  advertisingIncomeYear1?: number;
+  advertisingGrowthPct?: number;
+  advertisingValues?: number[];
+
+  /** Step 2 — combined other income per year */
+  otherIncomeTotalValues?: number[];
+
+  /** Step 2 — section override flags */
+  otherIncomeSectionOverrides?: Record<string, boolean>;
+  otherIncomeManualYearValues?: Record<number, Record<string, number>>;
+
+  /** Step 3 — operating expenses inputs */
+  camFixedBase?: number;
+  camVariableRate?: number;
+  propertyTaxAnnual?: number;
+  insuranceAnnual?: number;
+  marketingPctOfRevenue?: number;
+  gAndAAnnual?: number;
+  mgmtFeePctOfRevenue?: number;
+  renovationYear1?: number;
+  renovationYear2?: number;
+  renovationYears3to10?: number;
+  opexSectionOverrides?: Record<string, boolean>;
+
+  /** Step 3 — annual opex series */
+  opexCamValues?: number[];
+  opexPropertyTaxValues?: number[];
+  opexInsuranceValues?: number[];
+  opexMarketingValues?: number[];
+  opexGaValues?: number[];
+  opexMgmtFeeValues?: number[];
+  opexRenovationValues?: number[];
+  opexTotalValues?: number[];
+
+  /** Step 4 — capital bases (optional overrides) */
+  officeTiCapital?: number;
+  retailTiCapital?: number;
+  officeLeasingCommCapital?: number;
+  retailLeasingCommCapital?: number;
+
+  /** Step 4 — useful lives & WC */
+  constructionLife?: number;
+  ffeLife?: number;
+  ffeRenovationPctYear6?: number;
+  officeTiLife?: number;
+  retailTiLife?: number;
+  officeLeasingCommLife?: number;
+  retailLeasingCommLife?: number;
+  arMonths?: number;
+  apMonths?: number;
+  depSectionOverrides?: Record<string, boolean>;
+
+  /** Step 4 — annual series */
+  depConstructionValues?: number[];
+  depFfeValues?: number[];
+  depOfficeTiValues?: number[];
+  depRetailTiValues?: number[];
+  depOfficeLeasingCommValues?: number[];
+  depRetailLeasingCommValues?: number[];
+  depTotalValues?: number[];
+  wcArValues?: number[];
+  wcApValues?: number[];
+  wcNetValues?: number[];
+};
+
+/** Component 2 operational residential hold — Step 1 (residential + podium retail rent). */
+export type OperationalResidentialHoldSnapshot = {
+  residentialGlaSqft: number;
+  residentialRentPsfYear1: number;
+  residentialRentEscalationPct: number;
+  residentialLeasedOpeningPct: number;
+  residentialLeasedTargetPct: number;
+  residentialLeaseUpMonths: number;
+  residentialVacancyRatePct: number;
+  residentialBadDebtRatePct: number;
+  residentialLeasedPctValues: number[];
+  residentialEffectiveOccupancyValues: number[];
+  residentialRentValues: number[];
+
+  retailGlaSqft: number;
+  retailRentPsfYear1: number;
+  retailRentEscalationPct: number;
+  retailLeasedOpeningPct: number;
+  retailLeasedTargetPct: number;
+  retailLeaseUpYears: number;
+  retailFreeRentMonths: number;
+  retailLeasedPctValues: number[];
+  retailMinRentValues: number[];
+
+  includePercentageRent: boolean;
+  retailSalesPsfYear1: number;
+  retailSalesGrowthPct: number;
+  percentageRentRate: number;
+  breakpointType: "natural" | "fixed";
+  breakpointMultiple: number;
+  fixedBreakpointPsf: number;
+  percentageRentValues: number[];
+  totalBaseRentValues: number[];
+
+  fieldOverrides?: Record<string, boolean>;
+  manualYearValues?: Record<number, Record<string, number>>;
+
+  /** Step 2 — other income inputs */
+  totalParkingSpaces?: number;
+  parkingFeePerMonth?: number;
+  parkingUptakePct?: number;
+  amenityFeePerUnitMonth?: number;
+  amenityUptakePct?: number;
+  utilityRecoveryPerUnitMonth?: number;
+  utilityUptakePct?: number;
+  otherFeesPerUnitAnnual?: number;
+  otherFeesUptakePct?: number;
+  avgUnitSqft?: number;
+  parkingIncomeValues?: number[];
+  amenityIncomeValues?: number[];
+  utilityIncomeValues?: number[];
+  otherFeesIncomeValues?: number[];
+  otherIncomeTotalValues?: number[];
+  otherIncomeSectionOverrides?: Record<string, boolean>;
+  otherIncomeManualYearValues?: Record<number, Record<string, number>>;
+
+  /** Step 3 — operating expenses (gross lease, no CAM recoveries) */
+  mgmtFeePctOfEgi?: number;
+  maintenancePerUnitAnnual?: number;
+  utilitiesFixedAnnual?: number;
+  propertyTaxAnnual?: number;
+  insuranceAnnual?: number;
+  marketingPctOfEgi?: number;
+  gAndAAnnual?: number;
+  capexPerUnitAnnual?: number;
+  estimatedTotalUnits?: number;
+  opexMgmtFeeValues?: number[];
+  opexMaintenanceValues?: number[];
+  opexUtilitiesValues?: number[];
+  opexPropertyTaxValues?: number[];
+  opexInsuranceValues?: number[];
+  opexMarketingValues?: number[];
+  opexGaValues?: number[];
+  opexCapexValues?: number[];
+  opexTotalValues?: number[];
+  opexSectionOverrides?: Record<string, boolean>;
+  opexManualYearValues?: Record<number, Record<string, number>>;
+
+  /** Step 4 — useful lives & working capital */
+  constructionLife?: number;
+  ffeLife?: number;
+  ffeRenovationPctYear6?: number;
+  arMonths?: number;
+  apMonths?: number;
+  depSectionOverrides?: Record<string, boolean>;
+  depManualYearValues?: Record<number, Record<string, number>>;
+
+  /** Step 4 — annual series */
+  depConstructionValues?: number[];
+  depFfeValues?: number[];
+  depTotalValues?: number[];
+  wcArValues?: number[];
+  wcApValues?: number[];
+  wcNetValues?: number[];
+  wcChangeValues?: number[];
+};
+
+export const defaultOperationalResidentialHoldSnapshot: OperationalResidentialHoldSnapshot =
+  {
+    residentialGlaSqft: 0,
+    residentialRentPsfYear1: 0,
+    residentialRentEscalationPct: 0,
+    residentialLeasedOpeningPct: 0,
+    residentialLeasedTargetPct: 0,
+    residentialLeaseUpMonths: 10,
+    residentialVacancyRatePct: 5,
+    residentialBadDebtRatePct: 2,
+    residentialLeasedPctValues: [],
+    residentialEffectiveOccupancyValues: [],
+    residentialRentValues: [],
+    retailGlaSqft: 0,
+    retailRentPsfYear1: 0,
+    retailRentEscalationPct: 0,
+    retailLeasedOpeningPct: 0,
+    retailLeasedTargetPct: 0,
+    retailLeaseUpYears: 1.5,
+    retailFreeRentMonths: 3,
+    retailLeasedPctValues: [],
+    retailMinRentValues: [],
+    includePercentageRent: false,
+    retailSalesPsfYear1: 0,
+    retailSalesGrowthPct: 0,
+    percentageRentRate: 0,
+    breakpointType: "natural",
+    breakpointMultiple: 1,
+    fixedBreakpointPsf: 0,
+    percentageRentValues: [],
+    totalBaseRentValues: [],
+    totalParkingSpaces: 0,
+    parkingFeePerMonth: 0,
+    parkingUptakePct: 80,
+    amenityFeePerUnitMonth: 0,
+    amenityUptakePct: 90,
+    utilityRecoveryPerUnitMonth: 0,
+    utilityUptakePct: 70,
+    otherFeesPerUnitAnnual: 0,
+    otherFeesUptakePct: 30,
+    avgUnitSqft: 800,
+    parkingIncomeValues: [],
+    amenityIncomeValues: [],
+    utilityIncomeValues: [],
+    otherFeesIncomeValues: [],
+    otherIncomeTotalValues: [],
+    mgmtFeePctOfEgi: 4,
+    maintenancePerUnitAnnual: 1500,
+    utilitiesFixedAnnual: 200_000,
+    propertyTaxAnnual: 500_000,
+    insuranceAnnual: 80_000,
+    marketingPctOfEgi: 1,
+    gAndAAnnual: 100_000,
+    capexPerUnitAnnual: 1000,
+    estimatedTotalUnits: 0,
+    opexMgmtFeeValues: [],
+    opexMaintenanceValues: [],
+    opexUtilitiesValues: [],
+    opexPropertyTaxValues: [],
+    opexInsuranceValues: [],
+    opexMarketingValues: [],
+    opexGaValues: [],
+    opexCapexValues: [],
+    opexTotalValues: [],
+    constructionLife: 30,
+    ffeLife: 7,
+    ffeRenovationPctYear6: 40,
+    arMonths: 1,
+    apMonths: 1,
+    depConstructionValues: [],
+    depFfeValues: [],
+    depTotalValues: [],
+    wcArValues: [],
+    wcApValues: [],
+    wcNetValues: [],
+    wcChangeValues: [],
+  };
+
+export const defaultOperationalOfficeHoldSnapshot: OperationalOfficeHoldSnapshot =
+  {
+    officeGlaSqft: 0,
+    officeRentPsfYear1: 0,
+    officeRentEscalationPct: 0,
+    officeLeasedOpeningPct: 0,
+    officeLeasedTargetPct: 0,
+    officeLeaseUpYears: 2.5,
+    officeFreeRentMonths: 6,
+    officeLeasedPctValues: [],
+    officeRentValues: [],
+    retailGlaSqft: 0,
+    retailRentPsfYear1: 0,
+    retailRentEscalationPct: 0,
+    retailLeasedOpeningPct: 0,
+    retailLeasedTargetPct: 0,
+    retailLeaseUpYears: 1.5,
+    retailFreeRentMonths: 3,
+    retailLeasedPctValues: [],
+    retailMinRentValues: [],
+    includePercentageRent: false,
+    retailSalesPsfYear1: 0,
+    retailSalesGrowthPct: 0,
+    percentageRentRate: 0,
+    breakpointType: "natural",
+    breakpointMultiple: 1,
+    fixedBreakpointPsf: 0,
+    percentageRentValues: [],
+    totalBaseRentValues: [],
+  };
+
 export type OperationalPnlComputed = {
   revenueByStream: {
     rooms: number[];
@@ -243,8 +674,19 @@ export function computeOperationalHotelHoldPnl(
   const expensePcts = coerceExpensePcts(snapshot.expensePcts);
   const depFields = coerceDepFields(snapshot.depFieldValues);
 
-  const adr = snapshot.adrValues.slice(0, OPERATIONAL_ROOM_REVENUE_YEARS);
-  const occ = snapshot.occupancyValues.slice(0, OPERATIONAL_ROOM_REVENUE_YEARS);
+  const adrRaw = Array.isArray((snapshot as any)?.adrValues)
+    ? ((snapshot as any).adrValues as unknown[])
+    : [];
+  const occRaw = Array.isArray((snapshot as any)?.occupancyValues)
+    ? ((snapshot as any).occupancyValues as unknown[])
+    : [];
+
+  const adr = adrRaw
+    .slice(0, OPERATIONAL_ROOM_REVENUE_YEARS)
+    .map((v) => (Number.isFinite(Number(v)) ? Number(v) : 0));
+  const occ = occRaw
+    .slice(0, OPERATIONAL_ROOM_REVENUE_YEARS)
+    .map((v) => (Number.isFinite(Number(v)) ? Number(v) : 0));
   while (adr.length < OPERATIONAL_ROOM_REVENUE_YEARS) adr.push(0);
   while (occ.length < OPERATIONAL_ROOM_REVENUE_YEARS) occ.push(0);
 

@@ -1101,7 +1101,7 @@ export default function PreviewScenarioAnalysisPage() {
         restartLabel="Restart"
         showFeasibilityStudy
         feasibilityStudyLabel="Feasibility Study"
-        feasibilityStudyTitle="Coming Soon!"
+        feasibilityStudyRoute={withStreamPrefix(streamPrefix, "/feasibility-study")}
       />
     </div>
   );

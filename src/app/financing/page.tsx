@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import {
   Area,
   AreaChart,
@@ -232,7 +233,7 @@ type FormData = {
 
 type Errors = Record<string, string>;
 
-export default function FinancingPage() {
+function FinancingPageContent() {
   const router = useRouter();
   const streamPrefix = useStreamPrefix();
   const finStream = streamKeyFromPrefix(streamPrefix);
@@ -3408,11 +3409,16 @@ export default function FinancingPage() {
                         <input
                           type="checkbox"
                           checked={(financing.landEquityPercent ?? 40) >= 100}
-                          onChange={(e) =>
-                            updateFinancing({
-                              landEquityPercent: e.target.checked ? 100 : 0,
-                            })
-                          }
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            updateFinancing(
+                              {
+                                landEquityPercent: isChecked ? 100 : 0,
+                                landAsEquity: isChecked,
+                              },
+                              finStream
+                            );
+                          }}
                           className="mt-1 w-4 h-4 text-emerald-500 bg-slate-900 border-slate-600 rounded"
                         />
                         <div>
@@ -4608,7 +4614,8 @@ export default function FinancingPage() {
                           <option value="quarterly">Quarterly</option>
                         </select>
                       </div>
-                      <div className="md:col-span-2">
+                      {/* Equity cure checkbox hidden for now (keep store logic for future) */}
+                      {/* <div className="md:col-span-2">
                         <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-700 p-4">
                           <input
                             type="checkbox"
@@ -4628,7 +4635,7 @@ export default function FinancingPage() {
                             </p>
                           </div>
                         </label>
-                      </div>
+                      </div> */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-slate-300">
                           Max LTV covenant (%)
@@ -5654,3 +5661,10 @@ export default function FinancingPage() {
   );
 }
 
+export default function FinancingPage() {
+  return (
+    <SearchParamsBoundary>
+      <FinancingPageContent />
+    </SearchParamsBoundary>
+  );
+}

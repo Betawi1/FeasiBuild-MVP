@@ -1,0 +1,95 @@
+"use client";
+
+import BenchmarkHeader from "@/components/BenchmarkHeader";
+import type { CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
+
+type ResidentialStep9LandCostsProps = {
+  projectInfo: ProjectInfo;
+  cashOutflows: CashOutflows;
+  benchmarkReady: boolean;
+  landCost: number;
+  onReset: () => void;
+  onLandAreaChange: (value: number) => void;
+  onLandRateChange: (value: number) => void;
+  percentFieldClass: (manual?: boolean) => string;
+  fieldError: (name: string) => string | undefined;
+};
+
+/** UI Step 9 — Land costs benchmark header and land rate input. */
+export default function ResidentialStep9LandCosts({
+  projectInfo,
+  cashOutflows,
+  benchmarkReady,
+  landCost,
+  onReset,
+  onLandAreaChange,
+  onLandRateChange,
+  percentFieldClass,
+  fieldError,
+}: ResidentialStep9LandCostsProps) {
+  if (!benchmarkReady) return null;
+
+  const landManual = !!cashOutflows.operationalResidentialLandRateManual;
+
+  return (
+    <>
+      <BenchmarkHeader
+        assetType="residential"
+        country={projectInfo.country}
+        segment={projectInfo.residentialSegment}
+        positioning={projectInfo.residentialPositioning}
+        furnishingLevel={projectInfo.residentialFurnishingLevel}
+        isServicedApartment={projectInfo.residentialIsServicedApartment}
+        onUseDefaults={onReset}
+        isManualOverride={landManual}
+      />
+      <p className="mb-4 text-sm text-slate-400">
+        Land rate is suggested from your residential segment, positioning, and
+        country. Land area is entered manually.
+      </p>
+
+      <div className="mb-6 grid grid-cols-1 items-end gap-4 md:grid-cols-3">
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-300">
+            Land area (sqft)
+          </label>
+          <input
+            type="number"
+            value={cashOutflows.landArea}
+            onChange={(e) => onLandAreaChange(Number(e.target.value) || 0)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          {fieldError("landArea") && (
+            <p className="mt-1 text-sm text-red-400">{fieldError("landArea")}</p>
+          )}
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-300">
+            Land rate ({projectInfo.currency}/sqft)
+            {landManual ? (
+              <span className="ml-2 text-xs font-normal text-amber-400">
+                (override)
+              </span>
+            ) : null}
+          </label>
+          <input
+            type="number"
+            value={cashOutflows.landRate}
+            onChange={(e) => onLandRateChange(Number(e.target.value) || 0)}
+            className={percentFieldClass(landManual)}
+          />
+          {fieldError("landRate") && (
+            <p className="mt-1 text-sm text-red-400">{fieldError("landRate")}</p>
+          )}
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium text-slate-400">Land cost (LC)</p>
+          <p className="text-lg font-semibold text-emerald-400">
+            {landCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
+            {projectInfo.currency}
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}

@@ -3170,11 +3170,12 @@ export default function FinancingPreviewPage({
       cumulativeNcfPostFinancing: d.cumulativeNcfPostFinancing,
       principalRepayment: d.principalRepayment,
     }));
-    const prev = useFinModelStore.getState().projectIRR.monthlyData;
+    const prev = useFinModelStore.getState()[finStream].projectIRR.monthlyData;
     const shouldReplaceMonthlyData =
       monthlyDataForStore.length > 0 &&
       (prev == null || monthlyDataForStore.length >= prev.length);
-    const prevPm = useFinModelStore.getState().projectIRR.projectMetrics;
+    const prevPm =
+      useFinModelStore.getState()[finStream].projectIRR.projectMetrics;
     updateProjectIRR({
       projectMetrics: {
         leveredEquityIRR: equityIRR * 100,
@@ -3194,10 +3195,11 @@ export default function FinancingPreviewPage({
       cumulativeNcfPostFinancingByMonth,
       equityInjectionByMonth,
       ...(shouldReplaceMonthlyData ? { monthlyData: monthlyDataForStore } : {}),
-    });
+    }, finStream);
   }, [
     updateProjectIRR,
     monthlyData,
+    finStream,
     equityIRR,
     equityMultiple,
     equityPaybackMonth,

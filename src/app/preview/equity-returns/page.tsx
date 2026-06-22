@@ -138,8 +138,10 @@ export default function EquityReturnsPreviewPage() {
 
   const projectInfo = useFinModelStore((s) => s[finStream].projectInfo);
   const cashOutflows = useFinModelStore((s) => s[finStream].cashOutflows);
-  const financing = useFinModelStore((s) => s.financing);
-  const projectIRR = useFinModelStore((s) => s.projectIRR);
+  const financingRaw = useFinModelStore((s) => (s as any)[finStream]?.financing);
+  const projectIrrRaw = useFinModelStore((s) => (s as any)[finStream]?.projectIRR);
+  const financing = (financingRaw ?? {}) as any;
+  const projectIRR = (projectIrrRaw ?? { projectMetrics: {} }) as any;
   const projectMetrics = projectIRR.projectMetrics;
   // eslint-disable-next-line no-console
   console.log("📖 [/preview/equity-returns] Store check:", {
@@ -255,7 +257,7 @@ export default function EquityReturnsPreviewPage() {
     for (let m = 0; m < horizonMonths; m++) {
       if (md?.length) {
         const row =
-          md[m]?.month === m ? md[m] : md.find((d) => d.month === m);
+          md[m]?.month === m ? md[m] : md.find((d: any) => d.month === m);
         if (row !== undefined) {
           out[m] = row.equityInjection ?? 0;
           continue;
@@ -263,7 +265,7 @@ export default function EquityReturnsPreviewPage() {
       }
       out[m] =
         raw?.[m] ??
-        (financing.monthlyFundingStack?.find((s) => s.month === m)
+        (financing.monthlyFundingStack?.find((s: any) => s.month === m)
           ?.equityThisMonth ?? 0);
     }
     return out;
@@ -278,7 +280,7 @@ export default function EquityReturnsPreviewPage() {
   const equityInjectionFullHorizon = useMemo(() => {
     const md = projectIRR.monthlyData;
     if (md?.length)
-      return md.reduce((s, d) => s + (d.equityInjection ?? 0), 0);
+      return md.reduce((s: number, d: any) => s + (d.equityInjection ?? 0), 0);
     return monthlyEquityInjectionsRaw.reduce((s, v) => s + v, 0);
   }, [projectIRR.monthlyData, monthlyEquityInjectionsRaw]);
 
@@ -582,9 +584,9 @@ export default function EquityReturnsPreviewPage() {
 
     const md = projectIRR.monthlyData ?? [];
     const eqMonths = md
-      .filter((d) => (d.equityInjection ?? 0) > 0)
-      .map((d) => ({ month: d.month, eq: d.equityInjection ?? 0 }))
-      .sort((a, b) => a.month - b.month);
+      .filter((d: any) => (d.equityInjection ?? 0) > 0)
+      .map((d: any) => ({ month: d.month, eq: d.equityInjection ?? 0 }))
+      .sort((a: any, b: any) => a.month - b.month);
     // eslint-disable-next-line no-console
     console.log("=== ALL Equity Injections in monthlyData ===");
     // eslint-disable-next-line no-console
@@ -594,7 +596,7 @@ export default function EquityReturnsPreviewPage() {
       "First 30 equity injection months:",
       eqMonths
         .slice(0, 30)
-        .map((x) => `M${x.month}:${(x.eq / 1000).toFixed(2)}K`)
+        .map((x: any) => `M${x.month}:${(x.eq / 1000).toFixed(2)}K`)
         .join(", ")
     );
 
@@ -602,7 +604,7 @@ export default function EquityReturnsPreviewPage() {
     // eslint-disable-next-line no-console
     console.log("Missing months check (equityInjection):");
     checkMonths.forEach((m) => {
-      const row = md.find((d) => d.month === m);
+      const row = md.find((d: any) => d.month === m);
       const eq = row?.equityInjection ?? 0;
       // eslint-disable-next-line no-console
       console.log(`  M${m}: ${eq > 0 ? `${(eq / 1000).toFixed(2)}K ✅` : "0K ❌"}`);
@@ -775,7 +777,7 @@ export default function EquityReturnsPreviewPage() {
     // eslint-disable-next-line no-console
     console.log("\nNCF post at each op FYE:");
     for (const endM of fyeEnds) {
-      const row = md.find((d) => d.month === endM);
+      const row = md.find((d: any) => d.month === endM);
       const ncfPost = row?.ncfPostFinancing ?? 0;
       const counted =
         commonEquityHeadline.distributionMeta.countedFyeMonths.includes(endM);
@@ -869,11 +871,11 @@ export default function EquityReturnsPreviewPage() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
     const md = projectIRR.monthlyData ?? [];
-    const m0 = md.find((d) => d.month === 0)?.equityInjection ?? 0;
-    const m1 = md.find((d) => d.month === 1)?.equityInjection ?? 0;
-    const m58 = md.find((d) => d.month === 58)?.equityInjection ?? 0;
-    const m166 = md.find((d) => d.month === 166)?.equityInjection ?? 0;
-    const totalEq = md.reduce((s, d) => s + (d.equityInjection ?? 0), 0);
+    const m0 = md.find((d: any) => d.month === 0)?.equityInjection ?? 0;
+    const m1 = md.find((d: any) => d.month === 1)?.equityInjection ?? 0;
+    const m58 = md.find((d: any) => d.month === 58)?.equityInjection ?? 0;
+    const m166 = md.find((d: any) => d.month === 166)?.equityInjection ?? 0;
+    const totalEq = md.reduce((s: number, d: any) => s + (d.equityInjection ?? 0), 0);
     let cum = 0;
     let peakCum = 0;
     for (const d of md) {

@@ -24,3 +24,134 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Feasibility study slides: force readable black table text on white backgrounds */
+.feasibility-table {
+  color: #0f172a;
+}
+.feasibility-table tr.text-white,
+.feasibility-table tr.text-white td,
+.feasibility-table tr.text-white th {
+  color: #ffffff;
+}
+.feasibility-table .text-red-600 {
+  color: #dc2626;
+}
+.feasibility-table .text-emerald-600 {
+  color: #059669;
+}
+
+@page {
+  size: 1280px 720px;
+  margin: 0;
+}
+
+@media print {
+  @page :first {
+    margin: 0;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #slide-capture-container,
+  #slide-capture-container * {
+    visibility: visible;
+  }
+
+  #slide-capture-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+  }
+
+  #slide-capture-container > div {
+    padding: 3rem !important;
+  }
+
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  .slide-container {
+    page-break-after: always;
+    page-break-inside: avoid;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+}
+
+.printing-pdf .no-print,
+.printing-pdf nav,
+.printing-pdf header,
+.printing-pdf footer {
+  display: none !important;
+}
+
+/* PDF Export Fixes - Override modern CSS color functions during capture */
+#slide-capture-container.pdf-capturing,
+#slide-capture-container.pdf-capturing * {
+  color: rgb(15, 23, 42) !important;
+  background-color: white !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+  color-adjust: exact !important;
+}
+
+#slide-capture-container.pdf-capturing .bg-slate-50 { background-color: #f8fafc !important; }
+#slide-capture-container.pdf-capturing .bg-slate-100 { background-color: #f1f5f9 !important; }
+#slide-capture-container.pdf-capturing .bg-slate-200 { background-color: #e2e8f0 !important; }
+#slide-capture-container.pdf-capturing .bg-slate-300 { background-color: #cbd5e1 !important; }
+#slide-capture-container.pdf-capturing .bg-slate-400 { background-color: #94a3b8 !important; }
+#slide-capture-container.pdf-capturing .bg-slate-500 { background-color: #64748b !important; }
+#slide-capture-container.pdf-capturing .bg-slate-600 { background-color: #475569 !important; }
+#slide-capture-container.pdf-capturing .bg-slate-700 { background-color: #334155 !important; }
+#slide-capture-container.pdf-capturing .bg-slate-800 { background-color: #1e293b !important; }
+#slide-capture-container.pdf-capturing .bg-slate-900 { background-color: #0f172a !important; }
+
+#slide-capture-container.pdf-capturing .text-slate-50 { color: #f8fafc !important; }
+#slide-capture-container.pdf-capturing .text-slate-100 { color: #f1f5f9 !important; }
+#slide-capture-container.pdf-capturing .text-slate-200 { color: #e2e8f0 !important; }
+#slide-capture-container.pdf-capturing .text-slate-300 { color: #cbd5e1 !important; }
+#slide-capture-container.pdf-capturing .text-slate-400 { color: #94a3b8 !important; }
+#slide-capture-container.pdf-capturing .text-slate-500 { color: #64748b !important; }
+#slide-capture-container.pdf-capturing .text-slate-600 { color: #475569 !important; }
+#slide-capture-container.pdf-capturing .text-slate-700 { color: #334155 !important; }
+#slide-capture-container.pdf-capturing .text-slate-800 { color: #1e293b !important; }
+#slide-capture-container.pdf-capturing .text-slate-900 { color: #0f172a !important; }
+
+#slide-capture-container.pdf-capturing .bg-emerald-600 { background-color: #059669 !important; }
+#slide-capture-container.pdf-capturing .text-emerald-600 { color: #059669 !important; }
+#slide-capture-container.pdf-capturing .bg-blue-600 { background-color: #2563eb !important; }
+#slide-capture-container.pdf-capturing .text-blue-600 { color: #2563eb !important; }
+#slide-capture-container.pdf-capturing .text-red-600 { color: #dc2626 !important; }
+#slide-capture-container.pdf-capturing .text-white { color: #ffffff !important; }
+#slide-capture-container.pdf-capturing .bg-white { background-color: #ffffff !important; }
+
+#slide-capture-container.pdf-capturing .recharts-wrapper {
+  background: white !important;
+}
+
+#slide-capture-container.pdf-capturing .recharts-surface {
+  background: white !important;
+}
+
+#slide-capture-container.pdf-capturing {
+  width: 1280px !important;
+  height: 720px !important;
+  overflow: hidden !important;
+  isolation: isolate;
+}

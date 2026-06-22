@@ -1,7 +1,10 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import useFinModelStore, {
   type CashInflows as CashInflowsSlice,
   type ProjectInfo,
@@ -19,7 +22,7 @@ type SalesUptakeMode = "preset" | "manual";
 
 type Errors = Record<string, string>;
 
-export default function CashInflowsPage() {
+function CashInflowsPageContent() {
   const router = useRouter();
   const streamPrefix = useStreamPrefix();
   const finStream = streamKeyFromPrefix(streamPrefix);
@@ -1527,6 +1530,14 @@ export default function CashInflowsPage() {
         }
       />
     </div>
+  );
+}
+
+export default function CashInflowsPage() {
+  return (
+    <SearchParamsBoundary>
+      <CashInflowsPageContent />
+    </SearchParamsBoundary>
   );
 }
 

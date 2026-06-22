@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import type { HotelOperatingType } from "@/config/hotel-cost-profiles";
 import {
   formatHotelProfileTooltip,
@@ -21,7 +22,27 @@ import useFinModelStore, {
   type ProjectInfo,
 } from "@/store/useFinModelStore";
 import AIRecommendationBox from "@/components/AIRecommendationBox";
+import BenchmarkHeader from "@/components/BenchmarkHeader";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
+import {
+  getRetailBenchmark,
+  getRetailBenchmarkProfileKey,
+} from "@/lib/benchmarks/retail-construction-costs";
+import {
+  getOfficeBenchmark,
+  getOfficeBenchmarkProfileKey,
+} from "@/lib/benchmarks/office-construction-costs";
+import {
+  getOfficeFfeHint,
+  getOperationalFfeHint,
+  isOperationalFfeOutsideRange,
+  validateOperationalFfePercent,
+} from "@/lib/operational-ffe-validation";
+import ResidentialBenchmarkHeader from "./steps/ResidentialBenchmarkHeader";
+import ResidentialStep6Construction from "./steps/ResidentialStep6Construction";
+import ResidentialStep8SoftCosts from "./steps/ResidentialStep8SoftCosts";
+import ResidentialStep9LandCosts from "./steps/ResidentialStep9LandCosts";
+import { useResidentialCashOutflowBenchmark } from "./steps/residential-cash-outflow-benchmark";
 import {
   DEFAULT_POWC_ALLOCATION,
   DEFAULT_SOFT_COST_ALLOCATION,
@@ -34,6 +55,29 @@ import {
   withStreamPrefix,
   type StreamPrefix,
 } from "@/lib/stream-path";
+import HotelSegmentationStep, {
+  validateHotelSegmentation,
+} from "./steps/HotelSegmentationStep";
+import OfficeSegmentationStep, {
+  validateOfficeSegmentation,
+} from "./steps/OfficeSegmentationStep";
+import RetailSegmentationStep, {
+  validateRetailSegmentation,
+} from "./steps/RetailSegmentationStep";
+import ResidentialSegmentationStep, {
+  validateResidentialSegmentation,
+} from "./steps/ResidentialSegmentationStep";
+import { logAuditChange } from "@/lib/audit-utils";
+import {
+  CASH_OUTFLOW_AUDIT_FIELDS,
+  CASH_OUTFLOW_STAGE_ALLOCATION_FIELDS,
+  CASH_OUTFLOW_STEP_NAMES,
+  CASH_OUTFLOWS_COMPONENT,
+  cashOutflowAuditRoute,
+  formatCashOutflowAuditDisplay,
+  humanizeFieldId,
+  logOperationalCashOutflow,
+} from "@/lib/operational-audit-fields";
 
 type Errors = Record<string, string>;
 
@@ -76,16 +120,328 @@ function HoverTipInline({
 }
 
 const COUNTRIES = [
-  { code: "AE", name: "United Arab Emirates", currency: "AED" as const, cities: ["Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah"] },
-  { code: "SA", name: "Saudi Arabia", currency: "SAR" as const, cities: ["Riyadh", "Jeddah", "Dammam", "Makkah", "Madinah"] },
-  { code: "KW", name: "Kuwait", currency: "KWD" as const, cities: ["Kuwait City", "Hawalli", "Salmiya", "Ahmadi"] },
-  { code: "QA", name: "Qatar", currency: "QAR" as const, cities: ["Doha", "Al Rayyan", "Al Wakrah", "Al Khor"] },
-  { code: "BH", name: "Bahrain", currency: "BHD" as const, cities: ["Manama", "Riffa", "Muharraq", "Hamad Town"] },
-  { code: "OM", name: "Oman", currency: "OMR" as const, cities: ["Muscat", "Salalah", "Sohar", "Nizwa"] },
-  { code: "GB", name: "United Kingdom", currency: "GBP" as const, cities: ["London", "Manchester", "Birmingham", "Edinburgh"] },
-  { code: "MY", name: "Malaysia", currency: "MYR" as const, cities: ["Kuala Lumpur", "Penang", "Johor Bahru", "Kota Kinabalu"] },
-  { code: "US", name: "United States", currency: "USD" as const, cities: ["New York", "Los Angeles", "Miami", "San Francisco"] },
-];
+  {
+    name: "United Arab Emirates",
+    code: "AE",
+    currency: ["AED", "USD"],
+    cities: ["Dubai", "Abu Dhabi"],
+  },
+  {
+    name: "Saudi Arabia",
+    code: "SA",
+    currency: ["SAR", "USD"],
+    cities: ["Riyadh", "Jeddah", "Makkah"],
+  },
+  {
+    name: "Malaysia",
+    code: "MY",
+    currency: ["MYR", "USD"],
+    cities: ["Kuala Lumpur", "Penang", "Johor Bahru"],
+  },
+  {
+    name: "Vietnam",
+    code: "VN",
+    currency: ["VND", "USD"],
+    cities: ["Ho Chi Minh City", "Hanoi", "Da Nang"],
+  },
+  {
+    name: "Thailand",
+    code: "TH",
+    currency: ["THB", "USD"],
+    cities: ["Bangkok", "Phuket", "Chiang Mai"],
+  },
+  {
+    name: "Australia",
+    code: "AU",
+    currency: ["AUD", "USD"],
+    cities: ["Sydney", "Melbourne", "Brisbane"],
+  },
+] as const;
+
+const CURRENCY_LABELS: Record<string, string> = {
+  AED: "AED - UAE Dirham",
+  SAR: "SAR - Saudi Riyal",
+  MYR: "MYR - Malaysian Ringgit",
+  VND: "VND - Vietnamese Dong",
+  THB: "THB - Thai Baht",
+  AUD: "AUD - Australian Dollar",
+  USD: "USD - US Dollar",
+};
+
+// MVP Profile Database - Hotel Development Cost Benchmarks
+const PROFILE_DEFAULTS: Record<
+  string,
+  {
+    softCostPercent: number;
+    powcPercent: number;
+    ffePercent: number;
+    constructionCostPerKey: number;
+    adrBenchmark: number;
+    occupancyBenchmark: number;
+    regionBucket: string;
+  }
+> = {
+  // === UNITED ARAB EMIRATES ===
+  "United Arab Emirates:Dubai:Business:5": {
+    softCostPercent: 8.5,
+    powcPercent: 5.0,
+    ffePercent: 22.0,
+    constructionCostPerKey: 850000,
+    adrBenchmark: 650,
+    occupancyBenchmark: 75,
+    regionBucket: "dubai",
+  },
+  "United Arab Emirates:Dubai:Business:4": {
+    softCostPercent: 8.0,
+    powcPercent: 4.5,
+    ffePercent: 18.0,
+    constructionCostPerKey: 650000,
+    adrBenchmark: 450,
+    occupancyBenchmark: 72,
+    regionBucket: "dubai",
+  },
+  "United Arab Emirates:Dubai:Resort:5": {
+    softCostPercent: 9.0,
+    powcPercent: 5.5,
+    ffePercent: 28.0,
+    constructionCostPerKey: 1200000,
+    adrBenchmark: 950,
+    occupancyBenchmark: 68,
+    regionBucket: "dubai",
+  },
+  "United Arab Emirates:Dubai:Resort:4": {
+    softCostPercent: 8.5,
+    powcPercent: 5.0,
+    ffePercent: 24.0,
+    constructionCostPerKey: 900000,
+    adrBenchmark: 700,
+    occupancyBenchmark: 65,
+    regionBucket: "dubai",
+  },
+  "United Arab Emirates:Abu Dhabi:Business:5": {
+    softCostPercent: 8.0,
+    powcPercent: 5.0,
+    ffePercent: 20.0,
+    constructionCostPerKey: 800000,
+    adrBenchmark: 600,
+    occupancyBenchmark: 70,
+    regionBucket: "abudhabi",
+  },
+  "United Arab Emirates:Abu Dhabi:Business:4": {
+    softCostPercent: 7.5,
+    powcPercent: 4.5,
+    ffePercent: 16.0,
+    constructionCostPerKey: 600000,
+    adrBenchmark: 400,
+    occupancyBenchmark: 68,
+    regionBucket: "abudhabi",
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:5": {
+    softCostPercent: 8.5,
+    powcPercent: 5.0,
+    ffePercent: 24.0,
+    constructionCostPerKey: 1000000,
+    adrBenchmark: 800,
+    occupancyBenchmark: 65,
+    regionBucket: "abudhabi",
+  },
+  "United Arab Emirates:Abu Dhabi:Resort:4": {
+    softCostPercent: 8.0,
+    powcPercent: 4.5,
+    ffePercent: 20.0,
+    constructionCostPerKey: 750000,
+    adrBenchmark: 550,
+    occupancyBenchmark: 62,
+    regionBucket: "abudhabi",
+  },
+
+  // === SAUDI ARABIA ===
+  "Saudi Arabia:Riyadh:Business:5": {
+    softCostPercent: 9.0,
+    powcPercent: 5.5,
+    ffePercent: 20.0,
+    constructionCostPerKey: 320000,
+    adrBenchmark: 550,
+    occupancyBenchmark: 65,
+    regionBucket: "gcc",
+  },
+  "Saudi Arabia:Riyadh:Business:4": {
+    softCostPercent: 8.5,
+    powcPercent: 5.0,
+    ffePercent: 16.0,
+    constructionCostPerKey: 250000,
+    adrBenchmark: 380,
+    occupancyBenchmark: 62,
+    regionBucket: "gcc",
+  },
+  "Saudi Arabia:Jeddah:Business:5": {
+    softCostPercent: 8.5,
+    powcPercent: 5.0,
+    ffePercent: 18.0,
+    constructionCostPerKey: 300000,
+    adrBenchmark: 500,
+    occupancyBenchmark: 68,
+    regionBucket: "gcc",
+  },
+  "Saudi Arabia:Makkah:Business:5": {
+    softCostPercent: 9.5,
+    powcPercent: 6.0,
+    ffePercent: 22.0,
+    constructionCostPerKey: 400000,
+    adrBenchmark: 750,
+    occupancyBenchmark: 80,
+    regionBucket: "gcc",
+  },
+
+  // === MALAYSIA ===
+  "Malaysia:Kuala Lumpur:Business:5": {
+    softCostPercent: 7.5,
+    powcPercent: 4.5,
+    ffePercent: 18.0,
+    constructionCostPerKey: 450000,
+    adrBenchmark: 350,
+    occupancyBenchmark: 70,
+    regionBucket: "southeast_asia",
+  },
+  "Malaysia:Kuala Lumpur:Business:4": {
+    softCostPercent: 7.0,
+    powcPercent: 4.0,
+    ffePercent: 14.0,
+    constructionCostPerKey: 350000,
+    adrBenchmark: 250,
+    occupancyBenchmark: 68,
+    regionBucket: "southeast_asia",
+  },
+  "Malaysia:Kuala Lumpur:Budget:3": {
+    softCostPercent: 6.5,
+    powcPercent: 3.5,
+    ffePercent: 10.0,
+    constructionCostPerKey: 220000,
+    adrBenchmark: 150,
+    occupancyBenchmark: 75,
+    regionBucket: "southeast_asia",
+  },
+
+  // === VIETNAM ===
+  "Vietnam:Ho Chi Minh City:Business:5": {
+    softCostPercent: 8.0,
+    powcPercent: 5.0,
+    ffePercent: 20.0,
+    constructionCostPerKey: 4500,
+    adrBenchmark: 2800,
+    occupancyBenchmark: 72,
+    regionBucket: "southeast_asia",
+  },
+  "Vietnam:Ho Chi Minh City:Business:4": {
+    softCostPercent: 7.5,
+    powcPercent: 4.5,
+    ffePercent: 16.0,
+    constructionCostPerKey: 3500,
+    adrBenchmark: 1800,
+    occupancyBenchmark: 70,
+    regionBucket: "southeast_asia",
+  },
+
+  // === THAILAND ===
+  "Thailand:Bangkok:Business:5": {
+    softCostPercent: 8.0,
+    powcPercent: 5.0,
+    ffePercent: 20.0,
+    constructionCostPerKey: 5500,
+    adrBenchmark: 3500,
+    occupancyBenchmark: 75,
+    regionBucket: "southeast_asia",
+  },
+  "Thailand:Bangkok:Business:4": {
+    softCostPercent: 7.5,
+    powcPercent: 4.5,
+    ffePercent: 16.0,
+    constructionCostPerKey: 4200,
+    adrBenchmark: 2200,
+    occupancyBenchmark: 73,
+    regionBucket: "southeast_asia",
+  },
+  "Thailand:Phuket:Resort:5": {
+    softCostPercent: 9.0,
+    powcPercent: 5.5,
+    ffePercent: 26.0,
+    constructionCostPerKey: 7500,
+    adrBenchmark: 5500,
+    occupancyBenchmark: 70,
+    regionBucket: "southeast_asia",
+  },
+
+  // === AUSTRALIA ===
+  "Australia:Sydney:Business:5": {
+    softCostPercent: 10.0,
+    powcPercent: 6.0,
+    ffePercent: 22.0,
+    constructionCostPerKey: 550,
+    adrBenchmark: 450,
+    occupancyBenchmark: 72,
+    regionBucket: "australia",
+  },
+  "Australia:Sydney:Business:4": {
+    softCostPercent: 9.5,
+    powcPercent: 5.5,
+    ffePercent: 18.0,
+    constructionCostPerKey: 420,
+    adrBenchmark: 320,
+    occupancyBenchmark: 70,
+    regionBucket: "australia",
+  },
+};
+
+function profileKeyFromProject(pi: ProjectInfo): string | null {
+  if (!pi.country || !pi.city) return null;
+  const op = (pi.hotelOperatingType ?? "").trim();
+  const star = Number(pi.hotelStarRating);
+  if (!op || !Number.isFinite(star) || star <= 0) return null;
+  const opTitle = op.charAt(0).toUpperCase() + op.slice(1).toLowerCase();
+  return `${pi.country.trim()}:${pi.city.trim()}:${opTitle}:${Math.round(star)}`;
+}
+
+function findProfileDefault(pi: ProjectInfo) {
+  const rawKey = profileKeyFromProject(pi);
+  if (!rawKey) return { key: null as string | null, profile: undefined as (typeof PROFILE_DEFAULTS)[string] | undefined };
+
+  // Fast path: exact match.
+  const exact = PROFILE_DEFAULTS[rawKey];
+  if (exact) return { key: rawKey, profile: exact };
+
+  // Case/whitespace-insensitive fallback.
+  const norm = rawKey.replace(/\s+/g, " ").trim().toLowerCase();
+  for (const k of Object.keys(PROFILE_DEFAULTS)) {
+    if (k.replace(/\s+/g, " ").trim().toLowerCase() === norm) {
+      return { key: k, profile: PROFILE_DEFAULTS[k]! };
+    }
+  }
+  return { key: rawKey, profile: undefined };
+}
+
+function getProfileKey(
+  country: string,
+  city: string,
+  hotelOperatingType: string,
+  hotelStarRating: string | number
+): string {
+  const op = String(hotelOperatingType || "").trim();
+  const opTitle = op ? op.charAt(0).toUpperCase() + op.slice(1).toLowerCase() : "Business";
+  const star = Math.round(Number(hotelStarRating) || 5);
+  return `${String(country || "").trim()}:${String(city || "").trim()}:${opTitle}:${star}`;
+}
+
+function getProfileDefaults(profileKey: string) {
+  const exact = PROFILE_DEFAULTS[profileKey];
+  if (exact) return exact;
+  const norm = profileKey.replace(/\s+/g, " ").trim().toLowerCase();
+  for (const k of Object.keys(PROFILE_DEFAULTS)) {
+    if (k.replace(/\s+/g, " ").trim().toLowerCase() === norm) {
+      return PROFILE_DEFAULTS[k]!;
+    }
+  }
+  return undefined;
+}
 
 /** Sale stream: Step 3 — development product sub-types (more specific than `buildingType`). */
 const SALE_BUILDING_SUBTYPES: Array<{
@@ -179,56 +535,15 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-const HOTEL_OPERATING_TYPE_CARDS: {
-  value: HotelOperatingType;
-  icon: string;
-  label: string;
-  hint: string;
-  title: string;
-}[] = [
-  {
-    value: "business",
-    icon: "💼",
-    label: "Business / Upscale",
-    hint: "Full-service, conference, corporate demand.",
-    title: "Business and upscale full-service hotels (3–5★ in this model).",
-  },
-  {
-    value: "resort",
-    icon: "🏖️",
-    label: "Resort / Leisure",
-    hint: "Pool, F&B, destination leisure.",
-    title: "Resort and leisure hotels (4–5★ in this model).",
-  },
-  {
-    value: "boutique",
-    icon: "✨",
-    label: "Boutique / Lifestyle",
-    hint: "Design-led, smaller key count.",
-    title: "Boutique and lifestyle hotels (3–4★ in this model).",
-  },
-  {
-    value: "budget",
-    icon: "🏨",
-    label: "Budget / Economy",
-    hint: "Limited service, lean FF&E.",
-    title: "Economy and limited-service hotels (1★ in this model).",
-  },
-];
-
-const HOTEL_STARS_BY_TYPE: Record<HotelOperatingType, number[]> = {
-  budget: [1],
-  boutique: [3, 4],
-  business: [3, 4, 5],
-  resort: [4, 5],
-};
-
-export default function CashOutflowsPage() {
+function CashOutflowsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const streamPrefix: StreamPrefix = "/operational";
   const isOperationalStream = true;
   const operationalHotelProfilePrevKeyRef = useRef<string | null>(null);
+  const operationalRetailProfilePrevKeyRef = useRef<string | null>(null);
+  const operationalOfficeProfilePrevKeyRef = useRef<string | null>(null);
+  const cashOutflowStepVisitLogged = useRef<Set<number>>(new Set());
   const buildingTypeOptions = isOperationalStream
     ? OPERATIONAL_BUILDING_TYPES
     : SALE_BUILDING_SUBTYPES;
@@ -236,6 +551,17 @@ export default function CashOutflowsPage() {
   const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
   const isOperationalHotel =
     isOperationalStream && projectInfo.buildingType === "hotel";
+  const isOperationalRetail =
+    isOperationalStream && projectInfo.buildingType === "retail";
+  const isOperationalOffice =
+    isOperationalStream && projectInfo.buildingType === "office";
+  const isOperationalResidential =
+    isOperationalStream && projectInfo.buildingType === "residential";
+  const showsOperationalFfe =
+    isOperationalHotel ||
+    isOperationalRetail ||
+    isOperationalOffice ||
+    isOperationalResidential;
   const patchUpdateProjectInfo = useFinModelStore((s) => s.updateProjectInfo);
   const patchUpdateCashOutflows = useFinModelStore((s) => s.updateCashOutflows);
   const updateProjectInfoForStream = useCallback(
@@ -318,6 +644,174 @@ export default function CashOutflowsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const logCashOutflowAudit = (
+    field: string,
+    value: string | number | boolean,
+    uiStepOverride?: number
+  ) => {
+    const meta = CASH_OUTFLOW_AUDIT_FIELDS[field];
+    const uiStep = uiStepOverride ?? meta?.uiStep ?? currentStep + 1;
+    const stepTitle =
+      CASH_OUTFLOW_STEP_NAMES[uiStep] ?? meta?.label ?? `Step ${uiStep}`;
+    logAuditChange({
+      id: `operational.cashOutflows.${field}`,
+      label: meta?.label ?? humanizeFieldId(field),
+      value: formatCashOutflowAuditDisplay(field, value),
+      component: CASH_OUTFLOWS_COMPONENT,
+      step: `Step ${uiStep}: ${stepTitle}`,
+      route: cashOutflowAuditRoute(uiStep),
+      type:
+        meta?.type ??
+        (typeof value === "boolean" ? "toggle" : typeof value === "string" ? "select" : "input"),
+    });
+  };
+
+  // Log Step 3 asset type & Step 5 segment/positioning on first visit
+  useEffect(() => {
+    if (!isOperationalStream) return;
+    const uiStep = currentStep + 1;
+
+    if (uiStep === 3 && projectInfo.buildingType) {
+      if (!cashOutflowStepVisitLogged.current.has(3)) {
+        cashOutflowStepVisitLogged.current.add(3);
+        logOperationalCashOutflow("buildingType", projectInfo.buildingType, 3);
+      }
+    }
+
+    if (uiStep === 5) {
+      if (!cashOutflowStepVisitLogged.current.has(5)) {
+        cashOutflowStepVisitLogged.current.add(5);
+        if (isOperationalHotel) {
+          if (projectInfo.hotelOperatingType) {
+            logOperationalCashOutflow(
+              "hotelOperatingType",
+              projectInfo.hotelOperatingType,
+              5
+            );
+          }
+          if (projectInfo.hotelStarRating) {
+            logOperationalCashOutflow(
+              "hotelStarRating",
+              projectInfo.hotelStarRating,
+              5
+            );
+          }
+        } else if (isOperationalRetail) {
+          if (projectInfo.retailSegment) {
+            logOperationalCashOutflow("retailSegment", projectInfo.retailSegment, 5);
+          }
+          if (projectInfo.retailPositioning) {
+            logOperationalCashOutflow(
+              "retailPositioning",
+              projectInfo.retailPositioning,
+              5
+            );
+          }
+        } else if (isOperationalOffice) {
+          if (projectInfo.officeSegment) {
+            logOperationalCashOutflow("officeSegment", projectInfo.officeSegment, 5);
+          }
+          if (projectInfo.officePositioning) {
+            logOperationalCashOutflow(
+              "officePositioning",
+              projectInfo.officePositioning,
+              5
+            );
+          }
+        } else if (isOperationalResidential) {
+          if (projectInfo.residentialSegment) {
+            logOperationalCashOutflow(
+              "residentialSegment",
+              projectInfo.residentialSegment,
+              5
+            );
+          }
+          if (projectInfo.residentialPositioning) {
+            logOperationalCashOutflow(
+              "residentialPositioning",
+              projectInfo.residentialPositioning,
+              5
+            );
+          }
+        }
+      }
+    }
+
+    if (uiStep === 6 && !cashOutflowStepVisitLogged.current.has(6)) {
+      cashOutflowStepVisitLogged.current.add(6);
+      logOperationalCashOutflow("buildingBUA", cashOutflows.buildingBUA, 6);
+      logOperationalCashOutflow("buildingRate", cashOutflows.buildingRate, 6);
+      logOperationalCashOutflow("parkingBUA", cashOutflows.parkingBUA, 6);
+      logOperationalCashOutflow("parkingRate", cashOutflows.parkingRate, 6);
+      logOperationalCashOutflow("basementBUA", cashOutflows.basementBUA, 6);
+      logOperationalCashOutflow("basementRate", cashOutflows.basementRate, 6);
+    }
+
+    if (uiStep === 7 && !cashOutflowStepVisitLogged.current.has(7)) {
+      cashOutflowStepVisitLogged.current.add(7);
+      logOperationalCashOutflow(
+        "contingencyPercent",
+        cashOutflows.contingencyPercent,
+        7
+      );
+    }
+
+    if (uiStep === 8 && !cashOutflowStepVisitLogged.current.has(8)) {
+      cashOutflowStepVisitLogged.current.add(8);
+      logOperationalCashOutflow("softCostPercent", cashOutflows.softCostPercent, 8);
+      logOperationalCashOutflow("powcPercent", cashOutflows.powcPercent, 8);
+      if (showsOperationalFfe) {
+        logOperationalCashOutflow("ffePercent", cashOutflows.ffePercent, 8);
+      }
+    }
+
+    if (uiStep === 9 && !cashOutflowStepVisitLogged.current.has(9)) {
+      cashOutflowStepVisitLogged.current.add(9);
+      logOperationalCashOutflow("landArea", cashOutflows.landArea, 9);
+      logOperationalCashOutflow("landRate", cashOutflows.landRate, 9);
+    }
+
+    if (uiStep === 11) {
+      const months = cashOutflows.constructionPeriod;
+      if (months >= 6 && months <= 84) {
+        if (!cashOutflowStepVisitLogged.current.has(11)) {
+          cashOutflowStepVisitLogged.current.add(11);
+          logOperationalCashOutflow("constructionPeriod", months, 11);
+        }
+      }
+    }
+  }, [
+    currentStep,
+    cashOutflows.basementBUA,
+    cashOutflows.basementRate,
+    cashOutflows.buildingBUA,
+    cashOutflows.buildingRate,
+    cashOutflows.contingencyPercent,
+    cashOutflows.constructionPeriod,
+    cashOutflows.ffePercent,
+    cashOutflows.landArea,
+    cashOutflows.landRate,
+    cashOutflows.parkingBUA,
+    cashOutflows.parkingRate,
+    cashOutflows.powcPercent,
+    cashOutflows.softCostPercent,
+    isOperationalHotel,
+    isOperationalOffice,
+    isOperationalResidential,
+    isOperationalRetail,
+    isOperationalStream,
+    projectInfo.buildingType,
+    projectInfo.hotelOperatingType,
+    projectInfo.hotelStarRating,
+    projectInfo.officePositioning,
+    projectInfo.officeSegment,
+    projectInfo.residentialPositioning,
+    projectInfo.residentialSegment,
+    projectInfo.retailPositioning,
+    projectInfo.retailSegment,
+    showsOperationalFfe,
+  ]);
+
   const updateFormData = (field: string, value: unknown) => {
     const projectFields = new Set([
       "country",
@@ -331,6 +825,15 @@ export default function CashOutflowsPage() {
       "retailPercentage",
       "hotelOperatingType",
       "hotelStarRating",
+      "retailSegment",
+      "retailPositioning",
+      "officeSegment",
+      "officePositioning",
+      "officeCoworkingDelivery",
+      "residentialSegment",
+      "residentialPositioning",
+      "residentialFurnishingLevel",
+      "residentialIsServicedApartment",
     ]);
     if (projectFields.has(field)) {
       if (
@@ -339,7 +842,16 @@ export default function CashOutflowsPage() {
         field === "currency" ||
         field === "buildingType" ||
         field === "hotelOperatingType" ||
-        field === "hotelStarRating"
+        field === "hotelStarRating" ||
+        field === "retailSegment" ||
+        field === "retailPositioning" ||
+        field === "officeSegment" ||
+        field === "officePositioning" ||
+        field === "officeCoworkingDelivery" ||
+        field === "residentialSegment" ||
+        field === "residentialPositioning" ||
+        field === "residentialFurnishingLevel" ||
+        field === "residentialIsServicedApartment"
       ) {
         updateProjectInfoForStream({ [field]: value });
       } else {
@@ -348,7 +860,16 @@ export default function CashOutflowsPage() {
         });
       }
     } else {
-      if (field === "stage1Label" || field === "stage1Percent" || field === "stage2Label" || field === "stage2Percent" || field === "stage3Label" || field === "stage3Percent") {
+      if (
+        field === "stage1Label" ||
+        field === "stage1Percent" ||
+        field === "stage2Label" ||
+        field === "stage2Percent" ||
+        field === "stage3Label" ||
+        field === "stage3Percent" ||
+        field === "stage4Label" ||
+        field === "stage4Percent"
+      ) {
         updateCashOutflowsForStream({
           stageAllocation: { ...cashOutflows.stageAllocation, [field]: value },
         });
@@ -356,6 +877,31 @@ export default function CashOutflowsPage() {
         updateCashOutflowsForStream({ [field]: value });
       }
     }
+
+    if (
+      !CASH_OUTFLOW_STAGE_ALLOCATION_FIELDS.has(field) &&
+      field in CASH_OUTFLOW_AUDIT_FIELDS &&
+      (typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean")
+    ) {
+      logCashOutflowAudit(field, value);
+    }
+  };
+
+  const updateStageAllocationField = (
+    field: keyof typeof cashOutflows.stageAllocation,
+    value: string | number
+  ) => {
+    updateCashOutflowsForStream({
+      stageAllocation: { ...cashOutflows.stageAllocation, [field]: value },
+    });
+  };
+
+  const logConstructionPeriodMonths = (months: number) => {
+    if (!isOperationalStream) return;
+    if (!Number.isFinite(months) || months < 6 || months > 84) return;
+    logOperationalCashOutflow("constructionPeriod", months, 11);
   };
 
   // Derived calculations (from store state)
@@ -384,10 +930,9 @@ export default function CashOutflowsPage() {
   const powc =
     ccWithContingency * (cashOutflows.powcPercent / 100);
 
-  const ffe =
-    projectInfo.buildingType === "hotel"
-      ? ccWithContingency * (cashOutflows.ffePercent / 100)
-      : 0;
+  const ffe = showsOperationalFfe
+    ? ccWithContingency * (cashOutflows.ffePercent / 100)
+    : 0;
 
   const developmentCost = ccWithContingency + softCosts + powc + ffe; // DC
   const landCost = cashOutflows.landArea * cashOutflows.landRate; // LC
@@ -404,6 +949,29 @@ export default function CashOutflowsPage() {
     if (!op) return null;
     const star = Number(projectInfo.hotelStarRating);
     if (!isValidHotelCombo(op, star).valid) return null;
+
+    // Prefer MVP profile defaults (location + segment + stars) for tooltip + labels.
+    const { key: mvpKey, profile: def } = findProfileDefault(projectInfo);
+    if (def && mvpKey) {
+      const city = (projectInfo.city || "").trim();
+      const profileLine = `Profile: ${(op || "resort").toLowerCase()}-${Math.round(
+        star
+      )}-${(city || "dubai").toLowerCase()}`;
+      const tooltip = [
+        profileLine,
+        `Region bucket: ${def.regionBucket}`,
+        "",
+        "MVP benchmarks:",
+        `- Soft costs (SC): ${def.softCostPercent.toFixed(1)}%`,
+        `- Pre-opening & working capital (POWC): ${def.powcPercent.toFixed(1)}%`,
+        `- FF&E: ${def.ffePercent.toFixed(1)}%`,
+        `- Construction cost / key: ${def.constructionCostPerKey.toLocaleString()}`,
+        `- ADR benchmark: ${def.adrBenchmark.toLocaleString()}`,
+        `- Occupancy benchmark: ${def.occupancyBenchmark.toFixed(0)}%`,
+      ].join("\n");
+      return { key: `mvp:${mvpKey}`, profile: null, region: def.regionBucket, tooltip };
+    }
+
     const { key, profile } = resolveHotelProfile(
       op as HotelOperatingType,
       star,
@@ -429,6 +997,50 @@ export default function CashOutflowsPage() {
     const star = Number(projectInfo.hotelStarRating);
     if (!isValidHotelCombo(op, star).valid) return;
     if (baseCC <= 0 || ccWithContingency <= 0) return;
+
+    // Prefer MVP profile defaults (location + segment + stars) when available.
+    const { key: k, profile: def } = findProfileDefault(projectInfo);
+    if (def) {
+      const st = useFinModelStore.getState().operational?.cashOutflows;
+      const patch: Partial<CashOutflows> = {
+        operationalHotelProfileKey: `mvp:${k}`,
+      };
+
+      const keyChanged =
+        operationalHotelProfilePrevKeyRef.current !== null &&
+        operationalHotelProfilePrevKeyRef.current !== `mvp:${k}`;
+      operationalHotelProfilePrevKeyRef.current = `mvp:${k}`;
+
+      if (keyChanged) {
+        patch.operationalHotelScManual = false;
+        patch.operationalHotelPowcManual = false;
+        patch.operationalHotelFfeManual = false;
+        patch.softCostPercent = round2(def.softCostPercent);
+        patch.powcPercent = round2(def.powcPercent);
+        patch.ffePercent = round2(def.ffePercent);
+        updateCashOutflowsForStream(patch);
+        return;
+      }
+
+      if (!st?.operationalHotelScManual)
+        patch.softCostPercent = round2(def.softCostPercent);
+      if (!st?.operationalHotelPowcManual)
+        patch.powcPercent = round2(def.powcPercent);
+      if (!st?.operationalHotelFfeManual)
+        patch.ffePercent = round2(def.ffePercent);
+
+      const pctDiff = (next: number | undefined, cur: number) =>
+        next !== undefined && Math.abs(next - cur) > 0.004;
+      if (
+        pctDiff(patch.softCostPercent, st?.softCostPercent ?? 0) ||
+        pctDiff(patch.powcPercent, st?.powcPercent ?? 0) ||
+        pctDiff(patch.ffePercent, st?.ffePercent ?? 0) ||
+        patch.operationalHotelProfileKey !== st?.operationalHotelProfileKey
+      ) {
+        updateCashOutflowsForStream(patch);
+      }
+      return;
+    }
 
     const { key, profile } = resolveHotelProfile(
       op as HotelOperatingType,
@@ -489,6 +1101,453 @@ export default function CashOutflowsPage() {
     updateCashOutflowsForStream,
   ]);
 
+  const retailBenchmark = useMemo(() => {
+    if (!isOperationalRetail) return null;
+    if (!projectInfo.retailSegment?.trim() || !projectInfo.retailPositioning?.trim()) {
+      return null;
+    }
+    return getRetailBenchmark(
+      projectInfo.country,
+      projectInfo.retailSegment,
+      projectInfo.retailPositioning
+    );
+  }, [
+    isOperationalRetail,
+    projectInfo.country,
+    projectInfo.retailSegment,
+    projectInfo.retailPositioning,
+  ]);
+
+  const retailProfileKey = useMemo(() => {
+    if (!isOperationalRetail) return null;
+    if (!projectInfo.retailSegment?.trim() || !projectInfo.retailPositioning?.trim()) {
+      return null;
+    }
+    return getRetailBenchmarkProfileKey(
+      projectInfo.country,
+      projectInfo.retailSegment,
+      projectInfo.retailPositioning
+    );
+  }, [
+    isOperationalRetail,
+    projectInfo.country,
+    projectInfo.retailSegment,
+    projectInfo.retailPositioning,
+  ]);
+
+  const retailBenchmarkReady =
+    isOperationalRetail &&
+    !!projectInfo.retailSegment?.trim() &&
+    !!projectInfo.retailPositioning?.trim() &&
+    !!retailBenchmark;
+
+  const RETAIL_BENCHMARK_EPS = 0.01;
+
+  const retailCcRateOverrides = useMemo(() => {
+    if (!retailBenchmark || !isOperationalRetail) {
+      return { building: false, parking: false, basement: false, any: false };
+    }
+    const differs = (current: number, benchmark: number) =>
+      Math.abs(current - benchmark) > RETAIL_BENCHMARK_EPS;
+    const building = differs(
+      cashOutflows.buildingRate,
+      retailBenchmark.buildingRate
+    );
+    const parking = differs(
+      cashOutflows.parkingRate,
+      retailBenchmark.parkingRate
+    );
+    const basement = differs(
+      cashOutflows.basementRate,
+      retailBenchmark.basementRate
+    );
+    return {
+      building,
+      parking,
+      basement,
+      any: building || parking || basement,
+    };
+  }, [
+    retailBenchmark,
+    isOperationalRetail,
+    cashOutflows.buildingRate,
+    cashOutflows.parkingRate,
+    cashOutflows.basementRate,
+  ]);
+
+  const handleRetailCcRateChange = useCallback(
+    (
+      field: "buildingRate" | "parkingRate" | "basementRate",
+      manualFlag:
+        | "operationalRetailBuildingRateManual"
+        | "operationalRetailParkingRateManual"
+        | "operationalRetailBasementRateManual",
+      value: number,
+      benchmarkValue: number
+    ) => {
+      const hasChanged = Math.abs(value - benchmarkValue) > RETAIL_BENCHMARK_EPS;
+      updateCashOutflowsForStream({
+        [field]: value,
+        [manualFlag]: hasChanged,
+      });
+      logOperationalCashOutflow(field, value, 6);
+    },
+    [updateCashOutflowsForStream]
+  );
+
+  const retailHasManualOverride =
+    isOperationalRetail &&
+    !!(
+      cashOutflows.operationalRetailBuildingRateManual ||
+      cashOutflows.operationalRetailParkingRateManual ||
+      cashOutflows.operationalRetailBasementRateManual ||
+      cashOutflows.operationalRetailScManual ||
+      cashOutflows.operationalRetailPowcManual ||
+      cashOutflows.operationalRetailFfeManual ||
+      cashOutflows.operationalRetailLandRateManual
+    );
+
+  const resetRetailProfileDefaults = useCallback(() => {
+    if (!retailBenchmark || !retailProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalRetailProfileKey: retailProfileKey,
+      operationalRetailBuildingRateManual: false,
+      operationalRetailParkingRateManual: false,
+      operationalRetailBasementRateManual: false,
+      operationalRetailScManual: false,
+      operationalRetailPowcManual: false,
+      operationalRetailFfeManual: false,
+      operationalRetailLandRateManual: false,
+      buildingRate: retailBenchmark.buildingRate,
+      parkingRate: retailBenchmark.parkingRate,
+      basementRate: retailBenchmark.basementRate,
+      softCostPercent: round2(retailBenchmark.softCostsPercent),
+      powcPercent: round2(retailBenchmark.powcPercent),
+      ffePercent: round2(retailBenchmark.ffePercent),
+      landRate: retailBenchmark.landRate,
+    });
+    operationalRetailProfilePrevKeyRef.current = retailProfileKey;
+  }, [
+    retailBenchmark,
+    retailProfileKey,
+    updateCashOutflowsForStream,
+  ]);
+
+  const retailRateFieldClass = (manual?: boolean) =>
+    `w-full px-3 py-2 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+      manual
+        ? "border-2 border-amber-500/70 bg-amber-900/10"
+        : "border border-slate-700 bg-slate-800"
+    }`;
+
+  const retailPercentFieldClass = (manual?: boolean) =>
+    `w-full rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+      manual
+        ? "border-2 border-amber-500/70 bg-amber-900/10"
+        : "border border-slate-700 bg-slate-800"
+    }`;
+
+  useEffect(() => {
+    if (!isOperationalRetail || !retailBenchmark || !retailProfileKey) return;
+
+    const st = useFinModelStore.getState().operational?.cashOutflows;
+    const keyChanged =
+      operationalRetailProfilePrevKeyRef.current !== null &&
+      operationalRetailProfilePrevKeyRef.current !== retailProfileKey;
+    operationalRetailProfilePrevKeyRef.current = retailProfileKey;
+
+    const patch: Partial<CashOutflows> = {
+      operationalRetailProfileKey: retailProfileKey,
+    };
+
+    if (keyChanged) {
+      patch.operationalRetailBuildingRateManual = false;
+      patch.operationalRetailParkingRateManual = false;
+      patch.operationalRetailBasementRateManual = false;
+      patch.operationalRetailScManual = false;
+      patch.operationalRetailPowcManual = false;
+      patch.operationalRetailFfeManual = false;
+      patch.operationalRetailLandRateManual = false;
+      patch.buildingRate = retailBenchmark.buildingRate;
+      patch.parkingRate = retailBenchmark.parkingRate;
+      patch.basementRate = retailBenchmark.basementRate;
+      patch.softCostPercent = round2(retailBenchmark.softCostsPercent);
+      patch.powcPercent = round2(retailBenchmark.powcPercent);
+      patch.ffePercent = round2(retailBenchmark.ffePercent);
+      patch.landRate = retailBenchmark.landRate;
+      updateCashOutflowsForStream(patch);
+      return;
+    }
+
+    if (!st?.operationalRetailBuildingRateManual)
+      patch.buildingRate = retailBenchmark.buildingRate;
+    if (!st?.operationalRetailParkingRateManual)
+      patch.parkingRate = retailBenchmark.parkingRate;
+    if (!st?.operationalRetailBasementRateManual)
+      patch.basementRate = retailBenchmark.basementRate;
+    if (!st?.operationalRetailScManual)
+      patch.softCostPercent = round2(retailBenchmark.softCostsPercent);
+    if (!st?.operationalRetailPowcManual)
+      patch.powcPercent = round2(retailBenchmark.powcPercent);
+    if (!st?.operationalRetailFfeManual)
+      patch.ffePercent = round2(retailBenchmark.ffePercent);
+    if (!st?.operationalRetailLandRateManual)
+      patch.landRate = retailBenchmark.landRate;
+
+    const numDiff = (next: number | undefined, cur: number) =>
+      next !== undefined && Math.abs(next - cur) > 0.004;
+
+    if (
+      numDiff(patch.buildingRate, st?.buildingRate ?? 0) ||
+      numDiff(patch.parkingRate, st?.parkingRate ?? 0) ||
+      numDiff(patch.basementRate, st?.basementRate ?? 0) ||
+      numDiff(patch.softCostPercent, st?.softCostPercent ?? 0) ||
+      numDiff(patch.powcPercent, st?.powcPercent ?? 0) ||
+      numDiff(patch.ffePercent, st?.ffePercent ?? 0) ||
+      numDiff(patch.landRate, st?.landRate ?? 0) ||
+      patch.operationalRetailProfileKey !== st?.operationalRetailProfileKey
+    ) {
+      updateCashOutflowsForStream(patch);
+    }
+  }, [
+    isOperationalRetail,
+    retailBenchmark,
+    retailProfileKey,
+    projectInfo.country,
+    projectInfo.retailSegment,
+    projectInfo.retailPositioning,
+    updateCashOutflowsForStream,
+  ]);
+
+  const officeCoworkingDeliveryForBenchmark =
+    projectInfo.officeSegment === "co_working"
+      ? projectInfo.officeCoworkingDelivery
+      : undefined;
+
+  const officeBenchmark = useMemo(() => {
+    if (!isOperationalOffice) return null;
+    if (!projectInfo.officeSegment?.trim() || !projectInfo.officePositioning?.trim()) {
+      return null;
+    }
+    return getOfficeBenchmark(
+      projectInfo.country,
+      projectInfo.officeSegment,
+      projectInfo.officePositioning,
+      officeCoworkingDeliveryForBenchmark
+    );
+  }, [
+    isOperationalOffice,
+    projectInfo.country,
+    projectInfo.officeSegment,
+    projectInfo.officePositioning,
+    officeCoworkingDeliveryForBenchmark,
+  ]);
+
+  const officeProfileKey = useMemo(() => {
+    if (!isOperationalOffice) return null;
+    if (!projectInfo.officeSegment?.trim() || !projectInfo.officePositioning?.trim()) {
+      return null;
+    }
+    return getOfficeBenchmarkProfileKey(
+      projectInfo.country,
+      projectInfo.officeSegment,
+      projectInfo.officePositioning,
+      officeCoworkingDeliveryForBenchmark
+    );
+  }, [
+    isOperationalOffice,
+    projectInfo.country,
+    projectInfo.officeSegment,
+    projectInfo.officePositioning,
+    officeCoworkingDeliveryForBenchmark,
+  ]);
+
+  const officeBenchmarkReady =
+    isOperationalOffice &&
+    !!projectInfo.officeSegment?.trim() &&
+    !!projectInfo.officePositioning?.trim() &&
+    !!officeBenchmark;
+
+  const OFFICE_BENCHMARK_EPS = 0.01;
+
+  const officeCcRateOverrides = useMemo(() => {
+    if (!officeBenchmark || !isOperationalOffice) {
+      return { building: false, parking: false, basement: false, any: false };
+    }
+    const differs = (current: number, benchmark: number) =>
+      Math.abs(current - benchmark) > OFFICE_BENCHMARK_EPS;
+    const building = differs(
+      cashOutflows.buildingRate,
+      officeBenchmark.buildingRate
+    );
+    const parking = differs(
+      cashOutflows.parkingRate,
+      officeBenchmark.parkingRate
+    );
+    const basement = differs(
+      cashOutflows.basementRate,
+      officeBenchmark.basementRate
+    );
+    return {
+      building,
+      parking,
+      basement,
+      any: building || parking || basement,
+    };
+  }, [
+    officeBenchmark,
+    isOperationalOffice,
+    cashOutflows.buildingRate,
+    cashOutflows.parkingRate,
+    cashOutflows.basementRate,
+  ]);
+
+  const handleOfficeCcRateChange = useCallback(
+    (
+      field: "buildingRate" | "parkingRate" | "basementRate",
+      manualFlag:
+        | "operationalOfficeBuildingRateManual"
+        | "operationalOfficeParkingRateManual"
+        | "operationalOfficeBasementRateManual",
+      value: number,
+      benchmarkValue: number
+    ) => {
+      const hasChanged = Math.abs(value - benchmarkValue) > OFFICE_BENCHMARK_EPS;
+      updateCashOutflowsForStream({
+        [field]: value,
+        [manualFlag]: hasChanged,
+      });
+      logOperationalCashOutflow(field, value, 6);
+    },
+    [updateCashOutflowsForStream]
+  );
+
+  const officeHasManualOverride =
+    isOperationalOffice &&
+    !!(
+      cashOutflows.operationalOfficeBuildingRateManual ||
+      cashOutflows.operationalOfficeParkingRateManual ||
+      cashOutflows.operationalOfficeBasementRateManual ||
+      cashOutflows.operationalOfficeScManual ||
+      cashOutflows.operationalOfficePowcManual ||
+      cashOutflows.operationalOfficeFfeManual ||
+      cashOutflows.operationalOfficeLandRateManual
+    );
+
+  const resetOfficeProfileDefaults = useCallback(() => {
+    if (!officeBenchmark || !officeProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalOfficeProfileKey: officeProfileKey,
+      operationalOfficeBuildingRateManual: false,
+      operationalOfficeParkingRateManual: false,
+      operationalOfficeBasementRateManual: false,
+      operationalOfficeScManual: false,
+      operationalOfficePowcManual: false,
+      operationalOfficeFfeManual: false,
+      operationalOfficeLandRateManual: false,
+      buildingRate: officeBenchmark.buildingRate,
+      parkingRate: officeBenchmark.parkingRate,
+      basementRate: officeBenchmark.basementRate,
+      softCostPercent: round2(officeBenchmark.softCostsPercent),
+      powcPercent: round2(officeBenchmark.powcPercent),
+      ffePercent: round2(officeBenchmark.ffePercent),
+      landRate: officeBenchmark.landRate,
+    });
+    operationalOfficeProfilePrevKeyRef.current = officeProfileKey;
+  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+
+  const officeRateFieldClass = retailRateFieldClass;
+  const officePercentFieldClass = retailPercentFieldClass;
+
+  const officeFfeFieldLabel =
+    projectInfo.officeSegment === "co_working" &&
+    projectInfo.officeCoworkingDelivery === "developer"
+      ? "FFE % of CC incl. contingency (Co-Working Developer)"
+      : projectInfo.officeSegment === "co_working" &&
+          projectInfo.officeCoworkingDelivery === "operator"
+        ? "FFE % of CC incl. contingency (Co-Working Operator)"
+        : "FFE % of CC incl. contingency (Office)";
+
+  const residentialBenchmark = useResidentialCashOutflowBenchmark(
+    projectInfo,
+    cashOutflows,
+    updateCashOutflowsForStream,
+    isOperationalResidential
+  );
+
+  useEffect(() => {
+    if (!isOperationalOffice || !officeBenchmark || !officeProfileKey) return;
+
+    const st = useFinModelStore.getState().operational?.cashOutflows;
+    const keyChanged =
+      operationalOfficeProfilePrevKeyRef.current !== null &&
+      operationalOfficeProfilePrevKeyRef.current !== officeProfileKey;
+    operationalOfficeProfilePrevKeyRef.current = officeProfileKey;
+
+    const patch: Partial<CashOutflows> = {
+      operationalOfficeProfileKey: officeProfileKey,
+    };
+
+    if (keyChanged) {
+      patch.operationalOfficeBuildingRateManual = false;
+      patch.operationalOfficeParkingRateManual = false;
+      patch.operationalOfficeBasementRateManual = false;
+      patch.operationalOfficeScManual = false;
+      patch.operationalOfficePowcManual = false;
+      patch.operationalOfficeFfeManual = false;
+      patch.operationalOfficeLandRateManual = false;
+      patch.buildingRate = officeBenchmark.buildingRate;
+      patch.parkingRate = officeBenchmark.parkingRate;
+      patch.basementRate = officeBenchmark.basementRate;
+      patch.softCostPercent = round2(officeBenchmark.softCostsPercent);
+      patch.powcPercent = round2(officeBenchmark.powcPercent);
+      patch.ffePercent = round2(officeBenchmark.ffePercent);
+      patch.landRate = officeBenchmark.landRate;
+      updateCashOutflowsForStream(patch);
+      return;
+    }
+
+    if (!st?.operationalOfficeBuildingRateManual)
+      patch.buildingRate = officeBenchmark.buildingRate;
+    if (!st?.operationalOfficeParkingRateManual)
+      patch.parkingRate = officeBenchmark.parkingRate;
+    if (!st?.operationalOfficeBasementRateManual)
+      patch.basementRate = officeBenchmark.basementRate;
+    if (!st?.operationalOfficeScManual)
+      patch.softCostPercent = round2(officeBenchmark.softCostsPercent);
+    if (!st?.operationalOfficePowcManual)
+      patch.powcPercent = round2(officeBenchmark.powcPercent);
+    if (!st?.operationalOfficeFfeManual)
+      patch.ffePercent = round2(officeBenchmark.ffePercent);
+    if (!st?.operationalOfficeLandRateManual)
+      patch.landRate = officeBenchmark.landRate;
+
+    const numDiff = (next: number | undefined, cur: number) =>
+      next !== undefined && Math.abs(next - cur) > 0.004;
+
+    if (
+      numDiff(patch.buildingRate, st?.buildingRate ?? 0) ||
+      numDiff(patch.parkingRate, st?.parkingRate ?? 0) ||
+      numDiff(patch.basementRate, st?.basementRate ?? 0) ||
+      numDiff(patch.softCostPercent, st?.softCostPercent ?? 0) ||
+      numDiff(patch.powcPercent, st?.powcPercent ?? 0) ||
+      numDiff(patch.ffePercent, st?.ffePercent ?? 0) ||
+      numDiff(patch.landRate, st?.landRate ?? 0) ||
+      patch.operationalOfficeProfileKey !== st?.operationalOfficeProfileKey
+    ) {
+      updateCashOutflowsForStream(patch);
+    }
+  }, [
+    isOperationalOffice,
+    officeBenchmark,
+    officeProfileKey,
+    projectInfo.country,
+    projectInfo.officeSegment,
+    projectInfo.officePositioning,
+    officeCoworkingDeliveryForBenchmark,
+    updateCashOutflowsForStream,
+  ]);
+
   const validateStep = (step: number): boolean => {
     const newErrors: Errors = {};
     const bc = projectInfo.buildingConfig;
@@ -513,29 +1572,32 @@ export default function CashOutflowsPage() {
       if (bc.podiumFloors < 0)
         newErrors.podiumFloors = "Podium/parking floors cannot be negative.";
       if (bc.towerFloors <= 0)
-        newErrors.towerFloors = "Tower floors must be greater than 0.";
+        newErrors.towerFloors = "Building floors must be greater than 0.";
     }
 
     if (step === 4 && isOperationalHotel) {
-      const op = projectInfo.hotelOperatingType ?? "";
-      if (!op) {
-        newErrors.hotelOperatingType = "Select a hotel operating segment.";
-      }
-      const star = Number(projectInfo.hotelStarRating);
-      if (!Number.isFinite(star) || star <= 0) {
-        newErrors.hotelStarRating = "Select a star rating for this segment.";
-      } else if (op) {
-        const combo = isValidHotelCombo(op, star);
-        if (!combo.valid && combo.message) {
-          newErrors.hotelStarRating = combo.message;
-        }
-      }
+      Object.assign(newErrors, validateHotelSegmentation(projectInfo));
+    }
+
+    if (step === 4 && isOperationalRetail) {
+      Object.assign(newErrors, validateRetailSegmentation(projectInfo));
+    }
+
+    if (step === 4 && isOperationalOffice) {
+      Object.assign(newErrors, validateOfficeSegmentation(projectInfo));
+    }
+
+    if (step === 4 && isOperationalResidential) {
+      Object.assign(newErrors, validateResidentialSegmentation(projectInfo));
     }
 
     if (
       step === 4 &&
-      (projectInfo.buildingType === "residential" ||
-        projectInfo.buildingType === "office")
+      !isOperationalHotel &&
+      !isOperationalRetail &&
+      !isOperationalOffice &&
+      !isOperationalResidential &&
+      projectInfo.buildingType === "office"
     ) {
       if (bc.hasRetailComponent) {
         if (bc.retailPercentage <= 0 || bc.retailPercentage > 50) {
@@ -576,12 +1638,14 @@ export default function CashOutflowsPage() {
         newErrors.powcPercent =
           "POWC % should be between 0% and 20% of CC incl. contingency.";
       }
-      if (projectInfo.buildingType === "hotel") {
-        const ffeMax = isOperationalHotel ? 45 : 20;
-        if (cashOutflows.ffePercent < 5 || cashOutflows.ffePercent > ffeMax) {
-          newErrors.ffePercent = isOperationalHotel
-            ? `FFE % for operational hotels is typically between 5% and ${ffeMax}% of CC incl. contingency (profile-driven ranges can be higher).`
-            : "FFE % for hotels is typically between 5% and 20% of CC.";
+      if (showsOperationalFfe) {
+        const ffeError = validateOperationalFfePercent(
+          cashOutflows.ffePercent,
+          projectInfo.buildingType,
+          projectInfo
+        );
+        if (ffeError) {
+          newErrors.ffePercent = ffeError;
         }
       }
     }
@@ -615,14 +1679,15 @@ export default function CashOutflowsPage() {
     if (step === 11) {
       const sa = cashOutflows.stageAllocation;
       const totalStagePercent =
-        sa.stage1Percent + sa.stage2Percent + sa.stage3Percent;
+        sa.stage1Percent + sa.stage2Percent + sa.stage3Percent + sa.stage4Percent;
       if (totalStagePercent !== 100) {
         newErrors.stages = "Stage allocation must sum to 100% of CC%.";
       }
       if (
         sa.stage1Percent <= 0 ||
         sa.stage2Percent <= 0 ||
-        sa.stage3Percent <= 0
+        sa.stage3Percent <= 0 ||
+        sa.stage4Percent <= 0
       ) {
         newErrors.stages = "Each stage must have a positive percentage.";
       }
@@ -654,6 +1719,7 @@ export default function CashOutflowsPage() {
     if (!Number.isFinite(n) || n < 6 || n > 84) return;
     updateCashOutflowsForStream({ constructionPeriod: n });
     setConstructionPeriodDraft(String(n));
+    logConstructionPeriodMonths(n);
   };
 
   const handleNext = () => {
@@ -679,10 +1745,9 @@ export default function CashOutflowsPage() {
         constructionCost * (cashOutflows.softCostPercent / 100);
       const powc =
         constructionCost * (cashOutflows.powcPercent / 100);
-      const ffe =
-        projectInfo.buildingType === "hotel"
-          ? constructionCost * (cashOutflows.ffePercent / 100)
-          : 0;
+      const ffe = showsOperationalFfe
+        ? constructionCost * (cashOutflows.ffePercent / 100)
+        : 0;
       const developmentCost =
         constructionCost + softCosts + powc + ffe;
       const landCost =
@@ -773,11 +1838,14 @@ export default function CashOutflowsPage() {
                     onChange={(e) => {
                       const name = e.target.value;
                       const country = COUNTRIES.find((c) => c.name === name);
+                      const defaultCurrency =
+                        (country?.currency?.[0] ?? projectInfo.currency) as any;
                       updateProjectInfoForStream({
                         country: name,
                         city: "",
-                        ...(country && { currency: country.currency }),
+                        ...(country && { currency: defaultCurrency }),
                       });
+                      if (name) logCashOutflowAudit("country", name, 1);
                     }}
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
@@ -821,7 +1889,9 @@ export default function CashOutflowsPage() {
                   <p className="text-xs text-slate-500">
                     Currency auto-set to{" "}
                     <span className="text-emerald-400 font-medium">
-                      {COUNTRIES.find((c) => c.name === projectInfo.country)?.currency ?? projectInfo.currency}
+                      {(COUNTRIES.find((c) => c.name === projectInfo.country)
+                        ?.currency?.[0] ??
+                        projectInfo.currency) as any}
                     </span>{" "}
                     for {projectInfo.country}. You can change it in the next step if needed.
                   </p>
@@ -845,20 +1915,19 @@ export default function CashOutflowsPage() {
                   onChange={(e) =>
                     updateFormData(
                       "currency",
-                      e.target.value as ProjectInfo["currency"]
+                      e.target.value as any
                     )
                   }
                   className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value="AED">AED - UAE Dirham</option>
-                  <option value="SAR">SAR - Saudi Riyal</option>
-                  <option value="KWD">KWD - Kuwaiti Dinar</option>
-                  <option value="QAR">QAR - Qatari Riyal</option>
-                  <option value="BHD">BHD - Bahraini Dinar</option>
-                  <option value="OMR">OMR - Omani Rial</option>
-                  <option value="GBP">GBP - British Pound</option>
-                  <option value="MYR">MYR - Malaysian Ringgit</option>
-                  <option value="USD">USD - US Dollar</option>
+                  {(
+                    COUNTRIES.find((c) => c.name === projectInfo.country)
+                      ?.currency ?? ["USD"]
+                  ).map((ccy) => (
+                    <option key={ccy} value={ccy}>
+                      {CURRENCY_LABELS[ccy] ?? ccy}
+                    </option>
+                  ))}
                 </select>
                 {fieldError("currency") && (
                   <p className="mt-1 text-sm text-red-400">
@@ -1081,7 +2150,7 @@ export default function CashOutflowsPage() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Tower Floors
+                              Building Floors
                             </label>
                             <input
                               type="number"
@@ -1260,7 +2329,7 @@ export default function CashOutflowsPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Tower Floors
+                      Building Floors
                     </label>
                     <input
                       type="number"
@@ -1285,108 +2354,39 @@ export default function CashOutflowsPage() {
           {/* Step 1c: Operational hotel segment / Mixed-Use Toggle */}
           {currentStep === 4 && (
             <div>
-              {isOperationalHotel ? (
-                <>
-                  <h2 className="text-xl font-semibold text-white mb-2">
-                    Hotel operating segment & star rating
-                  </h2>
-                  <p className="text-sm text-slate-400 mb-6">
-                    Choose the positioning that best matches your hold strategy.
-                    Star options follow typical industry pairings; invalid
-                    combinations block the next step.
-                  </p>
-
-                  <p className="text-sm font-medium text-slate-200 mb-3">
-                    Operating segment
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                    {HOTEL_OPERATING_TYPE_CARDS.map((opt) => {
-                      const selected =
-                        projectInfo.hotelOperatingType === opt.value;
-                      return (
-                        <HoverTipAbove key={opt.value} tip={opt.title}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const allowed = HOTEL_STARS_BY_TYPE[opt.value];
-                              const cur = Number(projectInfo.hotelStarRating);
-                              const keepStar = allowed.includes(cur);
-                              updateProjectInfoForStream({
-                                hotelOperatingType: opt.value,
-                                hotelStarRating: keepStar
-                                  ? projectInfo.hotelStarRating
-                                  : "",
-                              });
-                            }}
-                            className={`w-full min-h-[100px] cursor-pointer rounded-xl border p-5 text-left shadow-sm transition-all ${
-                              selected
-                                ? "border-emerald-500 bg-emerald-500/15 text-emerald-100 ring-2 ring-emerald-500/40"
-                                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-slate-500 hover:bg-slate-800"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <span className="shrink-0 text-2xl" aria-hidden>
-                                {opt.icon}
-                              </span>
-                              <div className="min-w-0">
-                                <span className="block text-base font-semibold leading-snug">
-                                  {opt.label}
-                                </span>
-                                <span className="mt-2 block text-xs font-normal leading-relaxed text-slate-400">
-                                  {opt.hint}
-                                </span>
-                              </div>
-                            </div>
-                          </button>
-                        </HoverTipAbove>
-                      );
-                    })}
-                  </div>
-                  {fieldError("hotelOperatingType") && (
-                    <p className="mb-4 text-sm text-red-400">
-                      {fieldError("hotelOperatingType")}
-                    </p>
-                  )}
-
-                  <p className="text-sm font-medium text-slate-200 mb-3">
-                    Star rating
-                  </p>
-                  {projectInfo.hotelOperatingType ? (
-                    <div className="flex flex-wrap gap-3">
-                      {HOTEL_STARS_BY_TYPE[
-                        projectInfo.hotelOperatingType as HotelOperatingType
-                      ].map((s) => {
-                        const selected =
-                          projectInfo.hotelStarRating === String(s);
-                        return (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() =>
-                              updateProjectInfoForStream({ hotelStarRating: String(s) })
-                            }
-                            className={`rounded-lg border px-5 py-3 text-sm font-semibold transition-all ${
-                              selected
-                                ? "border-emerald-500 bg-emerald-500/20 text-emerald-200 ring-2 ring-emerald-500/30"
-                                : "border-slate-600 bg-slate-800 text-slate-200 hover:border-slate-500"
-                            }`}
-                          >
-                            {s}★
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">
-                      Select an operating segment to see allowed star ratings.
-                    </p>
-                  )}
-                  {fieldError("hotelStarRating") && (
-                    <p className="mt-3 text-sm text-red-400">
-                      {fieldError("hotelStarRating")}
-                    </p>
-                  )}
-                </>
+              {isOperationalOffice ? (
+                <OfficeSegmentationStep
+                  errors={{
+                    officeSegment: fieldError("officeSegment"),
+                    officePositioning: fieldError("officePositioning"),
+                  }}
+                />
+              ) : isOperationalRetail ? (
+                <RetailSegmentationStep
+                  errors={{
+                    retailSegment: fieldError("retailSegment"),
+                    retailPositioning: fieldError("retailPositioning"),
+                  }}
+                />
+              ) : isOperationalResidential ? (
+                <ResidentialSegmentationStep
+                  errors={{
+                    residentialSegment: fieldError("residentialSegment"),
+                    residentialPositioning: fieldError(
+                      "residentialPositioning"
+                    ),
+                    residentialFurnishingLevel: fieldError(
+                      "residentialFurnishingLevel"
+                    ),
+                  }}
+                />
+              ) : isOperationalHotel ? (
+                <HotelSegmentationStep
+                  errors={{
+                    hotelOperatingType: fieldError("hotelOperatingType"),
+                    hotelStarRating: fieldError("hotelStarRating"),
+                  }}
+                />
               ) : (
                 <>
                   <h2 className="text-xl font-semibold text-white mb-6">
@@ -1474,10 +2474,43 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-6">
                 Construction Costs (CC)
               </h2>
-              <p className="text-sm text-slate-400 mb-4">
-                Enter built-up areas (BUA) and benchmark construction rates for each
-                component.
-              </p>
+              {residentialBenchmark.benchmarkReady ? (
+                <ResidentialStep6Construction
+                  projectInfo={projectInfo}
+                  benchmarkReady={residentialBenchmark.benchmarkReady}
+                  ccOverrides={residentialBenchmark.ccRateOverrides}
+                  hasManualOverride={residentialBenchmark.hasManualOverride}
+                  onReset={residentialBenchmark.resetProfileDefaults}
+                />
+              ) : retailBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="retail"
+                  country={projectInfo.country}
+                  segment={projectInfo.retailSegment}
+                  positioning={projectInfo.retailPositioning}
+                  onUseDefaults={resetRetailProfileDefaults}
+                  isManualOverride={retailCcRateOverrides.any}
+                />
+              ) : officeBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="office"
+                  country={projectInfo.country}
+                  segment={projectInfo.officeSegment}
+                  positioning={projectInfo.officePositioning}
+                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                  onUseDefaults={resetOfficeProfileDefaults}
+                  isManualOverride={officeCcRateOverrides.any}
+                />
+              ) : null}
+              {!residentialBenchmark.benchmarkReady ? (
+                <p className="mb-4 text-sm text-slate-400">
+                  {retailBenchmarkReady
+                    ? "Building, parking, and basement rates are suggested from your segment, positioning, and country. Typed values count as overrides."
+                    : officeBenchmarkReady
+                      ? "Building, parking, and basement rates are suggested from your office segment, positioning, and country. Typed values count as overrides."
+                      : "Enter built-up areas (BUA) and benchmark construction rates for each component."}
+                </p>
+              ) : null}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-200">
@@ -1505,19 +2538,62 @@ export default function CashOutflowsPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
-                      Building Rate ({projectInfo.currency}/sqft)
+                    <label className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
+                      <span>
+                        Building Rate ({projectInfo.currency}/sqft)
+                      </span>
+                      {retailCcRateOverrides.building ||
+                      officeCcRateOverrides.building ||
+                      residentialBenchmark.ccRateOverrides.building ? (
+                        <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                          Override
+                        </span>
+                      ) : null}
                     </label>
                     <input
                       type="number"
                       value={cashOutflows.buildingRate}
-                      onChange={(e) =>
-                        updateFormData(
-                          "buildingRate",
-                          Number(e.target.value) || 0
-                        )
+                      onChange={(e) => {
+                        const v = Number(e.target.value) || 0;
+                        if (
+                          isOperationalResidential &&
+                          residentialBenchmark.benchmark
+                        ) {
+                          residentialBenchmark.handleCcRateChange(
+                            "buildingRate",
+                            "operationalResidentialBuildingRateManual",
+                            v,
+                            residentialBenchmark.benchmark.buildingRate
+                          );
+                        } else if (isOperationalRetail && retailBenchmark) {
+                          handleRetailCcRateChange(
+                            "buildingRate",
+                            "operationalRetailBuildingRateManual",
+                            v,
+                            retailBenchmark.buildingRate
+                          );
+                        } else if (isOperationalOffice && officeBenchmark) {
+                          handleOfficeCcRateChange(
+                            "buildingRate",
+                            "operationalOfficeBuildingRateManual",
+                            v,
+                            officeBenchmark.buildingRate
+                          );
+                        } else {
+                          updateFormData("buildingRate", v);
+                        }
+                      }}
+                      className={
+                        isOperationalResidential
+                          ? residentialBenchmark.rateFieldClass(
+                              residentialBenchmark.ccRateOverrides.building
+                            )
+                          : isOperationalRetail
+                            ? retailRateFieldClass(retailCcRateOverrides.building)
+                            : isOperationalOffice
+                              ? officeRateFieldClass(officeCcRateOverrides.building)
+                              : "w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {fieldError("buildingRate") && (
                       <p className="mt-1 text-sm text-red-400">
@@ -1563,19 +2639,62 @@ export default function CashOutflowsPage() {
                       )}
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Parking Rate ({projectInfo.currency}/sqft)
+                      <label className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
+                        <span>
+                          Parking Rate ({projectInfo.currency}/sqft)
+                        </span>
+                        {retailCcRateOverrides.parking ||
+                        officeCcRateOverrides.parking ||
+                        residentialBenchmark.ccRateOverrides.parking ? (
+                          <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                            Override
+                          </span>
+                        ) : null}
                       </label>
                       <input
                         type="number"
                         value={cashOutflows.parkingRate}
-                        onChange={(e) =>
-                          updateFormData(
-                            "parkingRate",
-                            Number(e.target.value) || 0
-                          )
+                        onChange={(e) => {
+                          const v = Number(e.target.value) || 0;
+                          if (
+                            isOperationalResidential &&
+                            residentialBenchmark.benchmark
+                          ) {
+                            residentialBenchmark.handleCcRateChange(
+                              "parkingRate",
+                              "operationalResidentialParkingRateManual",
+                              v,
+                              residentialBenchmark.benchmark.parkingRate
+                            );
+                          } else if (isOperationalRetail && retailBenchmark) {
+                            handleRetailCcRateChange(
+                              "parkingRate",
+                              "operationalRetailParkingRateManual",
+                              v,
+                              retailBenchmark.parkingRate
+                            );
+                          } else if (isOperationalOffice && officeBenchmark) {
+                            handleOfficeCcRateChange(
+                              "parkingRate",
+                              "operationalOfficeParkingRateManual",
+                              v,
+                              officeBenchmark.parkingRate
+                            );
+                          } else {
+                            updateFormData("parkingRate", v);
+                          }
+                        }}
+                        className={
+                          isOperationalResidential
+                            ? residentialBenchmark.rateFieldClass(
+                                residentialBenchmark.ccRateOverrides.parking
+                              )
+                            : isOperationalRetail
+                              ? retailRateFieldClass(retailCcRateOverrides.parking)
+                              : isOperationalOffice
+                                ? officeRateFieldClass(officeCcRateOverrides.parking)
+                                : "w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                       {fieldError("parkingRate") && (
                         <p className="mt-1 text-sm text-red-400">
@@ -1607,19 +2726,62 @@ export default function CashOutflowsPage() {
                       )}
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Basement Rate ({projectInfo.currency}/sqft)
+                      <label className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
+                        <span>
+                          Basement Rate ({projectInfo.currency}/sqft)
+                        </span>
+                        {retailCcRateOverrides.basement ||
+                        officeCcRateOverrides.basement ||
+                        residentialBenchmark.ccRateOverrides.basement ? (
+                          <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                            Override
+                          </span>
+                        ) : null}
                       </label>
                       <input
                         type="number"
                         value={cashOutflows.basementRate}
-                        onChange={(e) =>
-                          updateFormData(
-                            "basementRate",
-                            Number(e.target.value) || 0
-                          )
+                        onChange={(e) => {
+                          const v = Number(e.target.value) || 0;
+                          if (
+                            isOperationalResidential &&
+                            residentialBenchmark.benchmark
+                          ) {
+                            residentialBenchmark.handleCcRateChange(
+                              "basementRate",
+                              "operationalResidentialBasementRateManual",
+                              v,
+                              residentialBenchmark.benchmark.basementRate
+                            );
+                          } else if (isOperationalRetail && retailBenchmark) {
+                            handleRetailCcRateChange(
+                              "basementRate",
+                              "operationalRetailBasementRateManual",
+                              v,
+                              retailBenchmark.basementRate
+                            );
+                          } else if (isOperationalOffice && officeBenchmark) {
+                            handleOfficeCcRateChange(
+                              "basementRate",
+                              "operationalOfficeBasementRateManual",
+                              v,
+                              officeBenchmark.basementRate
+                            );
+                          } else {
+                            updateFormData("basementRate", v);
+                          }
+                        }}
+                        className={
+                          isOperationalResidential
+                            ? residentialBenchmark.rateFieldClass(
+                                residentialBenchmark.ccRateOverrides.basement
+                              )
+                            : isOperationalRetail
+                              ? retailRateFieldClass(retailCcRateOverrides.basement)
+                              : isOperationalOffice
+                                ? officeRateFieldClass(officeCcRateOverrides.basement)
+                                : "w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                       {fieldError("basementRate") && (
                         <p className="mt-1 text-sm text-red-400">
@@ -1751,6 +2913,32 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Contingency on CC
               </h2>
+              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                <ResidentialBenchmarkHeader
+                  projectInfo={projectInfo}
+                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
+                  isManualOverride={residentialBenchmark.hasManualOverride}
+                />
+              ) : officeBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="office"
+                  country={projectInfo.country}
+                  segment={projectInfo.officeSegment}
+                  positioning={projectInfo.officePositioning}
+                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                  onUseDefaults={resetOfficeProfileDefaults}
+                  isManualOverride={officeHasManualOverride}
+                />
+              ) : retailBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="retail"
+                  country={projectInfo.country}
+                  segment={projectInfo.retailSegment}
+                  positioning={projectInfo.retailPositioning}
+                  onUseDefaults={resetRetailProfileDefaults}
+                  isManualOverride={retailHasManualOverride}
+                />
+              ) : null}
               <p className="text-sm text-slate-400 mb-4">
                 Apply a contingency allowance on construction costs to cover unknowns
                 and escalation.
@@ -1814,6 +3002,70 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 SC, POWC & DC
               </h2>
+              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                <ResidentialStep8SoftCosts
+                  projectInfo={projectInfo}
+                  cashOutflows={cashOutflows}
+                  benchmarkReady={residentialBenchmark.benchmarkReady}
+                  hasManualOverride={residentialBenchmark.hasManualOverride}
+                  onReset={residentialBenchmark.resetProfileDefaults}
+                  onSoftCostChange={(v) => {
+                    updateCashOutflowsForStream({
+                      softCostPercent: v,
+                      operationalResidentialScManual: true,
+                    });
+                    logOperationalCashOutflow("softCostPercent", v, 8);
+                  }}
+                  onPowcChange={(v) => {
+                    updateCashOutflowsForStream({
+                      powcPercent: v,
+                      operationalResidentialPowcManual: true,
+                    });
+                    logOperationalCashOutflow("powcPercent", v, 8);
+                  }}
+                  onFfeChange={(v) => {
+                    updateCashOutflowsForStream({
+                      ffePercent: v,
+                      operationalResidentialFfeManual: true,
+                    });
+                    logOperationalCashOutflow("ffePercent", v, 8);
+                  }}
+                  percentFieldClass={residentialBenchmark.percentFieldClass}
+                  fieldError={fieldError}
+                  showFfe={showsOperationalFfe}
+                />
+              ) : retailBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="retail"
+                  country={projectInfo.country}
+                  segment={projectInfo.retailSegment}
+                  positioning={projectInfo.retailPositioning}
+                  onUseDefaults={resetRetailProfileDefaults}
+                  isManualOverride={
+                    !!(
+                      cashOutflows.operationalRetailScManual ||
+                      cashOutflows.operationalRetailPowcManual ||
+                      cashOutflows.operationalRetailFfeManual
+                    )
+                  }
+                />
+              ) : officeBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="office"
+                  country={projectInfo.country}
+                  segment={projectInfo.officeSegment}
+                  positioning={projectInfo.officePositioning}
+                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                  onUseDefaults={resetOfficeProfileDefaults}
+                  isManualOverride={
+                    !!(
+                      cashOutflows.operationalOfficeScManual ||
+                      cashOutflows.operationalOfficePowcManual ||
+                      cashOutflows.operationalOfficeFfeManual
+                    )
+                  }
+                />
+              ) : null}
               {isOperationalHotel && operationalHotelProfileUi ? (
                 <p className="text-sm text-slate-400 mb-4">
                   SC, POWC, and FFE are suggested from your segment and location.
@@ -1821,11 +3073,30 @@ export default function CashOutflowsPage() {
                   <span className="text-slate-300">including contingency</span>{" "}
                   from the prior steps. Typed values count as overrides.
                 </p>
+              ) : retailBenchmarkReady ? (
+                <p className="text-sm text-slate-400 mb-4">
+                  SC, POWC, and FFE are suggested from your mall segment, positioning,
+                  and country. Calculations use CC{" "}
+                  <span className="text-slate-300">including contingency</span> from
+                  prior steps. Typed values count as overrides.
+                </p>
+              ) : officeBenchmarkReady ? (
+                <p className="text-sm text-slate-400 mb-4">
+                  SC, POWC, and FFE are suggested from your office segment, positioning,
+                  and country. Calculations use CC{" "}
+                  <span className="text-slate-300">including contingency</span> from
+                  prior steps. Typed values count as overrides.
+                </p>
+              ) : isOperationalResidential ? (
+                <p className="mb-6 text-sm text-slate-400">
+                  Complete residential segment and positioning in Step 5 to load
+                  benchmark SC, POWC, and FFE defaults.
+                </p>
               ) : (
                 <p className="text-sm text-slate-400 mb-6">
-                  SC and POWC percentages apply to{" "}
-                  <span className="text-slate-300">CC including contingency</span>{" "}
-                  (same base as hotel FFE where applicable).
+                  SC, POWC{showsOperationalFfe ? ", and FFE" : ""} percentages apply to{" "}
+                  <span className="text-slate-300">CC including contingency</span>
+                  {showsOperationalFfe ? " from the prior steps." : "."}
                 </p>
               )}
 
@@ -1838,7 +3109,11 @@ export default function CashOutflowsPage() {
                     tip={operationalHotelProfileUi.tooltip}
                     className="cursor-default border-b border-dotted border-slate-500 text-sm text-slate-200"
                   >
-                    {operationalHotelProfileUi.key.replace(/-/g, " · ")}
+                    {cashOutflows.operationalHotelProfileKey?.startsWith("mvp:")
+                      ? `${projectInfo.hotelOperatingType || "resort"} · ${
+                          projectInfo.hotelStarRating || "5"
+                        } · ${(projectInfo.city || "dubai").toLowerCase()}`
+                      : operationalHotelProfileUi.key.replace(/-/g, " · ")}
                   </HoverTipInline>
                   {(cashOutflows.operationalHotelScManual ||
                     cashOutflows.operationalHotelPowcManual ||
@@ -1850,6 +3125,37 @@ export default function CashOutflowsPage() {
                   <button
                     type="button"
                     onClick={() => {
+                      const profileKey = getProfileKey(
+                        projectInfo.country || "United Arab Emirates",
+                        projectInfo.city || "Dubai",
+                        projectInfo.hotelOperatingType || "Business",
+                        projectInfo.hotelStarRating || "5"
+                      );
+
+                      const defaults = getProfileDefaults(profileKey);
+                      if (defaults) {
+                        updateCashOutflowsForStream({
+                          operationalHotelProfileKey: `mvp:${profileKey}`,
+                          operationalHotelScManual: false,
+                          operationalHotelPowcManual: false,
+                          operationalHotelFfeManual: false,
+                          softCostPercent: round2(defaults.softCostPercent),
+                          powcPercent: round2(defaults.powcPercent),
+                          ffePercent: round2(defaults.ffePercent),
+                        });
+                        operationalHotelProfilePrevKeyRef.current = `mvp:${profileKey}`;
+                        // eslint-disable-next-line no-console
+                        console.log("🔄 Reset to profile defaults:", profileKey);
+                        // eslint-disable-next-line no-console
+                        console.log("  SC%:", defaults.softCostPercent);
+                        // eslint-disable-next-line no-console
+                        console.log("  POWC%:", defaults.powcPercent);
+                        // eslint-disable-next-line no-console
+                        console.log("  FFE%:", defaults.ffePercent);
+                        return;
+                      }
+
+                      // Fallback: legacy benchmark-derived percentages.
                       const op = projectInfo.hotelOperatingType as HotelOperatingType;
                       const star = Number(projectInfo.hotelStarRating);
                       if (!isValidHotelCombo(op, star).valid) return;
@@ -1885,6 +3191,7 @@ export default function CashOutflowsPage() {
                 </div>
               ) : null}
 
+              {!isOperationalResidential || !residentialBenchmark.benchmarkReady ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-300">
@@ -1916,15 +3223,40 @@ export default function CashOutflowsPage() {
                           softCostPercent: v,
                           operationalHotelScManual: true,
                         });
+                        logOperationalCashOutflow("softCostPercent", v, 8);
+                      } else if (isOperationalRetail) {
+                        updateCashOutflowsForStream({
+                          softCostPercent: v,
+                          operationalRetailScManual: true,
+                        });
+                        logOperationalCashOutflow("softCostPercent", v, 8);
+                      } else if (isOperationalOffice) {
+                        updateCashOutflowsForStream({
+                          softCostPercent: v,
+                          operationalOfficeScManual: true,
+                        });
+                        logOperationalCashOutflow("softCostPercent", v, 8);
                       } else {
                         updateFormData("softCostPercent", v);
                       }
                     }}
-                    className={`w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      isOperationalHotel && cashOutflows.operationalHotelScManual
-                        ? "border-2 border-amber-500/70"
-                        : "border border-slate-700"
-                    }`}
+                    className={
+                      isOperationalHotel
+                        ? `w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            cashOutflows.operationalHotelScManual
+                              ? "border-2 border-amber-500/70"
+                              : "border border-slate-700"
+                          }`
+                        : isOperationalRetail
+                          ? retailPercentFieldClass(
+                              cashOutflows.operationalRetailScManual
+                            )
+                          : isOperationalOffice
+                            ? officePercentFieldClass(
+                                cashOutflows.operationalOfficeScManual
+                              )
+                            : "w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    }
                   />
                   {fieldError("softCostPercent") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -1965,16 +3297,40 @@ export default function CashOutflowsPage() {
                           powcPercent: v,
                           operationalHotelPowcManual: true,
                         });
+                        logOperationalCashOutflow("powcPercent", v, 8);
+                      } else if (isOperationalRetail) {
+                        updateCashOutflowsForStream({
+                          powcPercent: v,
+                          operationalRetailPowcManual: true,
+                        });
+                        logOperationalCashOutflow("powcPercent", v, 8);
+                      } else if (isOperationalOffice) {
+                        updateCashOutflowsForStream({
+                          powcPercent: v,
+                          operationalOfficePowcManual: true,
+                        });
+                        logOperationalCashOutflow("powcPercent", v, 8);
                       } else {
                         updateFormData("powcPercent", v);
                       }
                     }}
-                    className={`w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      isOperationalHotel &&
-                      cashOutflows.operationalHotelPowcManual
-                        ? "border-2 border-amber-500/70"
-                        : "border border-slate-700"
-                    }`}
+                    className={
+                      isOperationalHotel
+                        ? `w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            cashOutflows.operationalHotelPowcManual
+                              ? "border-2 border-amber-500/70"
+                              : "border border-slate-700"
+                          }`
+                        : isOperationalRetail
+                          ? retailPercentFieldClass(
+                              cashOutflows.operationalRetailPowcManual
+                            )
+                          : isOperationalOffice
+                            ? officePercentFieldClass(
+                                cashOutflows.operationalOfficePowcManual
+                              )
+                            : "w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    }
                   />
                   {fieldError("powcPercent") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -1989,7 +3345,7 @@ export default function CashOutflowsPage() {
                     Overhead, Authority Fees)
                   </p>
                 </div>
-                {projectInfo.buildingType === "hotel" && (
+                {showsOperationalFfe && (
                   <div>
                     <label className="mb-2 block text-sm font-medium text-slate-300">
                       <HoverTipInline
@@ -2000,11 +3356,24 @@ export default function CashOutflowsPage() {
                         }
                       >
                         <span className="cursor-default">
-                          FFE % of CC incl. contingency (Hotel)
+                          {isOperationalOffice
+                            ? officeFfeFieldLabel
+                            : `FFE % of CC incl. contingency (${
+                                isOperationalRetail
+                                  ? "Retail"
+                                  : isOperationalResidential
+                                    ? "Residential"
+                                    : "Hotel"
+                              })`}
                         </span>
                       </HoverTipInline>
                       {isOperationalHotel &&
                       cashOutflows.operationalHotelFfeManual ? (
+                        <span className="ml-2 text-xs font-normal text-amber-400">
+                          (override)
+                        </span>
+                      ) : isOperationalOffice &&
+                        cashOutflows.operationalOfficeFfeManual ? (
                         <span className="ml-2 text-xs font-normal text-amber-400">
                           (override)
                         </span>
@@ -2020,16 +3389,40 @@ export default function CashOutflowsPage() {
                             ffePercent: v,
                             operationalHotelFfeManual: true,
                           });
+                          logOperationalCashOutflow("ffePercent", v, 8);
+                        } else if (isOperationalRetail) {
+                          updateCashOutflowsForStream({
+                            ffePercent: v,
+                            operationalRetailFfeManual: true,
+                          });
+                          logOperationalCashOutflow("ffePercent", v, 8);
+                        } else if (isOperationalOffice) {
+                          updateCashOutflowsForStream({
+                            ffePercent: v,
+                            operationalOfficeFfeManual: true,
+                          });
+                          logOperationalCashOutflow("ffePercent", v, 8);
                         } else {
                           updateFormData("ffePercent", v);
                         }
                       }}
-                      className={`w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                        isOperationalHotel &&
-                        cashOutflows.operationalHotelFfeManual
-                          ? "border-2 border-amber-500/70"
-                          : "border border-slate-700"
-                      }`}
+                      className={
+                        isOperationalHotel
+                          ? `w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                              cashOutflows.operationalHotelFfeManual
+                                ? "border-2 border-amber-500/70"
+                                : "border border-slate-700"
+                            }`
+                          : isOperationalRetail
+                            ? retailPercentFieldClass(
+                                cashOutflows.operationalRetailFfeManual
+                              )
+                            : isOperationalOffice
+                              ? officePercentFieldClass(
+                                  cashOutflows.operationalOfficeFfeManual
+                                )
+                              : "w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      }
                     />
                     {fieldError("ffePercent") && (
                       <p className="mt-1 text-sm text-red-400">
@@ -2037,11 +3430,34 @@ export default function CashOutflowsPage() {
                       </p>
                     )}
                     <p className="mt-2 text-xs text-slate-500">
-                      Furniture, Fixtures & Equipment for hotel rooms and public areas.
+                      {isOperationalRetail
+                        ? "Fit-out, fixtures & equipment for mall common areas and tenants."
+                        : isOperationalOffice
+                          ? getOfficeFfeHint(
+                              projectInfo.officeSegment,
+                              projectInfo.officeCoworkingDelivery
+                            )
+                          : isOperationalResidential
+                            ? "Furniture, fixtures & equipment for residential units and common areas."
+                            : "Furniture, fixtures & equipment for hotel rooms and public areas."}
                     </p>
+                    {!fieldError("ffePercent") &&
+                      isOperationalFfeOutsideRange(
+                        cashOutflows.ffePercent,
+                        projectInfo.buildingType,
+                        projectInfo
+                      ) && (
+                        <p className="mt-1 text-xs text-amber-500">
+                          {getOperationalFfeHint(
+                            projectInfo.buildingType,
+                            projectInfo
+                          )}
+                        </p>
+                      )}
                   </div>
                 )}
               </div>
+              ) : null}
 
               <div className="mt-6 border-t border-slate-800 pt-4 space-y-1 text-sm text-slate-300">
                 <p>
@@ -2062,7 +3478,7 @@ export default function CashOutflowsPage() {
                     {projectInfo.currency}
                   </span>
                 </p>
-                {projectInfo.buildingType === "hotel" && (
+                {showsOperationalFfe && (
                   <p>
                     FFE:{" "}
                     <span className="font-semibold text-emerald-400">
@@ -2075,7 +3491,7 @@ export default function CashOutflowsPage() {
                 )}
                 <p>
                   Development Cost (DC = CC% + SC + POWC
-                  {projectInfo.buildingType === "hotel" ? " + FFE" : ""}):{" "}
+                  {showsOperationalFfe ? " + FFE" : ""}):{" "}
                   <span className="font-semibold text-emerald-400">
                     {developmentCost.toLocaleString(undefined, {
                       maximumFractionDigits: 0,
@@ -2093,6 +3509,62 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Land Costs (LC)
               </h2>
+              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                <ResidentialStep9LandCosts
+                  projectInfo={projectInfo}
+                  cashOutflows={cashOutflows}
+                  benchmarkReady={residentialBenchmark.benchmarkReady}
+                  landCost={landCost}
+                  onReset={residentialBenchmark.resetProfileDefaults}
+                  onLandAreaChange={(v) => updateFormData("landArea", v)}
+                  onLandRateChange={(v) => {
+                    updateCashOutflowsForStream({
+                      landRate: v,
+                      operationalResidentialLandRateManual: true,
+                    });
+                    logOperationalCashOutflow("landRate", v, 9);
+                  }}
+                  percentFieldClass={residentialBenchmark.percentFieldClass}
+                  fieldError={fieldError}
+                />
+              ) : retailBenchmarkReady ? (
+                <>
+                  <BenchmarkHeader
+                    assetType="retail"
+                    country={projectInfo.country}
+                    segment={projectInfo.retailSegment}
+                    positioning={projectInfo.retailPositioning}
+                    onUseDefaults={resetRetailProfileDefaults}
+                    isManualOverride={!!cashOutflows.operationalRetailLandRateManual}
+                  />
+                  <p className="mb-4 text-sm text-slate-400">
+                    Land rate is suggested from your segment, positioning, and country.
+                    Land area is entered manually.
+                  </p>
+                </>
+              ) : officeBenchmarkReady ? (
+                <>
+                  <BenchmarkHeader
+                    assetType="office"
+                    country={projectInfo.country}
+                    segment={projectInfo.officeSegment}
+                    positioning={projectInfo.officePositioning}
+                    coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                    onUseDefaults={resetOfficeProfileDefaults}
+                    isManualOverride={!!cashOutflows.operationalOfficeLandRateManual}
+                  />
+                  <p className="mb-4 text-sm text-slate-400">
+                    Land rate is suggested from your office segment, positioning, and
+                    country. Land area is entered manually.
+                  </p>
+                </>
+              ) : isOperationalResidential ? (
+                <p className="mb-4 text-sm text-slate-400">
+                  Complete residential segment and positioning in Step 5 to load
+                  benchmark land rate defaults.
+                </p>
+              ) : null}
+              {!isOperationalResidential || !residentialBenchmark.benchmarkReady ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -2119,10 +3591,36 @@ export default function CashOutflowsPage() {
                   <input
                     type="number"
                     value={cashOutflows.landRate}
-                    onChange={(e) =>
-                      updateFormData("landRate", Number(e.target.value) || 0)
+                    onChange={(e) => {
+                      const v = Number(e.target.value) || 0;
+                      if (isOperationalRetail) {
+                        updateCashOutflowsForStream({
+                          landRate: v,
+                          operationalRetailLandRateManual: true,
+                        });
+                        logOperationalCashOutflow("landRate", v, 9);
+                      } else if (isOperationalOffice) {
+                        updateCashOutflowsForStream({
+                          landRate: v,
+                          operationalOfficeLandRateManual: true,
+                        });
+                        logOperationalCashOutflow("landRate", v, 9);
+                      } else {
+                        updateCashOutflowsForStream({ landRate: v });
+                        logOperationalCashOutflow("landRate", v, 9);
+                      }
+                    }}
+                    className={
+                      isOperationalRetail
+                        ? retailPercentFieldClass(
+                            cashOutflows.operationalRetailLandRateManual
+                          )
+                        : isOperationalOffice
+                          ? officePercentFieldClass(
+                              cashOutflows.operationalOfficeLandRateManual
+                            )
+                          : "w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     }
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                   {fieldError("landRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -2142,6 +3640,7 @@ export default function CashOutflowsPage() {
                   </p>
                 </div>
               </div>
+              ) : null}
             </div>
           )}
 
@@ -2151,6 +3650,35 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 TDC & Ratio Checks
               </h2>
+              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                <ResidentialBenchmarkHeader
+                  projectInfo={projectInfo}
+                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
+                  isManualOverride={residentialBenchmark.hasManualOverride}
+                  showResetButton
+                />
+              ) : retailBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="retail"
+                  country={projectInfo.country}
+                  segment={projectInfo.retailSegment}
+                  positioning={projectInfo.retailPositioning}
+                  onUseDefaults={resetRetailProfileDefaults}
+                  isManualOverride={retailHasManualOverride}
+                  showResetButton
+                />
+              ) : officeBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="office"
+                  country={projectInfo.country}
+                  segment={projectInfo.officeSegment}
+                  positioning={projectInfo.officePositioning}
+                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                  onUseDefaults={resetOfficeProfileDefaults}
+                  isManualOverride={officeHasManualOverride}
+                  showResetButton
+                />
+              ) : null}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-sm text-slate-300">
@@ -2228,6 +3756,32 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Construction Period (with AI Hint)
               </h2>
+              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                <ResidentialBenchmarkHeader
+                  projectInfo={projectInfo}
+                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
+                  isManualOverride={residentialBenchmark.hasManualOverride}
+                />
+              ) : officeBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="office"
+                  country={projectInfo.country}
+                  segment={projectInfo.officeSegment}
+                  positioning={projectInfo.officePositioning}
+                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                  onUseDefaults={resetOfficeProfileDefaults}
+                  isManualOverride={officeHasManualOverride}
+                />
+              ) : retailBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="retail"
+                  country={projectInfo.country}
+                  segment={projectInfo.retailSegment}
+                  positioning={projectInfo.retailPositioning}
+                  onUseDefaults={resetRetailProfileDefaults}
+                  isManualOverride={retailHasManualOverride}
+                />
+              ) : null}
               <p className="text-sm text-slate-400 mb-4">
                 Set the overall construction duration in months. This will drive the
                 monthly phasing for CC, SC and POWC.
@@ -2265,6 +3819,7 @@ export default function CashOutflowsPage() {
                     }
                     updateCashOutflowsForStream({ constructionPeriod: n });
                     setConstructionPeriodDraft(String(n));
+                    logConstructionPeriodMonths(n);
                   }}
                   className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
@@ -2284,7 +3839,7 @@ export default function CashOutflowsPage() {
                     </span>{" "}
                     with{" "}
                     <span className="font-semibold">
-                      {projectInfo.buildingConfig.towerFloors} tower floors
+                      {projectInfo.buildingConfig.towerFloors} building floors
                     </span>
                     , a reasonable range is{" "}
                     <span className="font-semibold">
@@ -2306,6 +3861,32 @@ export default function CashOutflowsPage() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Construction Stages (M0 to Finishes)
               </h2>
+              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                <ResidentialBenchmarkHeader
+                  projectInfo={projectInfo}
+                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
+                  isManualOverride={residentialBenchmark.hasManualOverride}
+                />
+              ) : retailBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="retail"
+                  country={projectInfo.country}
+                  segment={projectInfo.retailSegment}
+                  positioning={projectInfo.retailPositioning}
+                  onUseDefaults={resetRetailProfileDefaults}
+                  isManualOverride={retailHasManualOverride}
+                />
+              ) : officeBenchmarkReady ? (
+                <BenchmarkHeader
+                  assetType="office"
+                  country={projectInfo.country}
+                  segment={projectInfo.officeSegment}
+                  positioning={projectInfo.officePositioning}
+                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                  onUseDefaults={resetOfficeProfileDefaults}
+                  isManualOverride={officeHasManualOverride}
+                />
+              ) : null}
               <p className="text-sm text-slate-400 mb-4">
                 Break down CC% (construction cost including contingency) into stages.
                 Percentages must sum to 100%.
@@ -2334,7 +3915,7 @@ export default function CashOutflowsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1">
                       Stage 1 Label
@@ -2343,7 +3924,7 @@ export default function CashOutflowsPage() {
                       type="text"
                       value={cashOutflows.stageAllocation.stage1Label}
                       onChange={(e) =>
-                        updateFormData("stage1Label", e.target.value)
+                        updateStageAllocationField("stage1Label", e.target.value)
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
@@ -2354,7 +3935,7 @@ export default function CashOutflowsPage() {
                       type="number"
                       value={cashOutflows.stageAllocation.stage1Percent}
                       onChange={(e) =>
-                        updateFormData(
+                        updateStageAllocationField(
                           "stage1Percent",
                           Number(e.target.value) || 0
                         )
@@ -2370,7 +3951,7 @@ export default function CashOutflowsPage() {
                       type="text"
                       value={cashOutflows.stageAllocation.stage2Label}
                       onChange={(e) =>
-                        updateFormData("stage2Label", e.target.value)
+                        updateStageAllocationField("stage2Label", e.target.value)
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
@@ -2381,7 +3962,7 @@ export default function CashOutflowsPage() {
                       type="number"
                       value={cashOutflows.stageAllocation.stage2Percent}
                       onChange={(e) =>
-                        updateFormData(
+                        updateStageAllocationField(
                           "stage2Percent",
                           Number(e.target.value) || 0
                         )
@@ -2397,7 +3978,7 @@ export default function CashOutflowsPage() {
                       type="text"
                       value={cashOutflows.stageAllocation.stage3Label}
                       onChange={(e) =>
-                        updateFormData("stage3Label", e.target.value)
+                        updateStageAllocationField("stage3Label", e.target.value)
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
@@ -2408,8 +3989,36 @@ export default function CashOutflowsPage() {
                       type="number"
                       value={cashOutflows.stageAllocation.stage3Percent}
                       onChange={(e) =>
-                        updateFormData(
+                        updateStageAllocationField(
                           "stage3Percent",
+                          Number(e.target.value) || 0
+                        )
+                      }
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">
+                      Stage 4 Label
+                    </label>
+                    <input
+                      type="text"
+                      value={cashOutflows.stageAllocation.stage4Label}
+                      onChange={(e) =>
+                        updateStageAllocationField("stage4Label", e.target.value)
+                      }
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <label className="block text-xs font-medium text-slate-400 mt-2 mb-1">
+                      Stage 4 (% of CC%)
+                    </label>
+                    <input
+                      type="number"
+                      value={cashOutflows.stageAllocation.stage4Percent}
+                      onChange={(e) =>
+                        updateStageAllocationField(
+                          "stage4Percent",
                           Number(e.target.value) || 0
                         )
                       }
@@ -2423,7 +4032,8 @@ export default function CashOutflowsPage() {
                     {(
                       cashOutflows.stageAllocation.stage1Percent +
                       cashOutflows.stageAllocation.stage2Percent +
-                      cashOutflows.stageAllocation.stage3Percent
+                      cashOutflows.stageAllocation.stage3Percent +
+                      cashOutflows.stageAllocation.stage4Percent
                     ).toFixed(1)}
                     %
                   </span>
@@ -2444,6 +4054,32 @@ export default function CashOutflowsPage() {
                 <h2 className="text-xl font-semibold text-white mb-4">
                   Detailed Allocation & Summary
                 </h2>
+                {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
+                  <ResidentialBenchmarkHeader
+                    projectInfo={projectInfo}
+                    onUseDefaults={residentialBenchmark.resetProfileDefaults}
+                    isManualOverride={residentialBenchmark.hasManualOverride}
+                  />
+                ) : retailBenchmarkReady ? (
+                  <BenchmarkHeader
+                    assetType="retail"
+                    country={projectInfo.country}
+                    segment={projectInfo.retailSegment}
+                    positioning={projectInfo.retailPositioning}
+                    onUseDefaults={resetRetailProfileDefaults}
+                    isManualOverride={retailHasManualOverride}
+                  />
+                ) : officeBenchmarkReady ? (
+                  <BenchmarkHeader
+                    assetType="office"
+                    country={projectInfo.country}
+                    segment={projectInfo.officeSegment}
+                    positioning={projectInfo.officePositioning}
+                    coworkingDelivery={officeCoworkingDeliveryForBenchmark}
+                    onUseDefaults={resetOfficeProfileDefaults}
+                    isManualOverride={officeHasManualOverride}
+                  />
+                ) : null}
                 <p className="text-sm text-slate-400 mb-4">
                   Define how POWC is distributed over the programme, review standard SC
                   allocation, then confirm all inputs before generating the model.
@@ -2724,7 +4360,7 @@ export default function CashOutflowsPage() {
                     <p className="text-slate-300">
                       <span className="text-slate-400">Configuration:</span>{" "}
                       {projectInfo.buildingConfig.basements}B / {projectInfo.buildingConfig.podiumFloors}P /{" "}
-                      {projectInfo.buildingConfig.towerFloors}T
+                      {projectInfo.buildingConfig.towerFloors}F
                     </p>
                     {projectInfo.buildingConfig.hasRetailComponent && (
                       <p className="text-slate-300">
@@ -2761,7 +4397,7 @@ export default function CashOutflowsPage() {
                       })}{" "}
                       {projectInfo.currency} ({cashOutflows.powcPercent}%)
                     </p>
-                    {projectInfo.buildingType === "hotel" && (
+                    {showsOperationalFfe && (
                       <p className="text-slate-300">
                         <span className="text-slate-400">FFE:</span>{" "}
                         {ffe.toLocaleString(undefined, {
@@ -2808,3 +4444,10 @@ export default function CashOutflowsPage() {
   );
 }
 
+export default function CashOutflowsPage() {
+  return (
+    <SearchParamsBoundary>
+      <CashOutflowsPageContent />
+    </SearchParamsBoundary>
+  );
+}

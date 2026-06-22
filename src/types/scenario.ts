@@ -9,7 +9,12 @@ export type ShockDriverType =
   | "interestRate"
   | "operatingExpenses"
   | "exitCapRate"
-  | "ffeReserve";
+  | "ffeReserve"
+  | "salesPrice"
+  | "salesVelocity"
+  | "preSales"
+  | "softCosts"
+  | "ltcReduction";
 
 // Shock driver configuration
 export interface ShockDriverConfig {

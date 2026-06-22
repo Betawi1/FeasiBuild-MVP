@@ -13,6 +13,10 @@ export type PreviewFloatingBarProps = {
   previousDisabled?: boolean;
   nextDisabled?: boolean;
   onDownload?: () => void;
+  /** Optional primary action (e.g., "Calculate") instead of Download. */
+  onCalculate?: () => void;
+  isCalculating?: boolean;
+  calculateLabel?: string;
   showPrevious?: boolean;
   showNext?: boolean;
   /** Hide the center Download button (e.g. on edit / input pages). Default: show. */
@@ -22,10 +26,12 @@ export type PreviewFloatingBarProps = {
   /** Optional: link after Download (e.g. restart wizard at step 1). */
   restartRoute?: string;
   restartLabel?: string;
-  /** Optional: disabled “coming soon” action (tooltip via `title`). */
+  /** Optional feasibility study action (link or button). */
   showFeasibilityStudy?: boolean;
   feasibilityStudyLabel?: string;
   feasibilityStudyTitle?: string;
+  feasibilityStudyRoute?: string;
+  onFeasibilityStudyClick?: () => void;
 };
 
 const secondaryBtn =
@@ -41,6 +47,9 @@ export default function PreviewFloatingBar({
   previousDisabled = false,
   nextDisabled = false,
   onDownload,
+  onCalculate,
+  isCalculating = false,
+  calculateLabel = "Calculate",
   showPrevious = true,
   showNext = true,
   showDownload = true,
@@ -50,6 +59,8 @@ export default function PreviewFloatingBar({
   showFeasibilityStudy = false,
   feasibilityStudyLabel = "Feasibility Study",
   feasibilityStudyTitle = "Coming Soon!",
+  feasibilityStudyRoute,
+  onFeasibilityStudyClick,
 }: PreviewFloatingBarProps) {
   return (
     <div
@@ -76,29 +87,49 @@ export default function PreviewFloatingBar({
             ← Previous
           </Link>
         ) : null)}
-      {showDownload && (
+      {showDownload && (onCalculate || onDownload) ? (
         <button
           type="button"
-          onClick={onDownload ?? (() => {})}
+          onClick={(onCalculate ?? onDownload) ?? (() => {})}
+          disabled={!!onCalculate && isCalculating}
           className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
         >
-          Download
+          {onCalculate ? calculateLabel : "Download"}
         </button>
-      )}
+      ) : null}
       {restartRoute ? (
         <Link href={restartRoute} className={secondaryBtn}>
           {restartLabel}
         </Link>
       ) : null}
       {showFeasibilityStudy ? (
-        <button
-          type="button"
-          disabled
-          title={feasibilityStudyTitle}
-          className={`${secondaryBtn} cursor-not-allowed opacity-60`}
-        >
-          {feasibilityStudyLabel}
-        </button>
+        onFeasibilityStudyClick ? (
+          <button
+            type="button"
+            onClick={onFeasibilityStudyClick}
+            title={feasibilityStudyTitle}
+            className={secondaryBtn}
+          >
+            {feasibilityStudyLabel}
+          </button>
+        ) : feasibilityStudyRoute ? (
+          <Link
+            href={feasibilityStudyRoute}
+            title={feasibilityStudyTitle}
+            className={secondaryBtn}
+          >
+            {feasibilityStudyLabel}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled
+            title={feasibilityStudyTitle}
+            className={`${secondaryBtn} cursor-not-allowed opacity-60`}
+          >
+            {feasibilityStudyLabel}
+          </button>
+        )
       ) : null}
       {showNext &&
         (onNextClick ? (

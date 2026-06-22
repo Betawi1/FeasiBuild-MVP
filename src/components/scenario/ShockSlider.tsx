@@ -38,11 +38,21 @@ export const ShockSlider: React.FC<ShockSliderProps> = ({
   showDriverTitle = true,
   embedded = false,
 }) => {
-  // Calculate color based on value
+  const safeValue =
+    typeof currentValue === "number" && Number.isFinite(currentValue)
+      ? currentValue
+      : 0;
+
+  const getShockColor = (value: number) => {
+    if (value > 0) return "text-emerald-400";
+    if (value < 0) return "text-red-400";
+    return "text-slate-400";
+  };
+
   const getSliderColor = () => {
-    if (currentValue > 0) return 'accent-emerald-500';
-    if (currentValue < 0) return 'accent-red-500';
-    return 'accent-slate-400';
+    if (safeValue > 0) return "accent-emerald-500";
+    if (safeValue < 0) return "accent-red-500";
+    return "accent-slate-400";
   };
 
   // Calculate estimated IRR impact (simplified - will be replaced with real calc)
@@ -67,7 +77,7 @@ export const ShockSlider: React.FC<ShockSliderProps> = ({
                     : driverId === "ffeReserve"
                       ? -0.35 // per % of revenue
                       : 0.35);
-    return (currentValue * impactFactor).toFixed(2);
+    return (safeValue * impactFactor).toFixed(2);
   };
 
   const irrImpact = calculateIrrImpact();
@@ -124,7 +134,7 @@ export const ShockSlider: React.FC<ShockSliderProps> = ({
           min={minValue}
           max={maxValue}
           step={step}
-          value={currentValue}
+          value={safeValue}
           onChange={(e) =>
             onValueChange(driverId, Number.parseFloat(e.target.value) || 0)
           }
@@ -152,22 +162,22 @@ export const ShockSlider: React.FC<ShockSliderProps> = ({
       <div className="flex items-center justify-between pt-3 border-t border-slate-700">
         <div>
           <p className="text-xs text-slate-400">Current shock</p>
-          <p className={`text-lg font-bold ${
-            currentValue > 0 ? 'text-emerald-400' : 
-            currentValue < 0 ? 'text-red-400' : 'text-slate-400'
-          }`}>
+          <p
+            className={`text-lg font-bold ${getShockColor(safeValue)}`}
+            suppressHydrationWarning
+          >
             {unit === "currency" ? (
               <>
-                {currentValue >= 0 ? "+" : ""}
-                {currentValue.toLocaleString("en-US", {
+                {safeValue >= 0 ? "+" : ""}
+                {safeValue.toLocaleString("en-US", {
                   maximumFractionDigits: 0,
                 })}{" "}
                 AED
               </>
             ) : (
               <>
-                {currentValue > 0 ? "+" : ""}
-                {currentValue}
+                {safeValue > 0 ? "+" : ""}
+                {safeValue}
                 {unitLabel(unit)}
               </>
             )}

@@ -188,7 +188,9 @@ export function buildOperationalMonthlyExportRows(
   // Avoid recomputing from construction weights because construction display can be "plugged"
   // for rounding parity, which would otherwise change FFE weights.
   const ffeMonthly = profile.ffe || [];
-  const showFfe = ffeTotal > 0 && projectInfo.buildingType === "hotel";
+  const showFfe =
+    ffeTotal > 0 &&
+    (projectInfo.buildingType === "hotel" || projectInfo.buildingType === "retail");
 
   const period = cashOutflows.constructionPeriod || 0;
   const powcSubs = allocatePowcSubMonthlyFromStep13(
@@ -466,7 +468,9 @@ export function buildOperationalCashOutExcelSheets(
       "-",
       projectInfo.buildingType === "hotel"
         ? "Hotel — % of CC incl. contingency in wizard"
-        : "N/A for non-hotel",
+        : projectInfo.buildingType === "retail"
+          ? "Retail — % of CC incl. contingency in wizard"
+          : "N/A for non-hotel / non-retail",
     ],
     ["", "", "", "", ""],
     [

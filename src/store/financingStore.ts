@@ -15,6 +15,24 @@ export type PreferenceCalculationSnapshot = {
   tenorMonths: number;
 };
 
+/** Headline KPIs synced from `/preview/financing` for Component 5 equity returns summary. */
+export type FinancingMetrics = {
+  totalEquityAmount: number;
+  /** Terminal cumulative NCF post-financing (includes operating + exit). */
+  netExitProceeds: number;
+  equityMultiple: number;
+  equityPayback: number;
+  /** Annualized equity IRR as decimal (e.g. 0.125 = 12.5%). */
+  equityIRR: number;
+  preferenceSharesAmount: number;
+  cashEquityTotal?: number;
+  landEquityTotal?: number;
+  /** Sum of loan drawdowns (Component 4 "Total Loan Drawdown"). */
+  totalLoanDrawdown?: number;
+  /** Peak funding gap from Component 4 Step 1 (max cumulative shortfall before financing). */
+  peakFundingGap?: number;
+};
+
 /** Metrics computed in `/preview/financing` (XIRR on equity investor CF, etc.). */
 export type ProjectMetrics = {
   leveredEquityIRR: number;
@@ -23,6 +41,11 @@ export type ProjectMetrics = {
   peakEquityInjected: number;
   totalEquityInvested: number;
   totalDistributions: number;
+  /**
+   * Net cash flow to equity per month (negative = injection, positive = distribution).
+   * Same series as Component 4 preview "Cash flows (equity)" (`irrCashFlow`).
+   */
+  equityCashFlows?: number[];
   /** Optional legacy / alias */
   unleveredIRR?: number;
   /** Alias for `peakEquityInjected` where older code expects `peakFunding` */

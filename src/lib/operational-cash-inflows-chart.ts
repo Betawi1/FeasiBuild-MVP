@@ -74,6 +74,48 @@ export type RoomRevenueChartRow = {
   revenue: number;
 };
 
+/** Annual base rent = GLA × rent/sqft × (leased % / 100). */
+export function computeAnnualBaseRentRevenue(
+  glaSqft: number,
+  baseRentPerSqft: number,
+  leasedPercent: number
+): number {
+  return glaSqft * baseRentPerSqft * (leasedPercent / 100);
+}
+
+export function computeBaseRentRevenueSeries(
+  glaSqft: number,
+  baseRentPerSqftValues: number[],
+  leasedPercents: number[]
+): number[] {
+  const n = Math.min(
+    baseRentPerSqftValues.length,
+    leasedPercents.length,
+    OPERATIONAL_ROOM_REVENUE_YEARS
+  );
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push(
+      computeAnnualBaseRentRevenue(
+        glaSqft,
+        baseRentPerSqftValues[i] ?? 0,
+        leasedPercents[i] ?? 0
+      )
+    );
+  }
+  return out;
+}
+
+export function baseRentRevenueToChartData(
+  revenues: number[]
+): RoomRevenueChartRow[] {
+  return revenues.map((revenue, i) => ({
+    label: `Y${i + 1}`,
+    yearIndex: i,
+    revenue,
+  }));
+}
+
 export function roomRevenueToChartData(
   revenues: number[]
 ): RoomRevenueChartRow[] {

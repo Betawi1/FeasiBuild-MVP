@@ -636,6 +636,9 @@ export default function PreviewCashOutflowsPage() {
             {cashOutflows.stageAllocation.stage2Percent}%) →{" "}
             {cashOutflows.stageAllocation.stage3Label} (
             {cashOutflows.stageAllocation.stage3Percent}
+            %) →{" "}
+            {cashOutflows.stageAllocation.stage4Label} (
+            {cashOutflows.stageAllocation.stage4Percent}
             %). POWC months use your Step 13 % split and the timing rules in the
             Excel &quot;Step 13 inputs&quot; sheet. Soft costs use Step 13 line
             weights; aggregate cash is 50% M0, 30% M1, 20% M2.
