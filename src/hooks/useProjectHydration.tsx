@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import useFinModelStore, { type FinModelStreamKey } from "@/store/useFinModelStore";
 import { getProjectFromKV } from "@/lib/project-save";
 import { useToast } from "@/components/ui/Toast";
 
 export function useProjectHydration(expectedStream: FinModelStreamKey) {
+  const { user, isLoaded } = useUser();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -18,14 +20,17 @@ export function useProjectHydration(expectedStream: FinModelStreamKey) {
   const [isHydrating, setIsHydrating] = useState(false);
 
   useEffect(() => {
-    if (!projectId || loadedRef.current === projectId) return;
+    if (!isLoaded || !projectId || loadedRef.current === projectId) return;
 
     let cancelled = false;
 
     const loadProject = async () => {
       setIsHydrating(true);
       try {
-        const savedProject = await getProjectFromKV(projectId);
+        const savedProject = await getProjectFromKV(
+          projectId,
+          user?.id ?? undefined
+        );
         if (cancelled) return;
 
         if (!savedProject) {
@@ -34,6 +39,19 @@ export function useProjectHydration(expectedStream: FinModelStreamKey) {
             variant: "error",
             title: "Project not found",
             description: `Could not load project ${projectId}.`,
+          });
+          return;
+        }
+
+        if (
+          user?.id &&
+          savedProject.userId &&
+          savedProject.userId !== user.id
+        ) {
+          showToast({
+            variant: "error",
+            title: "Access denied",
+            description: "This project belongs to another account.",
           });
           return;
         }
@@ -92,11 +110,13 @@ export function useProjectHydration(expectedStream: FinModelStreamKey) {
   }, [
     expectedStream,
     hydrateProject,
+    isLoaded,
     pathname,
     projectId,
     router,
     searchParams,
     showToast,
+    user?.id,
   ]);
 
   return { isHydrating };

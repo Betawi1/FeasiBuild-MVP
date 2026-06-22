@@ -14,6 +14,13 @@ import {
   buildSaleBundleHashes,
 } from "@/lib/slide-dependencies";
 import { getCachedContent, checkPuterStatus } from "@/lib/cache-service";
+import {
+  loadProjectIndex,
+  readProjectRaw,
+  upsertProjectIndexEntry,
+  userProjectDataKey,
+  writeProjectRaw,
+} from "@/lib/puter-storage";
 import { sanitizeForStorage } from "@/lib/sanitize";
 import type {
   AICommentary,
@@ -25,11 +32,18 @@ import type {
 import { PROJECT_SAVE_VERSION } from "@/types/project";
 
 const PROJECT_KEY_PREFIX = "feasibuild_project_";
-/** @deprecated Legacy save key — still read on load for backward compatibility. */
-const LEGACY_PROJECT_KEY_PREFIX = "project:";
+/** @deprecated Legacy global index — reads still supported for migration. */
 export const PROJECT_INDEX_KEY = "feasibuild_projects_index";
 const MAX_SAVE_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 500;
+
+export function projectStorageKey(
+  projectId: string,
+  userId?: string
+): string {
+  if (userId) return userProjectDataKey(userId, projectId);
+  return `${PROJECT_KEY_PREFIX}${projectId}`;
+}
 
 export function generateProjectId(): string {
   try {
@@ -40,14 +54,6 @@ export function generateProjectId(): string {
     // fall through
   }
   return `proj_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function projectStorageKey(projectId: string): string {
-  return `${PROJECT_KEY_PREFIX}${projectId}`;
-}
-
-function legacyProjectStorageKey(projectId: string): string {
-  return `${LEGACY_PROJECT_KEY_PREFIX}${projectId}`;
 }
 
 function parseStoredProject(raw: unknown): ProjectSaveData | null {
@@ -64,49 +70,24 @@ function parseStoredProject(raw: unknown): ProjectSaveData | null {
   }
 }
 
-async function readProjectByKey(key: string): Promise<ProjectSaveData | null> {
-  if (isPuterKvAvailable()) {
-    try {
-      const raw = await window.puter!.kv.get(key);
-      const project = parseStoredProject(raw);
-      if (project) return project;
-    } catch (error) {
-      console.warn(`[ProjectSave] Puter KV read failed for ${key}:`, error);
-    }
-  }
-
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem(key);
-      const project = parseStoredProject(raw);
-      if (project) return project;
-    } catch (error) {
-      console.warn(`[ProjectSave] localStorage read failed for ${key}:`, error);
-    }
-  }
-
-  return null;
-}
-
 export async function loadProjectFromKV(
-  projectId: string
+  projectId: string,
+  userId?: string
 ): Promise<ProjectSaveData | null> {
-  const primaryKey = projectStorageKey(projectId);
-  const primary = await readProjectByKey(primaryKey);
-  if (primary) {
-    console.log(`[ProjectSave] ✓ Loaded project from KV: ${primaryKey}`);
-    return primary;
+  const stored = await readProjectRaw(userId, projectId);
+  if (!stored) {
+    console.warn(`[ProjectSave] Project not found: ${projectId}`);
+    return null;
   }
 
-  const legacyKey = legacyProjectStorageKey(projectId);
-  const legacy = await readProjectByKey(legacyKey);
-  if (legacy) {
-    console.log(`[ProjectSave] ✓ Loaded project from legacy KV key: ${legacyKey}`);
-    return legacy;
+  const project = parseStoredProject(stored.raw);
+  if (!project) {
+    console.warn(`[ProjectSave] Invalid project payload for: ${projectId}`);
+    return null;
   }
 
-  console.warn(`[ProjectSave] Project not found: ${projectId}`);
-  return null;
+  console.log(`[ProjectSave] ✓ Loaded project from KV: ${stored.key}`);
+  return project;
 }
 
 /** Alias for loadProjectFromKV — used by hydration flows. */
@@ -343,43 +324,6 @@ export async function fetchAICommentary(
   }
 }
 
-function isPuterKvAvailable(): boolean {
-  return typeof window !== "undefined" && !!window.puter?.kv;
-}
-
-async function writeProjectToKv(
-  key: string,
-  data: ProjectSaveData
-): Promise<"puter" | "localStorage"> {
-  const serialized = JSON.stringify(data);
-
-  if (isPuterKvAvailable()) {
-    await window.puter!.kv.set(key, serialized);
-    return "puter";
-  }
-
-  if (typeof window !== "undefined") {
-    localStorage.setItem(key, serialized);
-    return "localStorage";
-  }
-
-  throw new Error("Storage is not available in this environment.");
-}
-
-function parseStoredIndex(raw: unknown): ProjectIndexEntry[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw as ProjectIndexEntry[];
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      return Array.isArray(parsed) ? (parsed as ProjectIndexEntry[]) : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
 function formatProjectLocation(projectInfo: ProjectSaveData["projectInfo"]): string {
   const city = projectInfo.city?.trim();
   const country = projectInfo.country?.trim();
@@ -403,73 +347,13 @@ export function buildProjectIndexEntry(
   };
 }
 
-async function readProjectIndexFromStorage(): Promise<ProjectIndexEntry[]> {
-  if (isPuterKvAvailable()) {
-    try {
-      const raw = await window.puter!.kv.get(PROJECT_INDEX_KEY);
-      return parseStoredIndex(raw);
-    } catch (error) {
-      console.warn("[ProjectSave] Puter KV index read failed:", error);
-    }
-  }
-
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem(PROJECT_INDEX_KEY);
-      return parseStoredIndex(raw);
-    } catch (error) {
-      console.warn("[ProjectSave] localStorage index read failed:", error);
-    }
-  }
-
-  return [];
-}
-
-async function writeProjectIndexToStorage(
-  index: ProjectIndexEntry[]
+async function updateProjectIndex(
+  userId: string,
+  projectData: ProjectSaveData
 ): Promise<void> {
-  const serialized = JSON.stringify(index);
-
-  if (isPuterKvAvailable()) {
-    try {
-      await window.puter!.kv.set(PROJECT_INDEX_KEY, serialized);
-      return;
-    } catch (error) {
-      console.warn("[ProjectSave] Puter KV index write failed:", error);
-    }
-  }
-
-  if (typeof window !== "undefined") {
-    localStorage.setItem(PROJECT_INDEX_KEY, serialized);
-  }
-}
-
-export async function fetchProjectIndex(): Promise<ProjectIndexEntry[]> {
-  const index = await readProjectIndexFromStorage();
-  return [...index].sort(
-    (a, b) =>
-      new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
-  );
-}
-
-async function updateProjectIndex(projectData: ProjectSaveData): Promise<void> {
   try {
-    const existingIndex = await readProjectIndexFromStorage();
     const projectMetadata = buildProjectIndexEntry(projectData);
-    const existingProjectIndex = existingIndex.findIndex(
-      (entry) => entry.projectId === projectMetadata.projectId
-    );
-
-    if (existingProjectIndex >= 0) {
-      existingIndex[existingProjectIndex] = {
-        ...existingIndex[existingProjectIndex],
-        ...projectMetadata,
-      };
-    } else {
-      existingIndex.push(projectMetadata);
-    }
-
-    await writeProjectIndexToStorage(existingIndex);
+    await upsertProjectIndexEntry(userId, projectMetadata);
     console.log("[ProjectSave] Project index updated successfully");
   } catch (error) {
     console.error("[ProjectSave] Failed to update project index:", error);
@@ -477,6 +361,9 @@ async function updateProjectIndex(projectData: ProjectSaveData): Promise<void> {
 }
 
 function validateProjectSaveData(data: ProjectSaveData): void {
+  if (!data.userId?.trim()) {
+    throw new Error("User ID is required to save a project.");
+  }
   if (!data.projectId?.trim()) {
     throw new Error("Project ID is required.");
   }
@@ -495,6 +382,16 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export async function fetchProjectIndex(
+  userId: string
+): Promise<ProjectIndexEntry[]> {
+  const index = await loadProjectIndex(userId);
+  return [...index].sort(
+    (a, b) =>
+      new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
+  );
+}
+
 export async function saveProjectToKV(
   projectData: ProjectSaveData
 ): Promise<SaveProjectResult> {
@@ -508,7 +405,8 @@ export async function saveProjectToKV(
     console.warn("[ProjectSave] Could not measure payload size:", error);
   }
 
-  const key = projectStorageKey(sanitized.projectId);
+  const userId = sanitized.userId!;
+  const serialized = JSON.stringify(sanitized);
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= MAX_SAVE_RETRIES; attempt++) {
@@ -518,15 +416,19 @@ export async function saveProjectToKV(
         throw new Error("Puter KV is not available.");
       }
 
-      const destination = await writeProjectToKv(key, sanitized);
-      await updateProjectIndex(sanitized);
+      const { storageKey, destination } = await writeProjectRaw(
+        userId,
+        sanitized.projectId,
+        serialized
+      );
+      await updateProjectIndex(userId, sanitized);
       console.log(
         `[ProjectSave] ✓ Saved project ${sanitized.projectId} to ${destination}`
       );
 
       return {
         projectId: sanitized.projectId,
-        storageKey: key,
+        storageKey,
       };
     } catch (error) {
       lastError = error;
@@ -552,20 +454,31 @@ export interface BuildProjectSaveInput {
   description?: string;
   tags?: string[];
   stream?: FinModelStreamKey;
+  userId: string;
+  /** When set, updates an existing project instead of creating a duplicate. */
+  projectId?: string;
 }
 
 export async function buildAndSaveProject(
   input: BuildProjectSaveInput
 ): Promise<SaveProjectResult> {
+  if (!input.userId?.trim()) {
+    throw new Error("You must be signed in to save a project.");
+  }
+
   const collected = collectProjectState(input.stream);
-  const projectId = generateProjectId();
+  const projectId = input.projectId?.trim() || generateProjectId();
   const now = new Date().toISOString();
+  const existingProject = input.projectId
+    ? await loadProjectFromKV(projectId, input.userId)
+    : null;
 
   const aiCommentary = await fetchAICommentary(projectId, collected.stream);
 
   const projectData: ProjectSaveData = {
     projectId,
-    savedAt: now,
+    userId: input.userId,
+    savedAt: existingProject?.savedAt ?? now,
     projectName: input.projectName.trim(),
     description: input.description?.trim() || undefined,
     tags: input.tags?.length ? input.tags : undefined,
@@ -583,5 +496,7 @@ export async function buildAndSaveProject(
     },
   };
 
-  return saveProjectToKV(projectData);
+  const result = await saveProjectToKV(projectData);
+  useFinModelStore.getState().setActiveProject(projectId, projectData.projectName);
+  return result;
 }

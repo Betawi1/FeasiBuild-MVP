@@ -53,6 +53,7 @@ export interface CollectedProjectState {
 
 export interface ProjectSaveData {
   projectId: string;
+  userId?: string;
   savedAt: string;
   projectName: string;
   description?: string;

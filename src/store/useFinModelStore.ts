@@ -1243,6 +1243,9 @@ export type FinModelState = {
   financing: Financing;
   equityReturns: EquityReturns;
   scenarioAnalysis: ScenarioAnalysis;
+  /** Persisted cloud project id for the active study session (if any). */
+  activeProjectId: string | null;
+  activeProjectName: string | null;
 };
 
 export type FinModelStreamKey = "sale" | "operational";
@@ -1329,6 +1332,8 @@ export type FinModelActions = {
   saveProject: (stream?: FinModelStreamKey) => void;
   /** Restore Zustand state from a Puter KV saved project payload. */
   hydrateProject: (savedData: ProjectSaveData) => void;
+  /** Track the active saved project for update-in-place saves. */
+  setActiveProject: (projectId: string | null, projectName?: string | null) => void;
   /** Reset the operational stream slice to defaults (new study). */
   resetOperational: () => void;
   /** Reset the sale stream slice to defaults (new study). */
@@ -1371,6 +1376,8 @@ const initialState: FinModelState = {
   financing: defaultFinancing,
   equityReturns: defaultEquityReturns,
   scenarioAnalysis: defaultScenarioAnalysis,
+  activeProjectId: null,
+  activeProjectName: null,
 };
 
 function mergeCashInflowsPatch(
@@ -2076,12 +2083,26 @@ const useFinModelStore = create<FinModelStore>()(
             lastCalculationAt: collected.scenarioStore.lastCalculationAt,
           });
         }
+
+        get().setActiveProject(
+          savedData.projectId,
+          savedData.projectName || null
+        );
+      },
+
+      setActiveProject: (projectId, projectName = null) => {
+        set({
+          activeProjectId: projectId,
+          activeProjectName: projectName ?? null,
+        });
       },
 
       resetOperational: () => {
         set({
           assetType: "operational",
           operational: cloneDefaultStreamSlice(),
+          activeProjectId: null,
+          activeProjectName: null,
         });
       },
 
@@ -2089,6 +2110,8 @@ const useFinModelStore = create<FinModelStore>()(
         set({
           assetType: "sale",
           sale: cloneDefaultStreamSlice(),
+          activeProjectId: null,
+          activeProjectName: null,
         });
       },
 
@@ -2112,7 +2135,7 @@ const useFinModelStore = create<FinModelStore>()(
     }),
     {
       name: "finmodel-storage",
-      version: 7,
+      version: 8,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== "object") {
@@ -2343,6 +2366,12 @@ const useFinModelStore = create<FinModelStore>()(
           }
           if (mergedState.sale && mergedState.sale.scenarioShocks === undefined) {
             mergedState.sale.scenarioShocks = {};
+          }
+          if (mergedState.activeProjectId === undefined) {
+            mergedState.activeProjectId = null;
+          }
+          if (mergedState.activeProjectName === undefined) {
+            mergedState.activeProjectName = null;
           }
         }
 
