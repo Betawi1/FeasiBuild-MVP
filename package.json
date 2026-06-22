@@ -16,10 +16,11 @@
     "jspdf": "^4.2.1",
     "lucide-react": "^1.17.0",
     "modern-screenshot": "^4.7.0",
-    "next": "16.1.6",
+    "next": "16.2.9",
     "puter": "^1.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-is": "^19.2.7",
     "recharts": "^3.8.0",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.11"
@@ -30,9 +31,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "enhanced-resolve": "^5.23.0",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
