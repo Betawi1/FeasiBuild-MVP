@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -31,15 +30,11 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-slate-800 bg-slate-900">
       <div className="flex h-16 items-center border-b border-slate-800 px-6">
-        <Link href="/dashboard" className="flex items-center gap-3">
-          <Image
-            src="/images/logo.png"
-            alt="FeasiBuild"
-            width={160}
-            height={42}
-            priority
-            className="h-8 w-auto"
-          />
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <span className="text-xl font-bold">
+            <span className="text-white">Feasi</span>
+            <span className="text-emerald-400">Build</span>
+          </span>
         </Link>
       </div>
 
