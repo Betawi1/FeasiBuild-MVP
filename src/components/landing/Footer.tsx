@@ -54,15 +54,33 @@ export default function Footer() {
               <li>
                 <Link
                   href="#about"
-                  className="text-slate-400 transition hover:text-white"
+                  className="text-slate-400 transition hover:text-emerald-400"
                 >
                   About
                 </Link>
               </li>
               <li>
                 <Link
+                  href="/comparison"
+                  className="text-slate-400 transition hover:text-emerald-400"
+                >
+                  Comparison
+                </Link>
+              </li>
+              <li>
+                <a
+                  href="https://linkedin.com/in/rashdanibrahim"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 transition hover:text-emerald-400"
+                >
+                  LinkedIn
+                </a>
+              </li>
+              <li>
+                <Link
                   href="/docs"
-                  className="text-slate-400 transition hover:text-white"
+                  className="text-slate-400 transition hover:text-emerald-400"
                 >
                   Documentation
                 </Link>
@@ -70,7 +88,7 @@ export default function Footer() {
               <li>
                 <Link
                   href="#"
-                  className="text-slate-400 transition hover:text-white"
+                  className="text-slate-400 transition hover:text-emerald-400"
                 >
                   Contact
                 </Link>

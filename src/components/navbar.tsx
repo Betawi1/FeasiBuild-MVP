@@ -33,6 +33,12 @@ export default function Navbar() {
               How It Works
             </Link>
             <Link
+              href="/comparison"
+              className="text-sm font-medium text-slate-300 transition hover:text-emerald-400"
+            >
+              Comparison
+            </Link>
+            <Link
               href="#about"
               className="text-sm font-medium text-slate-300 transition hover:text-white"
             >
@@ -145,6 +151,13 @@ export default function Navbar() {
               onClick={() => setIsMobileMenuOpen(false)}
             >
               How It Works
+            </Link>
+            <Link
+              href="/comparison"
+              className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-emerald-400"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Comparison
             </Link>
             <Link
               href="#about"
