@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function FounderPage() {
@@ -29,12 +30,15 @@ export default function FounderPage() {
             <div className="aspect-square rounded-2xl bg-gradient-to-br from-emerald-500 to-blue-600 p-1">
               <div className="w-full h-full rounded-2xl bg-slate-900 flex items-center justify-center">
                 <div className="text-center p-8">
-                  <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center border-4 border-slate-700 overflow-hidden">
-                    <svg className="w-16 h-16 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
+                  <div className="relative w-48 h-48 mx-auto mb-6 rounded-full border-4 border-slate-700 overflow-hidden shadow-2xl">
+                    <Image
+                      src="/images/rashdan-profile.jpg"
+                      alt="Mohd Rashdan Bin Ibrahim"
+                      fill
+                      className="object-cover"
+                      priority
+                    />
                   </div>
-                  <p className="text-slate-500 text-sm">Add Your Photo</p>
                 </div>
               </div>
             </div>
