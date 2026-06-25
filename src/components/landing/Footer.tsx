@@ -49,39 +49,27 @@ export default function Footer() {
           </div>
 
           <div>
-            <h4 className="mb-4 font-semibold text-white">Company</h4>
+            <h4 className="text-white font-semibold mb-4">Company</h4>
             <ul className="space-y-2">
               <li>
-                <Link
-                  href="/founder"
-                  className="text-slate-400 transition hover:text-emerald-400"
-                >
-                  About
+                <Link href="/founder" className="text-slate-400 hover:text-emerald-400 transition">
+                  About Founder
                 </Link>
               </li>
               <li>
-                <Link
-                  href="/comparison"
-                  className="text-slate-400 transition hover:text-emerald-400"
-                >
+                <Link href="/comparison" className="text-slate-400 hover:text-emerald-400 transition">
                   Comparison
                 </Link>
               </li>
               <li>
-                <Link
-                  href="/docs"
-                  className="text-slate-400 transition hover:text-emerald-400"
+                <a
+                  href="https://t.me/+wdAia077EFUzNTQ9"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-emerald-400 transition"
                 >
-                  Documentation
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="#"
-                  className="text-slate-400 transition hover:text-emerald-400"
-                >
-                  Contact
-                </Link>
+                  Join Telegram Group
+                </a>
               </li>
             </ul>
           </div>

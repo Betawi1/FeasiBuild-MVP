@@ -97,7 +97,7 @@ export default function FounderPage() {
                 </svg>
                 View Full LinkedIn Profile
               </a>
-              <Link href="https://www.linkedin.com/in/morib" className="px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition font-semibold">
+              <Link href="/waitlist" className="px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition font-semibold">
                 Try FeasiBuild
               </Link>
             </div>

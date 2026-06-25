@@ -299,16 +299,10 @@ export default function ComparisonPage() {
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link
-            href="/dashboard"
+            href="/waitlist"
             className="rounded-lg bg-emerald-500 px-8 py-4 text-lg font-semibold text-white transition hover:bg-emerald-600"
           >
-            Start Free Trial
-          </Link>
-          <Link
-            href="/waitlist"
-            className="rounded-lg border border-emerald-500 px-8 py-4 text-lg font-semibold text-emerald-400 transition hover:bg-emerald-500/10"
-          >
-            Request Demo
+            Try FeasiBuild
           </Link>
         </div>
       </section>
