@@ -53,7 +53,7 @@ export default function Footer() {
             <ul className="space-y-2">
               <li>
                 <Link
-                  href="#about"
+                  href="/founder"
                   className="text-slate-400 transition hover:text-emerald-400"
                 >
                   About
@@ -66,16 +66,6 @@ export default function Footer() {
                 >
                   Comparison
                 </Link>
-              </li>
-              <li>
-                <a
-                  href="https://linkedin.com/in/rashdanibrahim"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-slate-400 transition hover:text-emerald-400"
-                >
-                  LinkedIn
-                </a>
               </li>
               <li>
                 <Link
