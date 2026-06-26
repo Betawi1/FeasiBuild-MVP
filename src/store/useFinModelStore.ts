@@ -898,7 +898,7 @@ const defaultStageAllocation: StageAllocation = {
 
 const defaultProjectInfo: ProjectInfo = {
   country: "",
-  countryCode: "AE",
+  countryCode: "",
   city: "",
   currency: "AED",
   buildingType: "residential",

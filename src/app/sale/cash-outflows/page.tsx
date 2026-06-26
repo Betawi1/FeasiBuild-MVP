@@ -244,7 +244,7 @@ function CashOutflowsPageContent() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
-  const [selectedCountry, setSelectedCountry] = useState<string>("AE");
+  const [selectedCountry, setSelectedCountry] = useState<string>("");
   const cashOutflowStepVisitLogged = useRef<Set<number>>(new Set());
 
   const availableCurrencies = useMemo((): ProjectInfo["currency"][] => {
@@ -255,6 +255,14 @@ function CashOutflowsPageContent() {
 
   const handleCountryChange = (countryCode: string) => {
     setSelectedCountry(countryCode);
+    if (!countryCode) {
+      updateProjectInfoForStream({
+        country: "",
+        countryCode: "",
+        city: "",
+      });
+      return;
+    }
     const country = COUNTRIES.find((c) => c.code === countryCode);
     if (!country) return;
     updateProjectInfoForStream({
@@ -295,26 +303,20 @@ function CashOutflowsPageContent() {
 
   useEffect(() => {
     const pi = useFinModelStore.getState().sale.projectInfo;
+    const hasCountry = !!pi.country?.trim();
     const saved = pi.countryCode?.trim();
-    if (saved && COUNTRIES.some((c) => c.code === saved)) {
+    if (hasCountry && saved && COUNTRIES.some((c) => c.code === saved)) {
       setSelectedCountry(saved);
       return;
     }
-    const byName = COUNTRIES.find((c) => c.name === pi.country);
+    const byName = hasCountry
+      ? COUNTRIES.find((c) => c.name === pi.country)
+      : undefined;
     if (byName) {
       setSelectedCountry(byName.code);
       return;
     }
-    if (!pi.country?.trim()) {
-      const uae = COUNTRIES.find((c) => c.code === "AE");
-      if (uae) {
-        updateProjectInfoForStream({
-          country: uae.name,
-          countryCode: "AE",
-          currency: uae.currency as ProjectInfo["currency"],
-        });
-      }
-    }
+    setSelectedCountry("");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once from persisted sale slice
   }, []);
 
@@ -1337,6 +1339,7 @@ function CashOutflowsPageContent() {
                     onChange={(e) => handleCountryChange(e.target.value)}
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
+                    <option value="">Select country</option>
                     {COUNTRIES.map((c) => (
                       <option key={c.code} value={c.code}>
                         {c.name}
@@ -1356,7 +1359,7 @@ function CashOutflowsPageContent() {
                   <select
                     value={projectInfo.city}
                     onChange={(e) => updateFormData("city", e.target.value)}
-                    disabled={!COUNTRIES.some((c) => c.code === selectedCountry)}
+                    disabled={!selectedCountry}
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="">Select city</option>
@@ -1372,7 +1375,7 @@ function CashOutflowsPageContent() {
                     </p>
                   )}
                 </div>
-                {COUNTRIES.some((c) => c.code === selectedCountry) ? (
+                {selectedCountry ? (
                   <p className="text-xs text-slate-500">
                     Next step: choose{" "}
                     <span className="text-emerald-400 font-medium">
