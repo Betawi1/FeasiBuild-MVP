@@ -2,10 +2,12 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { BTROperationalExpensesData } from "@/types/feasibility";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: BTROperationalExpensesData;
   paragraphs?: string[];
 }
@@ -17,8 +19,12 @@ function fmtNum(num: number): string {
 export default function BTROperationalExpensesSlide({
   data,
   paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
-  const displayParagraphs = cleanParagraphsForDisplay(paragraphs);
+  const displayParagraphs = isEditing
+    ? paragraphs
+    : cleanParagraphsForDisplay(paragraphs);
   const c = data.currency;
 
   return (
@@ -29,13 +35,15 @@ export default function BTROperationalExpensesSlide({
         className="mb-4"
       />
       <div className="flex-1 min-h-0 overflow-hidden space-y-3">
-        {displayParagraphs.length > 0 && (
+        {(displayParagraphs.length > 0 || isEditing) && (
           <div className="bg-blue-50 border-l-4 border-blue-500 px-3 py-2 rounded max-h-24 overflow-y-auto">
-            {displayParagraphs.map((p, i) => (
-              <p key={i} className="text-xs text-slate-800 leading-tight mb-1 last:mb-0">
-                {p}
-              </p>
-            ))}
+            <EditableSlideParagraphs
+              paragraphs={displayParagraphs}
+              isEditing={isEditing}
+              onParagraphChange={onParagraphChange}
+              className="space-y-1"
+              itemClassName="text-xs text-slate-800 leading-tight"
+            />
           </div>
         )}
         <div className="grid grid-cols-2 gap-6 min-h-0 flex-1">

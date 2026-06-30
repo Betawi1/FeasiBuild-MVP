@@ -6,6 +6,7 @@ import {
   aiParagraphClassName,
 } from "@/components/feasibility/AiContentWarning";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
+import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
 import {
@@ -48,25 +49,13 @@ function ParagraphBlock({
   return (
     <div className={className}>
       <AiContentWarningBanner paragraphs={slide.paragraphs} />
-      <div className="space-y-3">
-        {displayParagraphs.map((p, i) =>
-          isEditing && onParagraphChange ? (
-            <textarea
-              key={i}
-              value={p}
-              onChange={(e) => onParagraphChange(i, e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded text-sm text-slate-700 h-20 resize-y mb-2"
-            />
-          ) : (
-            <p
-              key={i}
-              className={`${aiParagraphClassName(p)} mb-2 last:mb-0`}
-            >
-              {p}
-            </p>
-          )
-        )}
-      </div>
+      <EditableSlideParagraphs
+        paragraphs={displayParagraphs}
+        isEditing={isEditing && !!onParagraphChange}
+        onParagraphChange={onParagraphChange}
+        className="space-y-3"
+        itemClassName={`${aiParagraphClassName(displayParagraphs[0] ?? "")} mb-2 last:mb-0`}
+      />
       {slide.bulletPoints ? (
         <ul className="list-disc pl-5 space-y-1 mt-2">
           {slide.bulletPoints.map((bp, i) => (

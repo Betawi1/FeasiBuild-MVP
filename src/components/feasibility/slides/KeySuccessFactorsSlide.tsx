@@ -2,13 +2,15 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
 import type { SuccessFactorsData } from "@/types/feasibility";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import {
   cleanDisplayText,
   splitEffectSentences,
 } from "@/lib/feasibility/clean-ai-content";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SuccessFactorsData;
   projectName: string;
 }
@@ -30,7 +32,42 @@ function EffectList({ effect }: { effect: string }) {
   );
 }
 
-export default function KeySuccessFactorsSlide({ data }: Props) {
+export default function KeySuccessFactorsSlide({
+  data,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const updateOpportunity = (
+    index: number,
+    patch: Partial<SuccessFactorsData["marketOpportunities"][number]>
+  ) => {
+    onDataChange?.({
+      ...data,
+      marketOpportunities: data.marketOpportunities.map((item, i) =>
+        i === index ? { ...item, ...patch } : item
+      ),
+    });
+  };
+
+  const updateStrength = (
+    index: number,
+    patch: Partial<SuccessFactorsData["projectStrengths"][number]>
+  ) => {
+    onDataChange?.({
+      ...data,
+      projectStrengths: data.projectStrengths.map((item, i) =>
+        i === index ? { ...item, ...patch } : item
+      ),
+    });
+  };
+
+  const updateOutcome = (index: number, text: string) => {
+    onDataChange?.({
+      ...data,
+      mainOutcomes: data.mainOutcomes.map((o, i) => (i === index ? text : o)),
+    });
+  };
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -57,10 +94,30 @@ export default function KeySuccessFactorsSlide({ data }: Props) {
             {data.marketOpportunities.map((item, i) => (
               <div key={i} className="grid grid-cols-2 gap-2 text-[10px]">
                 <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
-                  {cleanDisplayText(item.factor)}
+                  {isEditing ? (
+                    <textarea
+                      value={item.factor}
+                      onChange={(e) =>
+                        updateOpportunity(i, { factor: e.target.value })
+                      }
+                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    />
+                  ) : (
+                    cleanDisplayText(item.factor)
+                  )}
                 </div>
                 <div className="bg-slate-50 p-1 rounded border border-slate-300">
-                  <EffectList effect={item.effect} />
+                  {isEditing ? (
+                    <textarea
+                      value={item.effect}
+                      onChange={(e) =>
+                        updateOpportunity(i, { effect: e.target.value })
+                      }
+                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    />
+                  ) : (
+                    <EffectList effect={item.effect} />
+                  )}
                 </div>
               </div>
             ))}
@@ -73,10 +130,30 @@ export default function KeySuccessFactorsSlide({ data }: Props) {
             {data.projectStrengths.map((item, i) => (
               <div key={i} className="grid grid-cols-2 gap-2 text-[10px]">
                 <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
-                  {cleanDisplayText(item.strength)}
+                  {isEditing ? (
+                    <textarea
+                      value={item.strength}
+                      onChange={(e) =>
+                        updateStrength(i, { strength: e.target.value })
+                      }
+                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    />
+                  ) : (
+                    cleanDisplayText(item.strength)
+                  )}
                 </div>
                 <div className="bg-slate-50 p-1 rounded border border-slate-300">
-                  <EffectList effect={item.effect} />
+                  {isEditing ? (
+                    <textarea
+                      value={item.effect}
+                      onChange={(e) =>
+                        updateStrength(i, { effect: e.target.value })
+                      }
+                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    />
+                  ) : (
+                    <EffectList effect={item.effect} />
+                  )}
                 </div>
               </div>
             ))}
@@ -91,10 +168,15 @@ export default function KeySuccessFactorsSlide({ data }: Props) {
             <ul className="space-y-1 text-[10px]">
               {data.mainOutcomes.map((outcome, i) => (
                 <li key={i} className="flex items-start">
-                  <span className="text-emerald-400 mr-2 font-bold shrink-0">✓</span>
-                  <span className="text-emerald-100 leading-snug">
-                    {cleanDisplayText(outcome)}
+                  <span className="text-emerald-400 mr-2 font-bold shrink-0">
+                    ✓
                   </span>
+                  <EditableTextBlock
+                    text={cleanDisplayText(outcome)}
+                    isEditing={isEditing}
+                    onChange={(text) => updateOutcome(i, text)}
+                    className="text-emerald-100 leading-snug flex-1"
+                  />
                 </li>
               ))}
             </ul>

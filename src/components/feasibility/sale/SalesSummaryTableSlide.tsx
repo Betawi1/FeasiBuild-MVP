@@ -2,10 +2,13 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleSalesSummaryTableData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SaleSalesSummaryTableData;
+  paragraphs?: string[];
 }
 
 function formatNumber(num: number): string {
@@ -15,7 +18,12 @@ function formatNumber(num: number): string {
 const cell = "border border-slate-300 p-2 text-black";
 const cellRight = `${cell} text-right`;
 
-export default function SalesSummaryTableSlide({ data }: Props) {
+export default function SalesSummaryTableSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   return (
     <SlideContainer>
       <SlideHeader
@@ -118,6 +126,14 @@ export default function SalesSummaryTableSlide({ data }: Props) {
           </table>
         </div>
       </div>
+
+      <EditableSlideParagraphs
+        paragraphs={paragraphs}
+        isEditing={isEditing}
+        onParagraphChange={onParagraphChange}
+        className="mt-4 shrink-0"
+        itemClassName="text-sm text-slate-700 leading-relaxed"
+      />
     </SlideContainer>
   );
 }

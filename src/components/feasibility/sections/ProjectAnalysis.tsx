@@ -6,6 +6,7 @@ import {
   aiParagraphClassName,
 } from "@/components/feasibility/AiContentWarning";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
+import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
 
@@ -40,20 +41,12 @@ export default function ProjectAnalysis({
           }`}
         >
           <AiContentWarningBanner paragraphs={slide.paragraphs} />
-          {displayParagraphs.map((p, i) =>
-            isEditing && onParagraphChange ? (
-              <textarea
-                key={i}
-                value={p}
-                onChange={(e) => onParagraphChange(i, e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded text-sm text-slate-700 h-20 resize-y"
-              />
-            ) : (
-              <p key={i} className={aiParagraphClassName(p)}>
-                {p}
-              </p>
-            )
-          )}
+          <EditableSlideParagraphs
+            paragraphs={displayParagraphs}
+            isEditing={isEditing && !!onParagraphChange}
+            onParagraphChange={onParagraphChange}
+            itemClassName={aiParagraphClassName(displayParagraphs[0] ?? "")}
+          />
         </div>
 
         <div

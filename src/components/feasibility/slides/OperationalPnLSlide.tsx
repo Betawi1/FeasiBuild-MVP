@@ -2,11 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SlideContainer from "@/components/feasibility/SlideContainer";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import { generatePnlCommentaryFallback } from "@/lib/feasibility/generate-pnl-commentary";
 import type { OperationalPnLData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: OperationalPnLData;
+  paragraphs?: string[];
 }
 
 function fmt(n: number): string {
@@ -116,7 +119,12 @@ function SectionHeader({
   );
 }
 
-export default function OperationalPnLSlide({ data }: Props) {
+export default function OperationalPnLSlide({
+  data,
+  paragraphs,
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const revTotal = sum(data.revenues.totalGrossRevenues);
   const colSpan = data.years.length + 2;
 
@@ -142,6 +150,8 @@ export default function OperationalPnLSlide({ data }: Props) {
   );
 
   useEffect(() => {
+    if (isEditing) return;
+
     let cancelled = false;
 
     async function fetchCommentary() {
@@ -168,7 +178,10 @@ export default function OperationalPnLSlide({ data }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [data.assetType, pnlPayload]);
+  }, [data.assetType, pnlPayload, isEditing]);
+
+  const displayCommentary =
+    isEditing && paragraphs?.[0] != null ? paragraphs[0] : commentary;
 
   return (
     <SlideContainer className="[&>div]:p-3">
@@ -179,7 +192,12 @@ export default function OperationalPnLSlide({ data }: Props) {
 
       <div className="mb-2 bg-emerald-50 border-l-4 border-emerald-500 p-2 rounded shrink-0">
         <h3 className="text-xs font-bold text-slate-800 mb-1">P&amp;L HIGHLIGHTS</h3>
-        <p className="text-xs text-slate-700 leading-snug">{commentary}</p>
+        <EditableTextBlock
+          text={displayCommentary}
+          isEditing={isEditing}
+          onChange={(text) => onParagraphChange?.(0, text)}
+          className="text-xs text-slate-700 leading-snug"
+        />
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">

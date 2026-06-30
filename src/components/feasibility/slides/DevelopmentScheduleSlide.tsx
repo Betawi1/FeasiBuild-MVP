@@ -2,9 +2,11 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { DevelopmentScheduleData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: DevelopmentScheduleData;
   paragraphs?: string[];
 }
@@ -61,7 +63,12 @@ function SimpleRow({
   );
 }
 
-export default function DevelopmentScheduleSlide({ data, paragraphs = [] }: Props) {
+export default function DevelopmentScheduleSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const yearlyHeaders = data.yearlyHeaders;
   const colSpan = yearlyHeaders.length + 2;
 
@@ -74,11 +81,13 @@ export default function DevelopmentScheduleSlide({ data, paragraphs = [] }: Prop
       />
 
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-        {paragraphs.length > 0 ? (
-          <p className="text-sm text-slate-700 mb-4 leading-relaxed shrink-0 line-clamp-1">
-            {paragraphs[0]}
-          </p>
-        ) : null}
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="mb-4 shrink-0"
+          itemClassName="text-sm text-slate-700 leading-relaxed line-clamp-1"
+        />
 
         <div className="flex-1 min-h-0">
           <table className="feasibility-table w-full text-[10px] text-slate-900 border-collapse border border-slate-300 table-fixed">

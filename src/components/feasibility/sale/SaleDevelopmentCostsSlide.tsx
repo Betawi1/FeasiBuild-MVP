@@ -2,9 +2,11 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleDevelopmentCostsData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SaleDevelopmentCostsData;
   paragraphs?: string[];
 }
@@ -20,6 +22,8 @@ const cellAmount = `${cellRight} font-semibold`;
 export default function SaleDevelopmentCostsSlide({
   data,
   paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
   const cc = data.constructionCosts;
   const totalConstructionBeforeContingency =
@@ -38,11 +42,14 @@ export default function SaleDevelopmentCostsSlide({
         className="mb-2"
       />
 
-      {paragraphs.length > 0 && (
+      {(paragraphs.length > 0 || isEditing) && (
         <div className="mb-2 bg-blue-50 border-l-4 border-blue-500 px-3 py-2 rounded shrink-0">
-          <p className="text-xs text-slate-700 leading-tight">
-            {paragraphs[0]}
-          </p>
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+            itemClassName="text-xs text-slate-700 leading-tight"
+          />
         </div>
       )}
 

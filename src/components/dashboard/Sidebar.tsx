@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  FolderOpen,
   Globe,
   Home,
   LogOut,
@@ -14,7 +13,6 @@ import { SignOutButton } from "@clerk/nextjs";
 
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
-  { name: "My Projects", href: "/dashboard/projects", icon: FolderOpen },
   { name: "New Sale Study", href: "/sale/cash-outflows", icon: PlusCircle },
   {
     name: "New Operational Study",

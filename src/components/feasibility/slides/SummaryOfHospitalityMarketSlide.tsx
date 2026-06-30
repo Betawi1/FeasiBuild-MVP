@@ -2,21 +2,58 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { HospitalitySummaryData } from "@/types/feasibility";
 
-interface Props {
+type SummaryDataWithTitles = HospitalitySummaryData & { categoryTitles?: string[] };
+
+interface Props extends SlideEditingProps {
   data: HospitalitySummaryData;
   city: string;
 }
 
-export default function SummaryOfHospitalityMarketSlide({ data }: Props) {
-  const categories = [
-    { title: "Tourism and Hospitality overview", items: data.tourismOverview },
-    { title: "Guest profile and preferences", items: data.guestProfile },
-    { title: "Historical supply", items: data.historicalSupply },
-    { title: "Historical demand", items: data.historicalDemand },
-    { title: "Growth potential", items: data.growthPotential },
-  ];
+const DEFAULT_TITLES = [
+  "Tourism and Hospitality overview",
+  "Guest profile and preferences",
+  "Historical supply",
+  "Historical demand",
+  "Growth potential",
+];
+
+const CATEGORY_KEYS: (keyof HospitalitySummaryData)[] = [
+  "tourismOverview",
+  "guestProfile",
+  "historicalSupply",
+  "historicalDemand",
+  "growthPotential",
+];
+
+export default function SummaryOfHospitalityMarketSlide({
+  data,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const extended = data as SummaryDataWithTitles;
+  const titles = extended.categoryTitles ?? DEFAULT_TITLES;
+
+  const updateTitle = (index: number, text: string) => {
+    const nextTitles = [...titles];
+    nextTitles[index] = text;
+    onDataChange?.({ ...data, categoryTitles: nextTitles } as SummaryDataWithTitles);
+  };
+
+  const updateItem = (
+    key: keyof HospitalitySummaryData,
+    itemIndex: number,
+    text: string
+  ) => {
+    const items = data[key] as string[];
+    onDataChange?.({
+      ...data,
+      [key]: items.map((item, i) => (i === itemIndex ? text : item)),
+    });
+  };
 
   return (
     <SlideContainer>
@@ -34,17 +71,30 @@ export default function SummaryOfHospitalityMarketSlide({ data }: Props) {
         </div>
 
         <div className="flex-1 space-y-2 min-h-0 overflow-hidden">
-          {categories.map((category, i) => (
-            <div key={i} className="flex gap-3">
+          {CATEGORY_KEYS.map((key, i) => (
+            <div key={key} className="flex gap-3">
               <div className="w-1/3 bg-slate-800 text-white p-2 rounded-lg text-[10px] font-semibold flex items-center shrink-0">
-                {category.title}
+                {isEditing ? (
+                  <input
+                    value={titles[i] ?? DEFAULT_TITLES[i]}
+                    onChange={(e) => updateTitle(i, e.target.value)}
+                    className="w-full p-1 bg-slate-700 border border-emerald-500/50 rounded text-[10px] text-white"
+                  />
+                ) : (
+                  titles[i] ?? DEFAULT_TITLES[i]
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <ul className="space-y-0.5 text-sm text-slate-700">
-                  {category.items.map((item, j) => (
+                  {(data[key] as string[]).map((item, j) => (
                     <li key={j} className="flex items-start">
                       <span className="text-emerald-500 mr-1 font-bold shrink-0">•</span>
-                      <span className="leading-snug">{item}</span>
+                      <EditableTextBlock
+                        text={item}
+                        isEditing={isEditing}
+                        onChange={(text) => updateItem(key, j, text)}
+                        className="leading-snug flex-1"
+                      />
                     </li>
                   ))}
                 </ul>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import { getFeasibilityProjectBundle } from "@/lib/feasibility/data-aggregator";
 import {
@@ -22,6 +23,7 @@ import {
   setStoredHashes,
 } from "@/lib/cache-service";
 import { checkPuterStatusAndLog } from "@/lib/puter-auth";
+import { markFeasibilityStudyCompleted } from "@/lib/project-save";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { FeasibilitySlide } from "@/types/feasibility";
 
@@ -102,6 +104,8 @@ function feasibilityStudyTitle(buildingType: string, assetType?: string): string
 
 export default function FeasibilityStudyPage() {
   const router = useRouter();
+  const { user } = useUser();
+  const activeProjectId = useFinModelStore((s) => s.activeProjectId);
   const buildingType = useFinModelStore(
     (s) => s.operational.projectInfo.buildingType
   );
@@ -109,6 +113,7 @@ export default function FeasibilityStudyPage() {
     slides,
     setSlides,
     updateSlideParagraph,
+    updateSlideData,
     isEditing,
     toggleEditing,
     setMarketResearchCache,
@@ -179,13 +184,21 @@ export default function FeasibilityStudyPage() {
         setMarketResearchCache(marketResearch);
       }
       setCurrentSlideIndex(0);
+
+      if (slidesResult.length > 0 && user?.id && activeProjectId) {
+        void markFeasibilityStudyCompleted(
+          user.id,
+          activeProjectId,
+          new Date().toISOString()
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate study");
       setSlides([]);
     } finally {
       setLoading(false);
     }
-  }, [buildingType, setSlides, setMarketResearchCache]);
+  }, [activeProjectId, buildingType, setSlides, setMarketResearchCache, user?.id]);
 
   useEffect(() => {
     void checkPuterStatusAndLog();
@@ -323,6 +336,9 @@ export default function FeasibilityStudyPage() {
               isEditing={isEditing}
               onParagraphChange={(index, text) =>
                 updateSlideParagraph(currentSlide.id, index, text)
+              }
+              onDataChange={(data) =>
+                updateSlideData(currentSlide.id, data)
               }
             />
           </SlideErrorBoundary>

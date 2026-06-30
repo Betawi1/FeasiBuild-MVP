@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { FeasibilityReport, FeasibilitySlide } from "@/types/feasibility";
+import type {
+  FeasibilityReport,
+  FeasibilitySlide,
+  FeasibilitySlideData,
+} from "@/types/feasibility";
 
 interface FeasibilityStore {
   slides: FeasibilitySlide[];
@@ -9,6 +13,7 @@ interface FeasibilityStore {
   setSlides: (slides: FeasibilitySlide[]) => void;
   setReport: (report: FeasibilityReport) => void;
   updateSlideParagraph: (slideId: string, index: number, newText: string) => void;
+  updateSlideData: (slideId: string, data: FeasibilitySlideData) => void;
   setMarketResearchCache: (data: Record<string, unknown> | null) => void;
   toggleEditing: () => void;
 }
@@ -32,6 +37,12 @@ export const useFeasibilityStore = create<FeasibilityStore>((set) => ({
         paragraphs[index] = newText;
         return { ...s, paragraphs };
       }),
+    })),
+  updateSlideData: (slideId, data) =>
+    set((state) => ({
+      slides: state.slides.map((s) =>
+        s.id === slideId ? { ...s, data } : s
+      ),
     })),
   setMarketResearchCache: (data) => set({ marketResearchCache: data }),
   toggleEditing: () => set((state) => ({ isEditing: !state.isEditing })),

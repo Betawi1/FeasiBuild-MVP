@@ -2,13 +2,22 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { IrrAndFinancingMetricsData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: IrrAndFinancingMetricsData;
+  paragraphs?: string[];
 }
 
-export default function IrrAndFinancingMetricsSlide({ data }: Props) {
+export default function IrrAndFinancingMetricsSlide({
+  data,
+  paragraphs,
+  isEditing = false,
+  onParagraphChange,
+  onDataChange,
+}: Props) {
   const fmtCurrency = (num: number) => {
     if (Math.abs(num) >= 1_000_000) {
       return `${data.currency} ${(num / 1_000_000).toFixed(1)}M`;
@@ -49,6 +58,8 @@ export default function IrrAndFinancingMetricsSlide({ data }: Props) {
     },
   ];
 
+  const commentaryText = paragraphs?.[0] ?? data.commentary;
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -85,9 +96,15 @@ export default function IrrAndFinancingMetricsSlide({ data }: Props) {
           <h3 className="text-sm font-bold text-slate-800 mb-2">
             Analyst Commentary
           </h3>
-          <p className="text-sm text-slate-700 leading-relaxed">
-            {data.commentary}
-          </p>
+          <EditableTextBlock
+            text={commentaryText}
+            isEditing={isEditing}
+            onChange={(text) => {
+              onParagraphChange?.(0, text);
+              onDataChange?.({ ...data, commentary: text });
+            }}
+            className="text-sm text-slate-700 leading-relaxed"
+          />
         </div>
       </div>
     </SlideContainer>

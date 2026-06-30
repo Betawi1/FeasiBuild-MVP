@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { HistoricalGuestsData } from "@/types/feasibility";
 import {
   Bar,
@@ -14,15 +16,40 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+type HistoricalGuestsDataWithBullets = HistoricalGuestsData & {
+  summaryBullets?: string[];
+};
+
+interface Props extends SlideEditingProps {
   data: HistoricalGuestsData;
   country: string;
   city: string;
 }
 
-export default function HistoricalHotelGuestsSlide({ data, country, city }: Props) {
+export default function HistoricalHotelGuestsSlide({
+  data,
+  country,
+  city,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const extended = data as HistoricalGuestsDataWithBullets;
   const first = data.yearlyData[0];
   const last = data.yearlyData[data.yearlyData.length - 1];
+
+  const defaultBullets = [
+    `Hotel guests in ${city} increased from ${first?.totalGuests}M in ${first?.year} to ${last?.totalGuests}M in ${last?.year}; despite the increase, the average length of stay remained about ${last?.avgLengthOfStay} days`,
+    `Between ${first?.year} and ${last?.year}, the total number of guests that stayed in five and four star hotels grew at a CAGR of ${data.cagrGuests}`,
+    `In ${last?.year}, five and four star hotels hosted almost 60% of the total hotel guests in ${city}`,
+  ];
+
+  const displayBullets = extended.summaryBullets ?? defaultBullets;
+
+  const updateBullet = (index: number, text: string) => {
+    const bullets = [...displayBullets];
+    bullets[index] = text;
+    onDataChange?.({ ...data, summaryBullets: bullets } as HistoricalGuestsDataWithBullets);
+  };
 
   return (
     <SlideContainer>
@@ -49,14 +76,35 @@ export default function HistoricalHotelGuestsSlide({ data, country, city }: Prop
                 <Bar dataKey="guestNights" fill="#92400e" name="Guest Nights (M)" />
               </BarChart>
             </ResponsiveContainer>
-            <div className="flex justify-center gap-4 mt-1 text-[10px]">
-              <span className="text-emerald-600 font-semibold">
-                CAGR Guests: {data.cagrGuests}
-              </span>
-              <span className="text-emerald-600 font-semibold">
-                CAGR Guest Nights: {data.cagrGuestNights}
-              </span>
-            </div>
+            {isEditing ? (
+              <div className="flex justify-center gap-2 mt-1 text-[10px]">
+                <input
+                  value={data.cagrGuests}
+                  onChange={(e) =>
+                    onDataChange?.({ ...data, cagrGuests: e.target.value })
+                  }
+                  className="p-1 border border-emerald-500/50 rounded text-emerald-600 font-semibold"
+                  placeholder="CAGR Guests"
+                />
+                <input
+                  value={data.cagrGuestNights}
+                  onChange={(e) =>
+                    onDataChange?.({ ...data, cagrGuestNights: e.target.value })
+                  }
+                  className="p-1 border border-emerald-500/50 rounded text-emerald-600 font-semibold"
+                  placeholder="CAGR Guest Nights"
+                />
+              </div>
+            ) : (
+              <div className="flex justify-center gap-4 mt-1 text-[10px]">
+                <span className="text-emerald-600 font-semibold">
+                  CAGR Guests: {data.cagrGuests}
+                </span>
+                <span className="text-emerald-600 font-semibold">
+                  CAGR Guest Nights: {data.cagrGuestNights}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex-1 min-h-0">
@@ -81,30 +129,17 @@ export default function HistoricalHotelGuestsSlide({ data, country, city }: Prop
 
         <div className="flex flex-col justify-center min-h-0 overflow-hidden">
           <ul className="space-y-2 text-sm text-slate-700">
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                Hotel guests in {city} increased from {first?.totalGuests}M in{" "}
-                {first?.year} to {last?.totalGuests}M in {last?.year}; despite the
-                increase, the average length of stay remained about{" "}
-                {last?.avgLengthOfStay} days
-              </span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                Between {first?.year} and {last?.year}, the total number of guests
-                that stayed in five and four star hotels grew at a CAGR of{" "}
-                {data.cagrGuests}
-              </span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                In {last?.year}, five and four star hotels hosted almost 60% of the
-                total hotel guests in {city}
-              </span>
-            </li>
+            {displayBullets.map((bullet, i) => (
+              <li key={i} className="flex items-start">
+                <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
+                <EditableTextBlock
+                  text={bullet}
+                  isEditing={isEditing}
+                  onChange={(text) => updateBullet(i, text)}
+                  className="leading-snug flex-1"
+                />
+              </li>
+            ))}
           </ul>
         </div>
       </div>

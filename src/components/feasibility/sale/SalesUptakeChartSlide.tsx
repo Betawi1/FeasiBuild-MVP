@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleSalesUptakeChartData } from "@/types/feasibility";
 import {
   Bar,
@@ -14,7 +16,7 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SaleSalesUptakeChartData;
   paragraphs?: string[];
 }
@@ -22,6 +24,8 @@ interface Props {
 export default function SalesUptakeChartSlide({
   data,
   paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
   const chartData = data.monthlyCashInflows.map((p) => ({
     month: `M${p.month}`,
@@ -39,11 +43,12 @@ export default function SalesUptakeChartSlide({
 
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
         <div className="space-y-2 overflow-y-auto">
-          {paragraphs.map((p, i) => (
-            <p key={i} className="text-sm text-slate-700 leading-relaxed">
-              {p}
-            </p>
-          ))}
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+            itemClassName="text-sm text-slate-700 leading-relaxed"
+          />
         </div>
 
         <div className="flex flex-col min-h-0">

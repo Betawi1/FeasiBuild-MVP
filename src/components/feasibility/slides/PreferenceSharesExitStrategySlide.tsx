@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { PreferenceSharesExitStrategyData } from "@/types/feasibility";
 import {
   BarChart,
@@ -15,11 +17,17 @@ import {
   Legend,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: PreferenceSharesExitStrategyData;
+  paragraphs?: string[];
 }
 
-export default function PreferenceSharesExitStrategySlide({ data }: Props) {
+export default function PreferenceSharesExitStrategySlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const minDscr = data.minDscrTarget ?? 1.2;
   const dscrMax = Math.max(
     minDscr * 1.25,
@@ -174,6 +182,14 @@ export default function PreferenceSharesExitStrategySlide({ data }: Props) {
           </div>
         </div>
       </div>
+
+      <EditableSlideParagraphs
+        paragraphs={paragraphs}
+        isEditing={isEditing}
+        onParagraphChange={onParagraphChange}
+        className="mt-4 shrink-0"
+        itemClassName="text-sm text-slate-700 leading-relaxed"
+      />
     </SlideContainer>
   );
 }

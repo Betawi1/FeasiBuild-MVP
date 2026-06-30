@@ -3,6 +3,7 @@
 import type {
   FeasibilityProjectBundle,
   FeasibilitySlide,
+  FeasibilitySlideData,
   SaleFeasibilityBundle,
 } from "@/types/feasibility";
 import ProjectAnalysis from "./sections/ProjectAnalysis";
@@ -104,6 +105,7 @@ interface Props {
   projectData: FeasibilityProjectBundle;
   isEditing?: boolean;
   onParagraphChange?: (index: number, text: string) => void;
+  onDataChange?: (data: FeasibilitySlideData) => void;
 }
 
 export default function FeasibilitySlideView({
@@ -111,8 +113,10 @@ export default function FeasibilitySlideView({
   projectData,
   isEditing,
   onParagraphChange,
+  onDataChange,
 }: Props) {
-  const common = { slide, isEditing, onParagraphChange };
+  const common = { slide, isEditing, onParagraphChange, onDataChange };
+  const editProps = { isEditing, onParagraphChange, onDataChange };
   const { country, city } = projectData.location;
   const agg = projectData.aggregate;
   const isRetail =
@@ -127,21 +131,21 @@ export default function FeasibilitySlideView({
     const data = isTitleSlideData(slide.data)
       ? slide.data
       : buildTitleSlideData(projectData);
-    return <TitleSlide data={data} />;
+    return <TitleSlide data={data} {...editProps} />;
   }
 
   if (slide.id === "hosp-demand") {
     const data = isTravelTourismDemandData(slide.data)
       ? slide.data
       : generateTravelTourismDemandData(country, city, []);
-    return <TravelTourismDemandSlide data={data} country={country} />;
+    return <TravelTourismDemandSlide data={data} country={country} {...editProps} />;
   }
 
   if (slide.id === "hosp-outlook") {
     const data = isTravelTourismOutlookData(slide.data)
       ? slide.data
       : generateTravelTourismOutlookData(country, city);
-    return <TravelTourismOutlookSlide data={data} country={country} />;
+    return <TravelTourismOutlookSlide data={data} country={country} {...editProps} />;
   }
 
   if (slide.id === "hosp-guests") {
@@ -149,7 +153,12 @@ export default function FeasibilitySlideView({
       ? slide.data
       : generateHistoricalGuestsData(agg);
     return (
-      <HistoricalHotelGuestsSlide data={data} country={country} city={city} />
+      <HistoricalHotelGuestsSlide
+        data={data}
+        country={country}
+        city={city}
+        {...editProps}
+      />
     );
   }
 
@@ -158,7 +167,12 @@ export default function FeasibilitySlideView({
       ? slide.data
       : generateLengthOfStayData(agg);
     return (
-      <AverageLengthOfStaySlide data={data} country={country} city={city} />
+      <AverageLengthOfStaySlide
+        data={data}
+        country={country}
+        city={city}
+        {...editProps}
+      />
     );
   }
 
@@ -167,7 +181,12 @@ export default function FeasibilitySlideView({
       ? slide.data
       : generateAnnualRevenuesData(agg);
     return (
-      <AnnualRevenuesByClassSlide data={data} country={country} city={city} />
+      <AnnualRevenuesByClassSlide
+        data={data}
+        country={country}
+        city={city}
+        {...editProps}
+      />
     );
   }
 
@@ -189,14 +208,21 @@ export default function FeasibilitySlideView({
     const data = isCompetitionData(slide.data)
       ? slide.data
       : generateCompetitionData(agg);
-    return <CompetitionAnalysisSlide data={data} city={city} />;
+    return (
+      <CompetitionAnalysisSlide
+        data={data}
+        city={city}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "hosp-summary") {
     const data = isHospitalitySummaryData(slide.data)
       ? slide.data
       : generateHospitalitySummaryData(agg);
-    return <SummaryOfHospitalityMarketSlide data={data} city={city} />;
+    return <SummaryOfHospitalityMarketSlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "hosp-implications") {
@@ -208,6 +234,7 @@ export default function FeasibilitySlideView({
         data={data}
         city={city}
         subtitle={slide.subtitle ?? "Hospitality"}
+        {...editProps}
       />
     );
   }
@@ -216,14 +243,14 @@ export default function FeasibilitySlideView({
     const data = isSuccessFactorsData(slide.data)
       ? slide.data
       : generateSuccessFactorsData(agg);
-    return <KeySuccessFactorsSlide data={data} projectName={projectName} />;
+    return <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />;
   }
 
   if (slide.id === "hosp-risk-factors") {
     const data = isRiskFactorsData(slide.data)
       ? slide.data
       : generateRiskFactorsData(agg);
-    return <KeyRiskFactorsSlide data={data} city={city} />;
+    return <KeyRiskFactorsSlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "mall-market-overview") {
@@ -235,6 +262,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -248,6 +276,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -261,6 +290,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -274,6 +304,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -287,6 +318,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -295,7 +327,7 @@ export default function FeasibilitySlideView({
     const data = isRetailMarketSummaryData(slide.data)
       ? slide.data
       : buildRetailMarketSummaryData(projectData);
-    return <RetailMarketSummarySlide data={data} city={city} />;
+    return <RetailMarketSummarySlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "mall-implications") {
@@ -307,6 +339,7 @@ export default function FeasibilitySlideView({
         data={data}
         city={city}
         subtitle={slide.subtitle ?? "Retail"}
+        {...editProps}
       />
     );
   }
@@ -315,14 +348,14 @@ export default function FeasibilitySlideView({
     const data = isSuccessFactorsData(slide.data)
       ? slide.data
       : buildMallSuccessFactorsData(projectData);
-    return <KeySuccessFactorsSlide data={data} projectName={projectName} />;
+    return <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />;
   }
 
   if (slide.id === "mall-risk-factors") {
     const data = isRiskFactorsData(slide.data)
       ? slide.data
       : buildMallRiskFactorsData(projectData);
-    return <KeyRiskFactorsSlide data={data} city={city} />;
+    return <KeyRiskFactorsSlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "mall-project-overview") {
@@ -338,6 +371,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -351,6 +385,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -364,6 +399,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -377,6 +413,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -390,6 +427,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -398,7 +436,7 @@ export default function FeasibilitySlideView({
     const data = isRetailMarketSummaryData(slide.data)
       ? slide.data
       : buildOfficeMarketSummaryData(projectData);
-    return <RetailMarketSummarySlide data={data} city={city} />;
+    return <RetailMarketSummarySlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "office-implications") {
@@ -410,6 +448,7 @@ export default function FeasibilitySlideView({
         data={data}
         city={city}
         subtitle={slide.subtitle ?? "Office"}
+        {...editProps}
       />
     );
   }
@@ -418,14 +457,14 @@ export default function FeasibilitySlideView({
     const data = isSuccessFactorsData(slide.data)
       ? slide.data
       : buildOfficeSuccessFactorsData(projectData);
-    return <KeySuccessFactorsSlide data={data} projectName={projectName} />;
+    return <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />;
   }
 
   if (slide.id === "office-risk-factors") {
     const data = isRiskFactorsData(slide.data)
       ? slide.data
       : buildOfficeRiskFactorsData(projectData);
-    return <KeyRiskFactorsSlide data={data} city={city} />;
+    return <KeyRiskFactorsSlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "office-project-overview") {
@@ -441,6 +480,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -454,6 +494,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -467,6 +508,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -480,6 +522,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -493,6 +536,7 @@ export default function FeasibilitySlideView({
         data={data}
         paragraphs={slide.paragraphs}
         city={city}
+        {...editProps}
       />
     );
   }
@@ -501,7 +545,7 @@ export default function FeasibilitySlideView({
     const data = isRetailMarketSummaryData(slide.data)
       ? slide.data
       : buildBTRMarketSummaryData(projectData);
-    return <RetailMarketSummarySlide data={data} city={city} />;
+    return <RetailMarketSummarySlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "btr-implications") {
@@ -513,6 +557,7 @@ export default function FeasibilitySlideView({
         data={data}
         city={city}
         subtitle={slide.subtitle ?? "Residential"}
+        {...editProps}
       />
     );
   }
@@ -521,14 +566,14 @@ export default function FeasibilitySlideView({
     const data = isSuccessFactorsData(slide.data)
       ? slide.data
       : buildBTRSuccessFactorsData(projectData);
-    return <KeySuccessFactorsSlide data={data} projectName={projectName} />;
+    return <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />;
   }
 
   if (slide.id === "btr-risk-factors") {
     const data = isRiskFactorsData(slide.data)
       ? slide.data
       : buildBTRRiskFactorsData(projectData);
-    return <KeyRiskFactorsSlide data={data} city={city} />;
+    return <KeyRiskFactorsSlide data={data} city={city} {...editProps} />;
   }
 
   if (slide.id === "btr-project-overview") {
@@ -548,6 +593,7 @@ export default function FeasibilitySlideView({
         data={data}
         city={city}
         subtitle={slide.subtitle ?? "Market Analysis"}
+        {...editProps}
       />
     );
   }
@@ -556,14 +602,14 @@ export default function FeasibilitySlideView({
     const data = isSuccessFactorsData(slide.data)
       ? slide.data
       : buildSaleSuccessFactorsData(projectData as SaleFeasibilityBundle);
-    return <KeySuccessFactorsSlide data={data} projectName={projectName} />;
+    return <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />;
   }
 
   if (slide.id === "sale-risk-factors") {
     const data = isRiskFactorsData(slide.data)
       ? slide.data
       : buildSaleRiskFactorsData(projectData as SaleFeasibilityBundle);
-    return <KeyRiskFactorsSlide data={data} city={city} />;
+    return <KeyRiskFactorsSlide data={data} city={city} {...editProps} />;
   }
 
   switch (slide.section) {
@@ -575,6 +621,7 @@ export default function FeasibilitySlideView({
               ? slide.data
               : buildTitleSlideData(projectData)
           }
+          {...editProps}
         />
       );
     case "executive":

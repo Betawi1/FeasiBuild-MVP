@@ -2,9 +2,12 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailMarketOverviewData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: RetailMarketOverviewData;
   paragraphs?: string[];
   city: string;
@@ -14,7 +17,21 @@ export default function RetailMarketOverviewSlide({
   data,
   paragraphs = [],
   city,
+  isEditing = false,
+  onParagraphChange,
+  onDataChange,
 }: Props) {
+  const updateArrayItem = (
+    field: "demandDrivers" | "catchmentHighlights",
+    index: number,
+    text: string
+  ) => {
+    onDataChange?.({
+      ...data,
+      [field]: data[field].map((item, i) => (i === index ? text : item)),
+    });
+  };
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -24,11 +41,11 @@ export default function RetailMarketOverviewSlide({
       />
       <div className="flex-1 grid grid-cols-2 gap-8 min-h-0 overflow-hidden">
         <div className="space-y-3 overflow-y-auto">
-          {paragraphs.map((p, i) => (
-            <p key={i} className="text-sm text-slate-700 leading-relaxed">
-              {p}
-            </p>
-          ))}
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+          />
         </div>
         <div className="space-y-4">
           <div>
@@ -37,7 +54,14 @@ export default function RetailMarketOverviewSlide({
             </h3>
             <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700">
               {data.demandDrivers.map((d, i) => (
-                <li key={i}>{d}</li>
+                <li key={i}>
+                  <EditableTextBlock
+                    text={d}
+                    isEditing={isEditing}
+                    onChange={(text) => updateArrayItem("demandDrivers", i, text)}
+                    className="text-sm text-slate-700"
+                  />
+                </li>
               ))}
             </ul>
           </div>
@@ -47,7 +71,14 @@ export default function RetailMarketOverviewSlide({
             </h3>
             <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700">
               {data.catchmentHighlights.map((h, i) => (
-                <li key={i}>{h}</li>
+                <li key={i}>
+                  <EditableTextBlock
+                    text={h}
+                    isEditing={isEditing}
+                    onChange={(text) => updateArrayItem("catchmentHighlights", i, text)}
+                    className="text-sm text-slate-700"
+                  />
+                </li>
               ))}
             </ul>
           </div>

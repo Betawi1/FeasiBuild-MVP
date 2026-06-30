@@ -2,10 +2,13 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
 import type { OperationalCashFlowData } from "@/types/feasibility";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: OperationalCashFlowData;
+  paragraphs?: string[];
 }
 
 function fmt(num: number): string {
@@ -25,7 +28,12 @@ function sumField(
   return rows.reduce((a, b) => a + (Number(b[key]) || 0), 0);
 }
 
-export default function OperationalCashFlowSlide({ data }: Props) {
+export default function OperationalCashFlowSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const { yearlyData, terminalValue, metrics } = data;
   const colSpan = yearlyData.length + 3;
 
@@ -206,6 +214,15 @@ export default function OperationalCashFlowSlide({ data }: Props) {
             <span className="font-bold">{metrics.paybackPeriod} years</span>.
           </p>
         </div>
+
+        {(paragraphs.length > 0 || isEditing) && (
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+            className="mt-2 shrink-0"
+          />
+        )}
       </div>
     </SlideContainer>
   );

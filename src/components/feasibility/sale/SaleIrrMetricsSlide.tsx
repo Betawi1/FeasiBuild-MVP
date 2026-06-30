@@ -2,9 +2,11 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleIrrMetricsData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SaleIrrMetricsData;
   paragraphs?: string[];
 }
@@ -16,7 +18,12 @@ function fmtCurrency(amount: number, currency: string): string {
   return `${currency} ${Math.round(amount).toLocaleString()}`;
 }
 
-export default function SaleIrrMetricsSlide({ data, paragraphs = [] }: Props) {
+export default function SaleIrrMetricsSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const metrics = [
     { label: "Unlevered Project IRR", value: `${data.projectIRR}%`, highlight: true },
     { label: "Levered Equity IRR", value: `${data.equityIRR}%`, highlight: true },
@@ -34,11 +41,12 @@ export default function SaleIrrMetricsSlide({ data, paragraphs = [] }: Props) {
         className="mb-4"
       />
       <div className="flex-1 flex flex-col gap-4 min-h-0">
-        {paragraphs.map((p, i) => (
-          <p key={i} className="text-sm text-slate-700 leading-relaxed">
-            {p}
-          </p>
-        ))}
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          itemClassName="text-sm text-slate-700 leading-relaxed"
+        />
         <div className="grid grid-cols-3 gap-4">
           {metrics.map((m) => (
             <div

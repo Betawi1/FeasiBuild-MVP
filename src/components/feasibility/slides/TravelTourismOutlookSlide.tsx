@@ -2,15 +2,31 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { TravelTourismOutlookData } from "@/types/feasibility";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: TravelTourismOutlookData;
   country: string;
 }
 
-export default function TravelTourismOutlookSlide({ data, country }: Props) {
+export default function TravelTourismOutlookSlide({
+  data,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const updateMetric = (
+    index: number,
+    patch: Partial<TravelTourismOutlookData["metrics"][number]>
+  ) => {
+    onDataChange?.({
+      ...data,
+      metrics: data.metrics.map((m, i) => (i === index ? { ...m, ...patch } : m)),
+    });
+  };
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -18,9 +34,12 @@ export default function TravelTourismOutlookSlide({ data, country }: Props) {
         subtitle="Travel and Tourism outlook"
         className="mb-4"
       />
-      <p className="text-sm text-emerald-600 font-semibold mb-4 leading-relaxed shrink-0">
-        {data.mainTakeaway}
-      </p>
+      <EditableTextBlock
+        text={data.mainTakeaway}
+        isEditing={isEditing}
+        onChange={(text) => onDataChange?.({ ...data, mainTakeaway: text })}
+        className="text-sm text-emerald-600 font-semibold mb-4 leading-relaxed shrink-0"
+      />
 
       <div className="flex-1 grid grid-cols-6 gap-2 min-h-0 overflow-hidden">
         {data.metrics.map((metric, i) => {
@@ -48,9 +67,12 @@ export default function TravelTourismOutlookSlide({ data, country }: Props) {
                     {metric.shortTermGrowth}%
                   </span>
                 </div>
-                <p className="text-[9px] text-blue-100 text-center leading-tight min-h-[36px]">
-                  {metric.shortTermDescription}
-                </p>
+                <EditableTextBlock
+                  text={metric.shortTermDescription}
+                  isEditing={isEditing}
+                  onChange={(text) => updateMetric(i, { shortTermDescription: text })}
+                  className="text-[9px] text-blue-100 text-center leading-tight min-h-[36px]"
+                />
               </div>
               <div className="mt-2 pt-2 border-t border-blue-800 text-center shrink-0">
                 <p className="text-[9px] text-blue-300 mb-0.5">Outlook (10-yr CAGR)</p>

@@ -23,8 +23,8 @@ export default function ProjectCard({
 }: ProjectCardProps) {
   const statusColors = {
     Draft: "bg-slate-800 text-slate-400",
-    "In Progress": "bg-blue-500/10 text-blue-400",
-    Completed: "bg-emerald-500/10 text-emerald-400",
+    "In Progress": "bg-blue-500/10 text-blue-400 border border-blue-500/20",
+    Completed: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
   };
 
   const route = type === "Sale" ? "/sale" : "/operational";

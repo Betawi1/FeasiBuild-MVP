@@ -1,6 +1,6 @@
 "use client";
 
-import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
+import type { FeasibilityProjectBundle, FeasibilitySlide, FeasibilitySlideData } from "@/types/feasibility";
 import {
   buildDevelopmentScheduleFromBundle,
   isDevelopmentScheduleData,
@@ -132,6 +132,7 @@ import {
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
+import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import {
   formatThousands,
   pctOfTotal,
@@ -143,6 +144,7 @@ interface Props {
   projectData: FeasibilityProjectBundle;
   isEditing?: boolean;
   onParagraphChange?: (index: number, text: string) => void;
+  onDataChange?: (data: FeasibilitySlideData) => void;
 }
 
 export default function FinancialFeasibility({
@@ -150,7 +152,9 @@ export default function FinancialFeasibility({
   projectData,
   isEditing = false,
   onParagraphChange,
+  onDataChange,
 }: Props) {
+  const editProps = { isEditing, onParagraphChange, onDataChange };
   const c = projectData.currency;
   const c1 = projectData.component1;
   const c2 = projectData.component2;
@@ -167,6 +171,7 @@ export default function FinancialFeasibility({
       <MallDevelopmentAssumptionsSlide
         data={mallData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -179,6 +184,7 @@ export default function FinancialFeasibility({
       <MallOperationalRevenuesSlide
         data={revData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -191,6 +197,7 @@ export default function FinancialFeasibility({
       <MallOperationalExpensesSlide
         data={expData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -203,6 +210,7 @@ export default function FinancialFeasibility({
       <MallOperationalPnLSlide
         data={pnlData}
         commentary={slide.paragraphs[0]}
+        {...editProps}
       />
     );
   }
@@ -217,6 +225,7 @@ export default function FinancialFeasibility({
       <OfficeDevelopmentAssumptionsSlide
         data={officeData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -229,6 +238,7 @@ export default function FinancialFeasibility({
       <OfficeOperationalRevenuesSlide
         data={revData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -241,6 +251,7 @@ export default function FinancialFeasibility({
       <OfficeOperationalExpensesSlide
         data={expData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -253,6 +264,7 @@ export default function FinancialFeasibility({
       <OfficeOperationalPnLSlide
         data={pnlData}
         commentary={slide.paragraphs[0]}
+        {...editProps}
       />
     );
   }
@@ -267,6 +279,7 @@ export default function FinancialFeasibility({
       <BTRDevelopmentAssumptionsSlide
         data={btrData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -282,6 +295,7 @@ export default function FinancialFeasibility({
       <BTROperationalRevenuesSlide
         data={revenuesData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -294,6 +308,7 @@ export default function FinancialFeasibility({
       <BTROperationalExpensesSlide
         data={expensesData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -306,6 +321,7 @@ export default function FinancialFeasibility({
       <BTROperationalPnLSlide
         data={pnlData}
         commentary={slide.paragraphs[0]}
+        {...editProps}
       />
     );
   }
@@ -320,7 +336,11 @@ export default function FinancialFeasibility({
       ? slide.data
       : buildSaleDevelopmentCostsData(saleBundle);
     return (
-      <SaleDevelopmentCostsSlide data={devData} paragraphs={slide.paragraphs} />
+      <SaleDevelopmentCostsSlide
+        data={devData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
     );
   }
 
@@ -332,6 +352,7 @@ export default function FinancialFeasibility({
       <SaleDevelopmentScheduleSlide
         data={scheduleData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -341,7 +362,11 @@ export default function FinancialFeasibility({
       ? slide.data
       : buildSaleSalesUptakeChartData(saleBundle);
     return (
-      <SalesUptakeChartSlide data={salesData} paragraphs={slide.paragraphs} />
+      <SalesUptakeChartSlide
+        data={salesData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
     );
   }
 
@@ -349,7 +374,7 @@ export default function FinancialFeasibility({
     const summaryData = isSaleSalesSummaryTableData(slide.data)
       ? slide.data
       : buildSaleSalesSummaryTableData(saleBundle);
-    return <SalesSummaryTableSlide data={summaryData} />;
+    return <SalesSummaryTableSlide data={summaryData} paragraphs={slide.paragraphs} {...editProps} />;
   }
 
   if (slide.id === "sale-project-cash-flow" && saleBundle) {
@@ -357,7 +382,11 @@ export default function FinancialFeasibility({
       ? slide.data
       : buildSaleProjectCashFlowData(saleBundle);
     return (
-      <ProjectCashFlowSlide data={cfData} paragraphs={slide.paragraphs} />
+      <ProjectCashFlowSlide
+        data={cfData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
     );
   }
 
@@ -366,7 +395,11 @@ export default function FinancialFeasibility({
       ? slide.data
       : buildSaleRevolvingCreditData(saleBundle);
     return (
-      <RevolvingCreditFacilitySlide data={rcfData} paragraphs={slide.paragraphs} />
+      <RevolvingCreditFacilitySlide
+        data={rcfData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
     );
   }
 
@@ -375,7 +408,11 @@ export default function FinancialFeasibility({
       ? slide.data
       : buildSaleEscrowWithdrawalData(saleBundle);
     return (
-      <EscrowWithdrawalSlide data={escrowData} paragraphs={slide.paragraphs} />
+      <EscrowWithdrawalSlide
+        data={escrowData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
     );
   }
 
@@ -387,6 +424,7 @@ export default function FinancialFeasibility({
       <SalePostFinancingCashFlowSlide
         data={postData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -396,7 +434,11 @@ export default function FinancialFeasibility({
       ? slide.data
       : buildSaleIrrMetricsData(saleBundle);
     return (
-      <SaleIrrMetricsSlide data={irrData} paragraphs={slide.paragraphs} />
+      <SaleIrrMetricsSlide
+        data={irrData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
     );
   }
 
@@ -404,14 +446,26 @@ export default function FinancialFeasibility({
     const scenarioData = isScenarioComparisonData(slide.data)
       ? slide.data
       : buildSaleScenarioComparisonData(saleBundle);
-    return <ScenarioComparisonSlide data={scenarioData} />;
+    return (
+      <ScenarioComparisonSlide
+        data={scenarioData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "sale-scenario-results" && saleBundle) {
     const resultsData = isScenarioAnalysisResultsData(slide.data)
       ? slide.data
       : buildSaleScenarioResultsData(saleBundle);
-    return <ScenarioAnalysisResultsSlide data={resultsData} />;
+    return (
+      <ScenarioAnalysisResultsSlide
+        data={resultsData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "fin-dev-schedule") {
@@ -422,6 +476,7 @@ export default function FinancialFeasibility({
       <DevelopmentScheduleSlide
         data={scheduleData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -435,6 +490,7 @@ export default function FinancialFeasibility({
       <OperationalRevenuesSlide
         data={revenuesData}
         paragraphs={slide.paragraphs}
+        {...editProps}
       />
     );
   }
@@ -444,14 +500,20 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.operationalExpenses ??
         buildOperationalExpensesFromBundle(projectData);
-    return <OperationalExpensesSlide data={expensesData} />;
+    return <OperationalExpensesSlide data={expensesData} paragraphs={slide.paragraphs} {...editProps} />;
   }
 
   if (slide.id === "operational-pnl") {
     const pnlData = isOperationalPnLData(slide.data)
       ? slide.data
       : projectData.operationalPnl ?? buildOperationalPnlFromBundle(projectData);
-    return <OperationalPnLSlide data={pnlData} />;
+    return (
+      <OperationalPnLSlide
+        data={pnlData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "operational-cash-flow") {
@@ -459,7 +521,13 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.operationalCashFlow ??
         buildOperationalCashFlowFromBundle(projectData);
-    return <OperationalCashFlowSlide data={cfData} />;
+    return (
+      <OperationalCashFlowSlide
+        data={cfData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "fin-term-loan") {
@@ -471,8 +539,7 @@ export default function FinancialFeasibility({
       <TermLoanFinancingSlide
         data={termLoanData}
         paragraphs={slide.paragraphs}
-        isEditing={isEditing}
-        onParagraphChange={onParagraphChange}
+        {...editProps}
       />
     );
   }
@@ -482,7 +549,13 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.preferenceSharesExitStrategy ??
         buildPreferenceSharesExitStrategyFromBundle(projectData);
-    return <PreferenceSharesExitStrategySlide data={prefSharesExitData} />;
+    return (
+      <PreferenceSharesExitStrategySlide
+        data={prefSharesExitData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "post-financing-cash-flow") {
@@ -490,7 +563,13 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.postFinancingCashFlow ??
         buildPostFinancingCashFlowFromBundle(projectData);
-    return <PostFinancingCashFlowSlide data={postFinancingData} />;
+    return (
+      <PostFinancingCashFlowSlide
+        data={postFinancingData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "irr-and-financing-metrics") {
@@ -498,7 +577,13 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.irrAndFinancingMetrics ??
         buildIrrAndFinancingMetricsFromBundle(projectData);
-    return <IrrAndFinancingMetricsSlide data={metricsData} />;
+    return (
+      <IrrAndFinancingMetricsSlide
+        data={metricsData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "scenario-comparison") {
@@ -506,7 +591,13 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.scenarioComparison ??
         buildScenarioComparisonFromBundle(projectData);
-    return <ScenarioComparisonSlide data={scenarioData} />;
+    return (
+      <ScenarioComparisonSlide
+        data={scenarioData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "scenario-analysis-results") {
@@ -514,7 +605,13 @@ export default function FinancialFeasibility({
       ? slide.data
       : projectData.scenarioAnalysisResults ??
         buildScenarioAnalysisResultsFromBundle(projectData);
-    return <ScenarioAnalysisResultsSlide data={resultsData} />;
+    return (
+      <ScenarioAnalysisResultsSlide
+        data={resultsData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
   }
 
   return (
@@ -651,22 +748,17 @@ export default function FinancialFeasibility({
           </div>
         )}
 
-        <div className="space-y-3">
-          {cleanParagraphsForDisplay(slide.paragraphs).map((p, i) =>
-            isEditing && onParagraphChange ? (
-              <textarea
-                key={i}
-                value={p}
-                onChange={(e) => onParagraphChange(i, e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded text-sm text-slate-700 h-20 resize-y"
-              />
-            ) : (
-              <p key={i} className="text-sm text-slate-700 mb-2 leading-relaxed">
-                {p}
-              </p>
-            )
-          )}
-        </div>
+        <EditableSlideParagraphs
+          paragraphs={
+            isEditing
+              ? slide.paragraphs
+              : cleanParagraphsForDisplay(slide.paragraphs)
+          }
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="space-y-3"
+          itemClassName="text-sm text-slate-700 mb-2 leading-relaxed"
+        />
 
         {slide.id !== "fin-dev-assumptions" &&
           slide.tables?.map((table, i) => (

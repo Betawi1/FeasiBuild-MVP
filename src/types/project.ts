@@ -65,6 +65,8 @@ export interface ProjectSaveData {
   financing: Financing;
   projectIRR: ProjectIRR;
   aiCommentary: AICommentary;
+  /** Set when the feasibility study has been generated at least once. */
+  feasibilityStudyGeneratedAt?: string;
   collectedState?: CollectedProjectState;
   metadata: ProjectSaveMetadata;
 }

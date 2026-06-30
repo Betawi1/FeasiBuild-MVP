@@ -2,13 +2,16 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type {
   OperationalExpenseRow,
   OperationalExpensesData,
 } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: OperationalExpensesData;
+  paragraphs?: string[];
 }
 
 function ExpenseTable({
@@ -47,7 +50,12 @@ function ExpenseTable({
   );
 }
 
-export default function OperationalExpensesSlide({ data }: Props) {
+export default function OperationalExpensesSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   return (
     <SlideContainer className="[&>div]:p-4">
       <SlideHeader title={data.title} subtitle={data.subtitle} className="!mb-2" />
@@ -218,6 +226,14 @@ export default function OperationalExpensesSlide({ data }: Props) {
           Source: HotelBenchmark 2007, Deloitte analysis, Component 2 Operational
           Assumptions
         </p>
+
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="shrink-0"
+          itemClassName="text-sm text-slate-700 leading-relaxed"
+        />
       </div>
     </SlideContainer>
   );

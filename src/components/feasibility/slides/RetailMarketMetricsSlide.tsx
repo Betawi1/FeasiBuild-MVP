@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailMarketMetricsData } from "@/types/feasibility";
 import {
   Bar,
@@ -16,7 +18,7 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: RetailMarketMetricsData;
   paragraphs?: string[];
   city: string;
@@ -26,6 +28,8 @@ export default function RetailMarketMetricsSlide({
   data,
   paragraphs = [],
   city,
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
   return (
     <SlideContainer>
@@ -87,12 +91,13 @@ export default function RetailMarketMetricsSlide({
           <p className="text-[10px] text-emerald-600 mt-1 shrink-0">
             Sales PSF CAGR: {data.salesPsfCagr}
           </p>
-          <div className="mt-2 space-y-1 overflow-y-auto">
-            {paragraphs.slice(0, 2).map((p, i) => (
-              <p key={i} className="text-xs text-slate-700 leading-relaxed">
-                {p}
-              </p>
-            ))}
+          <div className="mt-2 overflow-y-auto">
+            <EditableSlideParagraphs
+              paragraphs={paragraphs.slice(0, 2)}
+              isEditing={isEditing}
+              onParagraphChange={onParagraphChange}
+              itemClassName="text-xs text-slate-700 leading-relaxed"
+            />
           </div>
         </div>
       </div>

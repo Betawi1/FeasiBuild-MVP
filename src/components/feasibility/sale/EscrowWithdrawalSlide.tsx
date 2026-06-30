@@ -2,14 +2,21 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleEscrowWithdrawalData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SaleEscrowWithdrawalData;
   paragraphs?: string[];
 }
 
-export default function EscrowWithdrawalSlide({ data, paragraphs = [] }: Props) {
+export default function EscrowWithdrawalSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const c = data.currency;
 
   return (
@@ -19,9 +26,14 @@ export default function EscrowWithdrawalSlide({ data, paragraphs = [] }: Props) 
         subtitle="Escrow Withdrawal Configuration"
         className="mb-4"
       />
-      {paragraphs.length > 0 && (
+      {(paragraphs.length > 0 || isEditing) && (
         <div className="mb-4 bg-blue-50 border-l-4 border-blue-500 p-3 rounded shrink-0">
-          <p className="text-sm text-slate-700 leading-relaxed">{paragraphs[0]}</p>
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+            itemClassName="text-sm text-slate-700 leading-relaxed"
+          />
         </div>
       )}
       <div className="flex-1 overflow-auto min-h-0">

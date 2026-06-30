@@ -2,13 +2,13 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { TermLoanFinancingData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: TermLoanFinancingData;
   paragraphs?: string[];
-  isEditing?: boolean;
-  onParagraphChange?: (index: number, text: string) => void;
 }
 
 function fmtMoney(amount: number, currency: string): string {
@@ -99,29 +99,13 @@ export default function TermLoanFinancingSlide({
           </table>
         </div>
 
-        {paragraphs.length > 0 ? (
-          <div className="mt-4 space-y-2 shrink-0">
-            {paragraphs.map((paragraph, index) =>
-              isEditing && onParagraphChange ? (
-                <textarea
-                  key={index}
-                  value={paragraph}
-                  onChange={(event) =>
-                    onParagraphChange(index, event.target.value)
-                  }
-                  className="w-full p-2 border border-slate-300 rounded text-sm text-slate-900 h-20 resize-y"
-                />
-              ) : (
-                <p
-                  key={index}
-                  className="text-sm text-slate-800 leading-relaxed"
-                >
-                  {paragraph}
-                </p>
-              )
-            )}
-          </div>
-        ) : null}
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="mt-4 space-y-2 shrink-0"
+          itemClassName="text-sm text-slate-800 leading-relaxed"
+        />
       </div>
     </SlideContainer>
   );

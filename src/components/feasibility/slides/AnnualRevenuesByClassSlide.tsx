@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { AnnualRevenuesData } from "@/types/feasibility";
 import {
   Bar,
@@ -14,18 +16,46 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+type AnnualRevenuesDataWithBullets = AnnualRevenuesData & {
+  summaryBullets?: string[];
+};
+
+interface Props extends SlideEditingProps {
   data: AnnualRevenuesData;
   country: string;
   city: string;
 }
 
-export default function AnnualRevenuesByClassSlide({ data, city }: Props) {
+export default function AnnualRevenuesByClassSlide({
+  data,
+  city,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const extended = data as AnnualRevenuesDataWithBullets;
   const first = data.yearlyData[0];
   const last = data.yearlyData[data.yearlyData.length - 1];
   const lastTotal = last?.total ?? 1;
   const fiveShare = Math.round(((last?.fiveStar ?? 0) / lastTotal) * 100);
   const fourShare = Math.round(((last?.fourStar ?? 0) / lastTotal) * 100);
+
+  const defaultBullets = [
+    "The annual hotel revenue is the sum of lodging revenue and other revenue; other revenues include revenues from restaurants, night clubs, hotel shops, spas, etc.",
+    `In ${last?.year}, five and four-star hotels accounted for ${fiveShare}% and ${fourShare}% of the total hotel revenues`,
+    `Between ${first?.year} and ${last?.year}, revenue growth of four and five-star hotels exceeded by far that of three-star hotels`,
+    "This trend can be explained by the increasingly high room rates and the substantially larger quantity of available rooms in four and five-star hotels",
+  ];
+
+  const displayBullets = extended.summaryBullets ?? defaultBullets;
+
+  const updateBullet = (index: number, text: string) => {
+    const bullets = [...displayBullets];
+    bullets[index] = text;
+    onDataChange?.({
+      ...data,
+      summaryBullets: bullets,
+    } as AnnualRevenuesDataWithBullets);
+  };
 
   return (
     <SlideContainer>
@@ -53,48 +83,62 @@ export default function AnnualRevenuesByClassSlide({ data, city }: Props) {
               <Bar dataKey="others" stackId="a" fill="#1e3a8a" name="Others" />
             </BarChart>
           </ResponsiveContainer>
-          <div className="flex justify-center gap-4 mt-1 text-[10px] shrink-0">
-            <span className="text-emerald-600 font-semibold">
-              Five-star CAGR: {data.cagrByClass.fiveStar}
-            </span>
-            <span className="text-emerald-600 font-semibold">
-              Four-star CAGR: {data.cagrByClass.fourStar}
-            </span>
-          </div>
+          {isEditing ? (
+            <div className="flex justify-center gap-2 mt-1 text-[10px]">
+              <input
+                value={data.cagrByClass.fiveStar}
+                onChange={(e) =>
+                  onDataChange?.({
+                    ...data,
+                    cagrByClass: {
+                      ...data.cagrByClass,
+                      fiveStar: e.target.value,
+                    },
+                  })
+                }
+                className="p-1 border border-emerald-500/50 rounded text-emerald-600 font-semibold"
+                placeholder="Five-star CAGR"
+              />
+              <input
+                value={data.cagrByClass.fourStar}
+                onChange={(e) =>
+                  onDataChange?.({
+                    ...data,
+                    cagrByClass: {
+                      ...data.cagrByClass,
+                      fourStar: e.target.value,
+                    },
+                  })
+                }
+                className="p-1 border border-emerald-500/50 rounded text-emerald-600 font-semibold"
+                placeholder="Four-star CAGR"
+              />
+            </div>
+          ) : (
+            <div className="flex justify-center gap-4 mt-1 text-[10px] shrink-0">
+              <span className="text-emerald-600 font-semibold">
+                Five-star CAGR: {data.cagrByClass.fiveStar}
+              </span>
+              <span className="text-emerald-600 font-semibold">
+                Four-star CAGR: {data.cagrByClass.fourStar}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col justify-center min-h-0 overflow-hidden">
           <ul className="space-y-2 text-sm text-slate-700">
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                The annual hotel revenue is the sum of lodging revenue and other
-                revenue; other revenues include revenues from restaurants, night
-                clubs, hotel shops, spas, etc.
-              </span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                In {last?.year}, five and four-star hotels accounted for {fiveShare}%
-                and {fourShare}% of the total hotel revenues
-              </span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                Between {first?.year} and {last?.year}, revenue growth of four and
-                five-star hotels exceeded by far that of three-star hotels
-              </span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-              <span>
-                This trend can be explained by the increasingly high room rates and
-                the substantially larger quantity of available rooms in four and
-                five-star hotels
-              </span>
-            </li>
+            {displayBullets.map((bullet, i) => (
+              <li key={i} className="flex items-start">
+                <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
+                <EditableTextBlock
+                  text={bullet}
+                  isEditing={isEditing}
+                  onChange={(text) => updateBullet(i, text)}
+                  className="leading-snug flex-1"
+                />
+              </li>
+            ))}
           </ul>
         </div>
       </div>

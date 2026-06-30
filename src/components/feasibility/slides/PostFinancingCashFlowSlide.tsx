@@ -2,13 +2,21 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { PostFinancingCashFlowData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: PostFinancingCashFlowData;
+  paragraphs?: string[];
 }
 
-export default function PostFinancingCashFlowSlide({ data }: Props) {
+export default function PostFinancingCashFlowSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const fmt = (num: number) => {
     if (num === 0) return "0";
     return Math.abs(num).toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -107,6 +115,14 @@ export default function PostFinancingCashFlowSlide({ data }: Props) {
             </tbody>
           </table>
         </div>
+
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="mt-4 shrink-0"
+          itemClassName="text-sm text-slate-700 leading-relaxed"
+        />
       </div>
     </SlideContainer>
   );

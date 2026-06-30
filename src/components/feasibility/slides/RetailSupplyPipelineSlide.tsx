@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailSupplyPipelineData } from "@/types/feasibility";
 import {
   Bar,
@@ -14,7 +16,7 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: RetailSupplyPipelineData;
   paragraphs?: string[];
   city: string;
@@ -24,6 +26,8 @@ export default function RetailSupplyPipelineSlide({
   data,
   paragraphs = [],
   city,
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
   const chartData = data.chartData.map((d) => ({
     ...d,
@@ -58,11 +62,11 @@ export default function RetailSupplyPipelineSlide({
           </div>
         </div>
         <div className="space-y-3 overflow-y-auto">
-          {paragraphs.map((p, i) => (
-            <p key={i} className="text-sm text-slate-700 leading-relaxed">
-              {p}
-            </p>
-          ))}
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+          />
           <table className="feasibility-table w-full text-xs border border-slate-300 mt-2">
             <tbody>
               <tr>

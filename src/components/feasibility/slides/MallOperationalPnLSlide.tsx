@@ -2,9 +2,11 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { MallOperationalPnLData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: MallOperationalPnLData;
   commentary?: string;
 }
@@ -74,7 +76,12 @@ function PnlLineRow({
   );
 }
 
-export default function MallOperationalPnLSlide({ data, commentary }: Props) {
+export default function MallOperationalPnLSlide({
+  data,
+  commentary,
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const revGrandTotal = sum(data.revenues.totalRevenue);
   const y1EbitdaMargin = marginPct(data.ebitda[0] ?? 0, data.revenues.totalRevenue[0] ?? 0);
   const y3EbitdaMargin = marginPct(data.ebitda[2] ?? 0, data.revenues.totalRevenue[2] ?? 0);
@@ -91,9 +98,12 @@ export default function MallOperationalPnLSlide({ data, commentary }: Props) {
 
       <div className="mb-4 bg-emerald-50 border-l-4 border-emerald-500 p-3 rounded shrink-0">
         <h3 className="text-sm font-bold text-slate-800 mb-2">P&L HIGHLIGHTS</h3>
-        <p className="text-sm text-slate-700 leading-relaxed">
-          {commentary ?? defaultCommentary}
-        </p>
+        <EditableTextBlock
+          text={commentary ?? defaultCommentary}
+          isEditing={isEditing}
+          onChange={(text) => onParagraphChange?.(0, text)}
+          className="text-sm text-slate-700 leading-relaxed"
+        />
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">

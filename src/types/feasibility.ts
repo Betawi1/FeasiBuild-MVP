@@ -436,6 +436,11 @@ export interface TitleSlideData {
   businessType?: string;
   /** Pre-formatted label e.g. "5-Star Business Hotel" from BENCHMARK profile */
   benchmarkTitleLabel?: string;
+  /** User-edited override for the computed title line */
+  displayTitle?: string;
+  preparedBy?: string;
+  reportYear?: string;
+  confidentialFooter?: string;
 }
 
 export interface BTROperationalPnLData {

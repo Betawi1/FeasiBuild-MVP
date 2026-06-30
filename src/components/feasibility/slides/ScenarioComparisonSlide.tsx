@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type {
   ScenarioComparisonData,
   ScenarioComparisonMetricRow,
@@ -18,8 +20,9 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: ScenarioComparisonData;
+  paragraphs?: string[];
 }
 
 function formatCell(row: ScenarioComparisonMetricRow, value: number): string {
@@ -28,7 +31,12 @@ function formatCell(row: ScenarioComparisonMetricRow, value: number): string {
   return `${value.toFixed(1)} yrs`;
 }
 
-export default function ScenarioComparisonSlide({ data }: Props) {
+export default function ScenarioComparisonSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const sortedTornadoData = [...data.tornadoData].sort(
     (a, b) => b.high - b.low - (a.high - a.low)
   );
@@ -149,6 +157,16 @@ export default function ScenarioComparisonSlide({ data }: Props) {
           </tbody>
         </table>
       </div>
+
+      {(paragraphs.length > 0 || isEditing) && (
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="mt-4 shrink-0"
+          itemClassName="text-sm text-slate-700 leading-relaxed"
+        />
+      )}
     </SlideContainer>
   );
 }

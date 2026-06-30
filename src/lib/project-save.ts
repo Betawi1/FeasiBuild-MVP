@@ -4,6 +4,7 @@ import useFinModelStore, {
   resolveFinModelStreamKey,
   type FinModelStreamKey,
 } from "@/store/useFinModelStore";
+import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import useScenarioStore from "@/store/useScenarioStore";
 import { getFeasibilityProjectBundle } from "@/lib/feasibility/data-aggregator";
 import { getSaleFeasibilityBundle } from "@/lib/feasibility/sale/sale-context";
@@ -333,18 +334,65 @@ function formatProjectLocation(projectInfo: ProjectSaveData["projectInfo"]): str
   return "Unknown";
 }
 
+export function resolveProjectStatus(
+  projectData: Pick<ProjectSaveData, "feasibilityStudyGeneratedAt">,
+  slideCount = 0
+): ProjectIndexEntry["status"] {
+  if (projectData.feasibilityStudyGeneratedAt || slideCount > 0) {
+    return "Completed";
+  }
+  return "Draft";
+}
+
 export function buildProjectIndexEntry(
-  projectData: ProjectSaveData
+  projectData: ProjectSaveData,
+  options?: { slideCount?: number }
 ): ProjectIndexEntry {
   const projectType = projectData.stream === "sale" ? "Sale" : "Operational";
   return {
     projectId: projectData.projectId,
     projectName: projectData.projectName || "Untitled Project",
     projectType,
-    status: "Draft",
+    status: resolveProjectStatus(projectData, options?.slideCount ?? 0),
     lastModified: projectData.metadata.lastModified,
     location: formatProjectLocation(projectData.projectInfo),
   };
+}
+
+/** Mark a saved project as having a completed feasibility study (updates KV + index). */
+export async function markFeasibilityStudyCompleted(
+  userId: string,
+  projectId: string,
+  generatedAt?: string
+): Promise<void> {
+  const timestamp = generatedAt ?? new Date().toISOString();
+  const existing = await loadProjectFromKV(projectId, userId);
+
+  if (existing) {
+    const updated: ProjectSaveData = {
+      ...existing,
+      feasibilityStudyGeneratedAt:
+        existing.feasibilityStudyGeneratedAt ?? timestamp,
+      metadata: {
+        ...existing.metadata,
+        lastModified: timestamp,
+      },
+    };
+    const serialized = JSON.stringify(sanitizeForStorage(updated));
+    await writeProjectRaw(userId, projectId, serialized);
+    await upsertProjectIndexEntry(userId, buildProjectIndexEntry(updated));
+    return;
+  }
+
+  const index = await loadProjectIndex(userId);
+  const entry = index.find((item) => item.projectId === projectId);
+  if (entry && entry.status !== "Completed") {
+    await upsertProjectIndexEntry(userId, {
+      ...entry,
+      status: "Completed",
+      lastModified: timestamp,
+    });
+  }
 }
 
 async function updateProjectIndex(
@@ -352,7 +400,8 @@ async function updateProjectIndex(
   projectData: ProjectSaveData
 ): Promise<void> {
   try {
-    const projectMetadata = buildProjectIndexEntry(projectData);
+    const slideCount = useFeasibilityStore.getState().slides.length;
+    const projectMetadata = buildProjectIndexEntry(projectData, { slideCount });
     await upsertProjectIndexEntry(userId, projectMetadata);
     console.log("[ProjectSave] Project index updated successfully");
   } catch (error) {
@@ -386,7 +435,19 @@ export async function fetchProjectIndex(
   userId: string
 ): Promise<ProjectIndexEntry[]> {
   const index = await loadProjectIndex(userId);
-  return [...index].sort(
+  const enriched = await Promise.all(
+    index.map(async (entry) => {
+      if (entry.status === "Completed") return entry;
+      const project = await loadProjectFromKV(entry.projectId, userId);
+      if (!project?.feasibilityStudyGeneratedAt) return entry;
+      return {
+        ...entry,
+        status: "Completed" as const,
+        lastModified: project.metadata.lastModified,
+      };
+    })
+  );
+  return enriched.sort(
     (a, b) =>
       new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
   );
@@ -474,6 +535,11 @@ export async function buildAndSaveProject(
     : null;
 
   const aiCommentary = await fetchAICommentary(projectId, collected.stream);
+  const feasibilityState = useFeasibilityStore.getState();
+  const slideCount = feasibilityState.slides.length;
+  const studyGeneratedAt =
+    feasibilityState.report?.generatedAt ??
+    existingProject?.feasibilityStudyGeneratedAt;
 
   const projectData: ProjectSaveData = {
     projectId,
@@ -489,6 +555,9 @@ export async function buildAndSaveProject(
     financing: collected.financing,
     projectIRR: collected.projectIRR,
     aiCommentary,
+    feasibilityStudyGeneratedAt:
+      existingProject?.feasibilityStudyGeneratedAt ??
+      (slideCount > 0 ? studyGeneratedAt ?? now : undefined),
     collectedState: collected,
     metadata: {
       version: PROJECT_SAVE_VERSION,

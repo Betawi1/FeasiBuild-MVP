@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import { getSaleFeasibilityBundle } from "@/lib/feasibility/sale/sale-context";
 import { exportToPDF } from "@/lib/pdf-export";
@@ -19,6 +20,7 @@ import {
   setStoredHashes,
 } from "@/lib/cache-service";
 import { checkPuterStatusAndLog } from "@/lib/puter-auth";
+import { markFeasibilityStudyCompleted } from "@/lib/project-save";
 import useFinModelStore from "@/store/useFinModelStore";
 
 const btnOutline =
@@ -36,6 +38,8 @@ const SECTION_LABEL: Record<FeasibilitySlide["section"], string> = {
 
 export default function SaleFeasibilityStudyPage() {
   const router = useRouter();
+  const { user } = useUser();
+  const activeProjectId = useFinModelStore((s) => s.activeProjectId);
   const buildingSubType = useFinModelStore(
     (s) => s.sale.projectInfo.buildingSubType
   );
@@ -43,6 +47,7 @@ export default function SaleFeasibilityStudyPage() {
     slides,
     setSlides,
     updateSlideParagraph,
+    updateSlideData,
     isEditing,
     toggleEditing,
     setMarketResearchCache,
@@ -103,13 +108,21 @@ export default function SaleFeasibilityStudyPage() {
         setMarketResearchCache(marketResearch);
       }
       setCurrentSlideIndex(0);
+
+      if (slidesResult.length > 0 && user?.id && activeProjectId) {
+        void markFeasibilityStudyCompleted(
+          user.id,
+          activeProjectId,
+          new Date().toISOString()
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate study");
       setSlides([]);
     } finally {
       setLoading(false);
     }
-  }, [setSlides, setMarketResearchCache]);
+  }, [activeProjectId, setSlides, setMarketResearchCache, user?.id]);
 
   useEffect(() => {
     void checkPuterStatusAndLog();
@@ -244,6 +257,9 @@ export default function SaleFeasibilityStudyPage() {
               isEditing={isEditing}
               onParagraphChange={(index, text) =>
                 updateSlideParagraph(currentSlide.id, index, text)
+              }
+              onDataChange={(data) =>
+                updateSlideData(currentSlide.id, data)
               }
             />
           </SlideErrorBoundary>

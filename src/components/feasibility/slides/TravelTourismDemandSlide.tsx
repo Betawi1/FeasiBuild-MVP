@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { TravelTourismDemandData } from "@/types/feasibility";
 import {
   Bar,
@@ -14,12 +16,24 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: TravelTourismDemandData;
   country: string;
 }
 
-export default function TravelTourismDemandSlide({ data, country }: Props) {
+export default function TravelTourismDemandSlide({
+  data,
+  country,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const updateBullet = (index: number, text: string) => {
+    onDataChange?.({
+      ...data,
+      bulletPoints: data.bulletPoints.map((p, i) => (i === index ? text : p)),
+    });
+  };
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -70,9 +84,30 @@ export default function TravelTourismDemandSlide({ data, country }: Props) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-xs text-slate-500 mt-2 text-center shrink-0">
-            CAGR: {data.cagr} | Real Growth: {data.realGrowth}
-          </p>
+          {isEditing ? (
+            <div className="flex gap-2 mt-2 shrink-0">
+              <input
+                value={data.cagr}
+                onChange={(e) =>
+                  onDataChange?.({ ...data, cagr: e.target.value })
+                }
+                className="flex-1 p-1 text-xs border border-emerald-500/50 rounded"
+                placeholder="CAGR"
+              />
+              <input
+                value={data.realGrowth}
+                onChange={(e) =>
+                  onDataChange?.({ ...data, realGrowth: e.target.value })
+                }
+                className="flex-1 p-1 text-xs border border-emerald-500/50 rounded"
+                placeholder="Real Growth"
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 mt-2 text-center shrink-0">
+              CAGR: {data.cagr} | Real Growth: {data.realGrowth}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col justify-center min-h-0 overflow-hidden">
@@ -80,7 +115,12 @@ export default function TravelTourismDemandSlide({ data, country }: Props) {
             {data.bulletPoints.map((point, i) => (
               <li key={i} className="flex items-start text-sm text-slate-700">
                 <span className="text-emerald-500 mr-2 font-bold shrink-0">•</span>
-                <span className="leading-snug">{point}</span>
+                <EditableTextBlock
+                  text={point}
+                  isEditing={isEditing}
+                  onChange={(text) => updateBullet(i, text)}
+                  className="leading-snug flex-1"
+                />
               </li>
             ))}
           </ul>

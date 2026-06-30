@@ -2,14 +2,21 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { OperationalRevenuesData } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: OperationalRevenuesData;
   paragraphs?: string[];
 }
 
-export default function OperationalRevenuesSlide({ data, paragraphs = [] }: Props) {
+export default function OperationalRevenuesSlide({
+  data,
+  paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const { years, adr, occupancy } = data.roomRevenues;
   const notes = paragraphs.length > 0 ? paragraphs : data.notes;
 
@@ -104,11 +111,13 @@ export default function OperationalRevenuesSlide({ data, paragraphs = [] }: Prop
           </div>
 
           <div className="flex flex-col justify-center min-h-0">
-            <ul className="list-disc pl-5 space-y-2 text-sm text-slate-700 leading-relaxed">
-              {notes.map((note, i) => (
-                <li key={i}>{note}</li>
-              ))}
-            </ul>
+            <EditableSlideParagraphs
+              paragraphs={notes}
+              isEditing={isEditing}
+              onParagraphChange={onParagraphChange}
+              className="list-disc pl-5 space-y-2"
+              itemClassName="text-sm text-slate-700 leading-relaxed"
+            />
             <p className="mt-3 text-[9px] text-slate-400 italic">
               Source: Component 2 Operational Assumptions
             </p>

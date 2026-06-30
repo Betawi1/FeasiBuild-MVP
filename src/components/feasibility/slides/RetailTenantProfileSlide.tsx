@@ -2,12 +2,15 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailTenantProfileData } from "@/types/feasibility";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 const COLORS = ["#4c1d95", "#0d9488", "#f59e0b", "#3b82f6", "#ef4444", "#6366f1"];
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: RetailTenantProfileData;
   paragraphs?: string[];
   city: string;
@@ -17,7 +20,19 @@ export default function RetailTenantProfileSlide({
   data,
   paragraphs = [],
   city,
+  isEditing = false,
+  onParagraphChange,
+  onDataChange,
 }: Props) {
+  const updateDemographic = (index: number, text: string) => {
+    onDataChange?.({
+      ...data,
+      primaryDemographics: data.primaryDemographics.map((d, i) =>
+        i === index ? text : d
+      ),
+    });
+  };
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -65,14 +80,21 @@ export default function RetailTenantProfileSlide({
           </h3>
           <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700">
             {data.primaryDemographics.map((d, i) => (
-              <li key={i}>{d}</li>
+              <li key={i}>
+                <EditableTextBlock
+                  text={d}
+                  isEditing={isEditing}
+                  onChange={(text) => updateDemographic(i, text)}
+                  className="text-sm text-slate-700"
+                />
+              </li>
             ))}
           </ul>
-          {paragraphs.map((p, i) => (
-            <p key={i} className="text-sm text-slate-700 leading-relaxed">
-              {p}
-            </p>
-          ))}
+          <EditableSlideParagraphs
+            paragraphs={paragraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+          />
         </div>
       </div>
     </SlideContainer>

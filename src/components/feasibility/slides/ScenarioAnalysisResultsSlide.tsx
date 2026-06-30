@@ -3,13 +3,16 @@
 import { useEffect, useState } from "react";
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type {
   ScenarioAnalysisCase,
   ScenarioAnalysisResultsData,
 } from "@/types/feasibility";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: ScenarioAnalysisResultsData;
+  paragraphs?: string[];
 }
 
 function fmtCurrency(currency: string, num: number): string {
@@ -59,7 +62,12 @@ const METRIC_ROWS: {
   },
 ];
 
-export default function ScenarioAnalysisResultsSlide({ data }: Props) {
+export default function ScenarioAnalysisResultsSlide({
+  data,
+  paragraphs,
+  isEditing = false,
+  onParagraphChange,
+}: Props) {
   const [commentary, setCommentary] = useState(
     data.fallbackCommentary ?? "Generating dynamic scenario analysis..."
   );
@@ -71,6 +79,8 @@ export default function ScenarioAnalysisResultsSlide({ data }: Props) {
     data.scenarios[data.scenarios.length - 1];
 
   useEffect(() => {
+    if (isEditing) return;
+
     let cancelled = false;
 
     async function fetchCommentary() {
@@ -101,7 +111,10 @@ export default function ScenarioAnalysisResultsSlide({ data }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, isEditing]);
+
+  const displayCommentary =
+    isEditing && paragraphs?.[0] != null ? paragraphs[0] : commentary;
 
   const assumptionCards = [
     { scenario: downside, tone: "text-red-700" },
@@ -200,7 +213,12 @@ export default function ScenarioAnalysisResultsSlide({ data }: Props) {
           <h4 className="text-xs font-bold text-slate-800 mb-1">
             Scenario Analysis Commentary
           </h4>
-          <p className="text-sm text-slate-700 leading-snug">{commentary}</p>
+          <EditableTextBlock
+            text={displayCommentary}
+            isEditing={isEditing}
+            onChange={(text) => onParagraphChange?.(0, text)}
+            className="text-sm text-slate-700 leading-snug"
+          />
         </div>
       </div>
     </SlideContainer>

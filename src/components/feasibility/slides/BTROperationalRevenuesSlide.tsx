@@ -2,10 +2,12 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { BTROperationalRevenuesData } from "@/types/feasibility";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: BTROperationalRevenuesData;
   paragraphs?: string[];
 }
@@ -17,9 +19,13 @@ function fmt(amount: number, currency: string): string {
 export default function BTROperationalRevenuesSlide({
   data,
   paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
   const c = data.currency;
-  const displayParagraphs = cleanParagraphsForDisplay(paragraphs);
+  const displayParagraphs = isEditing
+    ? paragraphs
+    : cleanParagraphsForDisplay(paragraphs);
 
   return (
     <SlideContainer>
@@ -30,11 +36,12 @@ export default function BTROperationalRevenuesSlide({
       />
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
         <div className="space-y-2 overflow-y-auto">
-          {displayParagraphs.map((p, i) => (
-            <p key={i} className="text-sm text-slate-800 leading-relaxed">
-              {p}
-            </p>
-          ))}
+          <EditableSlideParagraphs
+            paragraphs={displayParagraphs}
+            isEditing={isEditing}
+            onParagraphChange={onParagraphChange}
+            itemClassName="text-sm text-slate-800 leading-relaxed"
+          />
           <p className="text-xs text-slate-600">
             Residential GLA: {data.residentialGla.toLocaleString()} sqft · Retail
             GLA: {data.retailGla.toLocaleString()} sqft

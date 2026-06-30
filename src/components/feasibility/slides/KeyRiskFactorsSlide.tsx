@@ -3,12 +3,13 @@
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
 import type { RiskFactorsData } from "@/types/feasibility";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import {
   cleanDisplayText,
   splitEffectSentences,
 } from "@/lib/feasibility/clean-ai-content";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: RiskFactorsData;
   city: string;
 }
@@ -31,7 +32,57 @@ function EffectList({ effect, color }: { effect: string; color: "red" | "emerald
   );
 }
 
-export default function KeyRiskFactorsSlide({ data }: Props) {
+export default function KeyRiskFactorsSlide({
+  data,
+  isEditing = false,
+  onDataChange,
+}: Props) {
+  const updateThreat = (
+    index: number,
+    patch: Partial<RiskFactorsData["marketThreats"][number]>
+  ) => {
+    onDataChange?.({
+      ...data,
+      marketThreats: data.marketThreats.map((item, i) =>
+        i === index ? { ...item, ...patch } : item
+      ),
+    });
+  };
+
+  const updateMitigation = (
+    section: "marketThreats" | "projectWeaknesses",
+    itemIndex: number,
+    factorIndex: number,
+    text: string
+  ) => {
+    const list = data[section];
+    onDataChange?.({
+      ...data,
+      [section]: list.map((item, i) =>
+        i === itemIndex
+          ? {
+              ...item,
+              mitigatingFactors: item.mitigatingFactors.map((f, j) =>
+                j === factorIndex ? text : f
+              ),
+            }
+          : item
+      ),
+    });
+  };
+
+  const updateWeakness = (
+    index: number,
+    patch: Partial<RiskFactorsData["projectWeaknesses"][number]>
+  ) => {
+    onDataChange?.({
+      ...data,
+      projectWeaknesses: data.projectWeaknesses.map((item, i) =>
+        i === index ? { ...item, ...patch } : item
+      ),
+    });
+  };
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -54,17 +105,48 @@ export default function KeyRiskFactorsSlide({ data }: Props) {
           {data.marketThreats.map((item, i) => (
             <div key={i} className="grid grid-cols-3 gap-1 text-[10px]">
               <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
-                {cleanDisplayText(item.risk)}
+                {isEditing ? (
+                  <textarea
+                    value={item.risk}
+                    onChange={(e) => updateThreat(i, { risk: e.target.value })}
+                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                  />
+                ) : (
+                  cleanDisplayText(item.risk)
+                )}
               </div>
               <div className="bg-slate-50 p-1 rounded border border-slate-300">
-                <EffectList effect={item.effect} color="red" />
+                {isEditing ? (
+                  <textarea
+                    value={item.effect}
+                    onChange={(e) => updateThreat(i, { effect: e.target.value })}
+                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                  />
+                ) : (
+                  <EffectList effect={item.effect} color="red" />
+                )}
               </div>
               <div className="bg-white p-1 rounded border border-slate-300">
                 <ul className="space-y-0 text-[10px] text-slate-800 leading-snug">
                   {item.mitigatingFactors.map((factor, j) => (
                     <li key={j} className="flex items-start">
                       <span className="text-emerald-500 mr-1 shrink-0">•</span>
-                      <span>{cleanDisplayText(factor)}</span>
+                      {isEditing ? (
+                        <textarea
+                          value={factor}
+                          onChange={(e) =>
+                            updateMitigation(
+                              "marketThreats",
+                              i,
+                              j,
+                              e.target.value
+                            )
+                          }
+                          className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[32px] text-[10px]"
+                        />
+                      ) : (
+                        <span>{cleanDisplayText(factor)}</span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -80,17 +162,52 @@ export default function KeyRiskFactorsSlide({ data }: Props) {
           {data.projectWeaknesses.map((item, i) => (
             <div key={i} className="grid grid-cols-3 gap-1 text-[10px]">
               <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
-                {cleanDisplayText(item.weakness)}
+                {isEditing ? (
+                  <textarea
+                    value={item.weakness}
+                    onChange={(e) =>
+                      updateWeakness(i, { weakness: e.target.value })
+                    }
+                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                  />
+                ) : (
+                  cleanDisplayText(item.weakness)
+                )}
               </div>
               <div className="bg-slate-50 p-1 rounded border border-slate-300">
-                <EffectList effect={item.effect} color="red" />
+                {isEditing ? (
+                  <textarea
+                    value={item.effect}
+                    onChange={(e) =>
+                      updateWeakness(i, { effect: e.target.value })
+                    }
+                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                  />
+                ) : (
+                  <EffectList effect={item.effect} color="red" />
+                )}
               </div>
               <div className="bg-white p-1 rounded border border-slate-300">
                 <ul className="space-y-0 text-[10px] text-slate-800 leading-snug">
                   {item.mitigatingFactors.map((factor, j) => (
                     <li key={j} className="flex items-start">
                       <span className="text-emerald-500 mr-1 shrink-0">•</span>
-                      <span>{cleanDisplayText(factor)}</span>
+                      {isEditing ? (
+                        <textarea
+                          value={factor}
+                          onChange={(e) =>
+                            updateMitigation(
+                              "projectWeaknesses",
+                              i,
+                              j,
+                              e.target.value
+                            )
+                          }
+                          className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[32px] text-[10px]"
+                        />
+                      ) : (
+                        <span>{cleanDisplayText(factor)}</span>
+                      )}
                     </li>
                   ))}
                 </ul>

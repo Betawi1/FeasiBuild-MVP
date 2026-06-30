@@ -2,6 +2,8 @@
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
 import SlideHeader from "@/components/feasibility/SlideHeader";
+import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
+import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleProjectCashFlowData } from "@/types/feasibility";
 import {
   CartesianGrid,
@@ -15,7 +17,7 @@ import {
   YAxis,
 } from "recharts";
 
-interface Props {
+interface Props extends SlideEditingProps {
   data: SaleProjectCashFlowData;
   paragraphs?: string[];
 }
@@ -23,6 +25,8 @@ interface Props {
 export default function ProjectCashFlowSlide({
   data,
   paragraphs = [],
+  isEditing = false,
+  onParagraphChange,
 }: Props) {
   const chartData = data.netCashFlow.map((ncf, i) => ({
     month: `M${i}`,
@@ -38,11 +42,13 @@ export default function ProjectCashFlowSlide({
         className="mb-4"
       />
       <div className="flex-1 flex flex-col gap-4 min-h-0">
-        {paragraphs.length > 0 && (
-          <p className="text-sm text-slate-700 leading-relaxed shrink-0">
-            {paragraphs[0]}
-          </p>
-        )}
+        <EditableSlideParagraphs
+          paragraphs={paragraphs}
+          isEditing={isEditing}
+          onParagraphChange={onParagraphChange}
+          className="shrink-0"
+          itemClassName="text-sm text-slate-700 leading-relaxed"
+        />
         <div className="flex gap-4 shrink-0 text-xs">
           <span className="rounded bg-emerald-50 border border-emerald-200 px-3 py-2 text-emerald-700 font-semibold">
             Project IRR: {data.projectIRR}%
