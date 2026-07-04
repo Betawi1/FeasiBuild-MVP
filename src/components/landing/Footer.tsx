@@ -45,6 +45,14 @@ export default function Footer() {
                   Get Started
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/docs"
+                  className="text-slate-400 hover:text-emerald-400 transition"
+                >
+                  Documentation
+                </Link>
+              </li>
             </ul>
           </div>
 

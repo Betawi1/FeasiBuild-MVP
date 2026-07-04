@@ -44,6 +44,12 @@ export default function Navbar() {
             >
               About
             </Link>
+            <Link
+              href="/docs"
+              className="text-sm font-medium text-slate-300 transition hover:text-emerald-400"
+            >
+              Documentation
+            </Link>
           </div>
 
           <div className="hidden items-center space-x-4 md:flex">
@@ -165,6 +171,13 @@ export default function Navbar() {
               onClick={() => setIsMobileMenuOpen(false)}
             >
               About
+            </Link>
+            <Link
+              href="/docs"
+              className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-emerald-400"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Documentation
             </Link>
 
             <div className="space-y-3 border-t border-slate-800 pt-4">
