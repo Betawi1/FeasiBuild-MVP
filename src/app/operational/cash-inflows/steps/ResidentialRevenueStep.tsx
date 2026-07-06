@@ -22,6 +22,8 @@ import {
 } from "@/lib/residential-revenue-calculations";
 import {
   defaultOperationalResidentialHoldSnapshot,
+  snapFinite,
+  snapPositive,
   type OperationalResidentialHoldSnapshot,
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
@@ -120,6 +122,7 @@ type ResidentialRevenueStepProps = {
   fieldError: (name: string) => string | undefined;
   defaultResidentialGlaSqft?: number;
   defaultRetailGlaSqft?: number;
+  onRegisterPersist?: (persist: (() => void) | null) => void;
 };
 
 const DEFAULT_RETAIL_RENT_PSF = 300;
@@ -134,6 +137,7 @@ export default function ResidentialRevenueStep({
   fieldError,
   defaultResidentialGlaSqft = 200_000,
   defaultRetailGlaSqft = 50_000,
+  onRegisterPersist,
 }: ResidentialRevenueStepProps) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
@@ -185,74 +189,90 @@ export default function ResidentialRevenueStep({
   const defaultLeaseUpMonths = Math.round((benchmark?.leaseUpYears ?? 2.5) * 12);
 
   const [residentialGla, setResidentialGla] = useState(
-    () => snap?.residentialGlaSqft || defaultResidentialGlaSqft
+    () => snapPositive(snap?.residentialGlaSqft, defaultResidentialGlaSqft)
   );
   const [retailGla, setRetailGla] = useState(
-    () => snap?.retailGlaSqft || defaultRetailGlaSqft
+    () => snapPositive(snap?.retailGlaSqft, defaultRetailGlaSqft)
   );
 
   const [residentialRentPsf, setResidentialRentPsf] = useState(
-    () => snap?.residentialRentPsfYear1 ?? benchmark?.blendedRentPsf ?? 180
+    () =>
+      snapPositive(snap?.residentialRentPsfYear1, benchmark?.blendedRentPsf ?? 180)
   );
   const [residentialEscalation, setResidentialEscalation] = useState(
-    () => snap?.residentialRentEscalationPct ?? benchmark?.rentEscalation ?? 3
+    () =>
+      snapFinite(
+        snap?.residentialRentEscalationPct,
+        benchmark?.rentEscalation ?? 3
+      )
   );
   const [residentialLeasedOpening, setResidentialLeasedOpening] = useState(
-    () => snap?.residentialLeasedOpeningPct ?? benchmark?.openingOccupancy ?? 30
+    () =>
+      snapFinite(
+        snap?.residentialLeasedOpeningPct,
+        benchmark?.openingOccupancy ?? 30
+      )
   );
   const [residentialLeasedTarget, setResidentialLeasedTarget] = useState(
     () =>
-      snap?.residentialLeasedTargetPct ?? benchmark?.stabilizedOccupancy ?? 90
+      snapFinite(
+        snap?.residentialLeasedTargetPct,
+        benchmark?.stabilizedOccupancy ?? 90
+      )
   );
   const [residentialLeaseUpMonths, setResidentialLeaseUpMonths] = useState(
-    () => snap?.residentialLeaseUpMonths ?? defaultLeaseUpMonths
+    () =>
+      snapFinite(
+        snap?.residentialLeaseUpMonths,
+        defaultLeaseUpMonths
+      )
   );
   const [residentialVacancyRate, setResidentialVacancyRate] = useState(
-    () => snap?.residentialVacancyRatePct ?? DEFAULT_VACANCY
+    () => snapFinite(snap?.residentialVacancyRatePct, DEFAULT_VACANCY)
   );
   const [residentialBadDebtRate, setResidentialBadDebtRate] = useState(
-    () => snap?.residentialBadDebtRatePct ?? DEFAULT_BAD_DEBT
+    () => snapFinite(snap?.residentialBadDebtRatePct, DEFAULT_BAD_DEBT)
   );
 
   const [retailRentPsf, setRetailRentPsf] = useState(
-    () => snap?.retailRentPsfYear1 ?? DEFAULT_RETAIL_RENT_PSF
+    () => snapPositive(snap?.retailRentPsfYear1, DEFAULT_RETAIL_RENT_PSF)
   );
   const [retailEscalation, setRetailEscalation] = useState(
-    () => snap?.retailRentEscalationPct ?? 3
+    () => snapFinite(snap?.retailRentEscalationPct, 3)
   );
   const [retailLeasedOpening, setRetailLeasedOpening] = useState(
-    () => snap?.retailLeasedOpeningPct ?? DEFAULT_RETAIL_OPENING
+    () => snapFinite(snap?.retailLeasedOpeningPct, DEFAULT_RETAIL_OPENING)
   );
   const [retailLeasedTarget, setRetailLeasedTarget] = useState(
-    () => snap?.retailLeasedTargetPct ?? DEFAULT_RETAIL_TARGET
+    () => snapFinite(snap?.retailLeasedTargetPct, DEFAULT_RETAIL_TARGET)
   );
   const [retailLeaseUpYears, setRetailLeaseUpYears] = useState(
-    () => snap?.retailLeaseUpYears ?? DEFAULT_RETAIL_LEASE_UP
+    () => snapFinite(snap?.retailLeaseUpYears, DEFAULT_RETAIL_LEASE_UP)
   );
   const [retailFreeRentMonths, setRetailFreeRentMonths] = useState(
-    () => snap?.retailFreeRentMonths ?? DEFAULT_RETAIL_FREE_RENT
+    () => snapFinite(snap?.retailFreeRentMonths, DEFAULT_RETAIL_FREE_RENT)
   );
 
   const [includePercentageRent, setIncludePercentageRent] = useState(
     () => snap?.includePercentageRent ?? false
   );
   const [retailSalesPsf, setRetailSalesPsf] = useState(
-    () => snap?.retailSalesPsfYear1 ?? 4000
+    () => snapPositive(snap?.retailSalesPsfYear1, 4000)
   );
   const [retailSalesGrowth, setRetailSalesGrowth] = useState(
-    () => snap?.retailSalesGrowthPct ?? 3
+    () => snapFinite(snap?.retailSalesGrowthPct, 3)
   );
   const [percentageRentRate, setPercentageRentRate] = useState(
-    () => snap?.percentageRentRate ?? 5
+    () => snapPositive(snap?.percentageRentRate, 5)
   );
   const [breakpointType, setBreakpointType] = useState<"natural" | "fixed">(
     () => snap?.breakpointType ?? "natural"
   );
   const [breakpointMultiple, setBreakpointMultiple] = useState(
-    () => snap?.breakpointMultiple ?? 1
+    () => snapFinite(snap?.breakpointMultiple, 1)
   );
   const [fixedBreakpointPsf, setFixedBreakpointPsf] = useState(
-    () => snap?.fixedBreakpointPsf ?? 500
+    () => snapPositive(snap?.fixedBreakpointPsf, 500)
   );
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>(
@@ -280,7 +300,7 @@ export default function ResidentialRevenueStep({
       profileKeyPrevRef.current != null &&
       profileKeyPrevRef.current !== profileKey;
     profileKeyPrevRef.current = profileKey;
-    if (!profileChanged && snap?.residentialRentPsfYear1) return;
+    if (!profileChanged && (snap?.residentialRentPsfYear1 ?? 0) > 0) return;
 
     setOverrides({});
     setManualYearValues({});
@@ -349,51 +369,48 @@ export default function ResidentialRevenueStep({
     [revenueInputs]
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const prev = getOperationalResidentialHoldSnapshot();
-      updateResidentialHoldSnapshot(
-        {
-          ...defaultOperationalResidentialHoldSnapshot,
-          ...prev,
-          residentialGlaSqft: residentialGla,
-          residentialRentPsfYear1: residentialRentPsf,
-          residentialRentEscalationPct: residentialEscalation,
-          residentialLeasedOpeningPct: residentialLeasedOpening,
-          residentialLeasedTargetPct: residentialLeasedTarget,
-          residentialLeaseUpMonths,
-          residentialVacancyRatePct: residentialVacancyRate,
-          residentialBadDebtRatePct: residentialBadDebtRate,
-          residentialLeasedPctValues: tableRows.map((r) => r.residentialLeasedPct),
-          residentialEffectiveOccupancyValues: tableRows.map(
-            (r) => r.residentialEffectiveOccupancy
-          ),
-          residentialRentValues: tableRows.map((r) => r.residentialRevenue),
-          retailGlaSqft: retailGla,
-          retailRentPsfYear1: retailRentPsf,
-          retailRentEscalationPct: retailEscalation,
-          retailLeasedOpeningPct: retailLeasedOpening,
-          retailLeasedTargetPct: retailLeasedTarget,
-          retailLeaseUpYears,
-          retailFreeRentMonths,
-          retailLeasedPctValues: tableRows.map((r) => r.retailLeasedPct),
-          retailMinRentValues: tableRows.map((r) => r.retailMinRent),
-          includePercentageRent,
-          retailSalesPsfYear1: retailSalesPsf,
-          retailSalesGrowthPct: retailSalesGrowth,
-          percentageRentRate,
-          breakpointType,
-          breakpointMultiple,
-          fixedBreakpointPsf,
-          percentageRentValues: tableRows.map((r) => r.percentageRent),
-          totalBaseRentValues: tableRows.map((r) => r.totalBaseRent),
-          fieldOverrides: overrides,
-          manualYearValues,
-        },
-        "operational"
-      );
-    }, 300);
-    return () => clearTimeout(timer);
+  const persistSnapshot = useCallback(() => {
+    const prev = getOperationalResidentialHoldSnapshot();
+    updateResidentialHoldSnapshot(
+      {
+        ...defaultOperationalResidentialHoldSnapshot,
+        ...prev,
+        residentialGlaSqft: residentialGla,
+        residentialRentPsfYear1: residentialRentPsf,
+        residentialRentEscalationPct: residentialEscalation,
+        residentialLeasedOpeningPct: residentialLeasedOpening,
+        residentialLeasedTargetPct: residentialLeasedTarget,
+        residentialLeaseUpMonths,
+        residentialVacancyRatePct: residentialVacancyRate,
+        residentialBadDebtRatePct: residentialBadDebtRate,
+        residentialLeasedPctValues: tableRows.map((r) => r.residentialLeasedPct),
+        residentialEffectiveOccupancyValues: tableRows.map(
+          (r) => r.residentialEffectiveOccupancy
+        ),
+        residentialRentValues: tableRows.map((r) => r.residentialRevenue),
+        retailGlaSqft: retailGla,
+        retailRentPsfYear1: retailRentPsf,
+        retailRentEscalationPct: retailEscalation,
+        retailLeasedOpeningPct: retailLeasedOpening,
+        retailLeasedTargetPct: retailLeasedTarget,
+        retailLeaseUpYears,
+        retailFreeRentMonths,
+        retailLeasedPctValues: tableRows.map((r) => r.retailLeasedPct),
+        retailMinRentValues: tableRows.map((r) => r.retailMinRent),
+        includePercentageRent,
+        retailSalesPsfYear1: retailSalesPsf,
+        retailSalesGrowthPct: retailSalesGrowth,
+        percentageRentRate,
+        breakpointType,
+        breakpointMultiple,
+        fixedBreakpointPsf,
+        percentageRentValues: tableRows.map((r) => r.percentageRent),
+        totalBaseRentValues: tableRows.map((r) => r.totalBaseRent),
+        fieldOverrides: overrides,
+        manualYearValues,
+      },
+      "operational"
+    );
   }, [
     residentialGla,
     residentialRentPsf,
@@ -422,6 +439,17 @@ export default function ResidentialRevenueStep({
     tableRows,
     updateResidentialHoldSnapshot,
   ]);
+
+  useEffect(() => {
+    const timer = setTimeout(persistSnapshot, 300);
+    return () => clearTimeout(timer);
+  }, [persistSnapshot]);
+
+  useEffect(() => {
+    if (!onRegisterPersist) return;
+    onRegisterPersist(persistSnapshot);
+    return () => onRegisterPersist(null);
+  }, [onRegisterPersist, persistSnapshot]);
 
   const handleResetResidential = useCallback(() => {
     if (!benchmark) return;

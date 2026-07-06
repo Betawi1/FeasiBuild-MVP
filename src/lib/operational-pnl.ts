@@ -135,6 +135,21 @@ export type OperationalRetailHoldSnapshot = {
   wcNetValues?: number[];
 };
 
+/** Treat 0 as unset when hydrating snapshot fields (store defaults are often 0). */
+export function snapPositive(
+  value: number | undefined | null,
+  fallback: number
+): number {
+  return value != null && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+export function snapFinite(
+  value: number | undefined | null,
+  fallback: number
+): number {
+  return value != null && Number.isFinite(value) ? value : fallback;
+}
+
 export const defaultOperationalRetailHoldSnapshot: OperationalRetailHoldSnapshot =
   {
     glaSqft: 0,

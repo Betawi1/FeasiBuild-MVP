@@ -20,7 +20,11 @@ import {
 } from "@/lib/benchmarks/office-construction-costs";
 import { compoundRentForYearIndex } from "@/lib/benchmarks/retail-revenue";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
-import type { OperationalOfficeHoldSnapshot } from "@/lib/operational-pnl";
+import {
+  snapFinite,
+  snapPositive,
+  type OperationalOfficeHoldSnapshot,
+} from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
 
 const inputBase =
@@ -259,6 +263,7 @@ type OfficeRevenueStepProps = {
   fieldError: (name: string) => string | undefined;
   defaultOfficeGlaSqft?: number;
   defaultRetailGlaSqft?: number;
+  onRegisterPersist?: (persist: (() => void) | null) => void;
 };
 
 const DEFAULT_RETAIL_RENT_PSF = 300;
@@ -271,6 +276,7 @@ export default function OfficeRevenueStep({
   fieldError,
   defaultOfficeGlaSqft = 200_000,
   defaultRetailGlaSqft = 50_000,
+  onRegisterPersist,
 }: OfficeRevenueStepProps) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
@@ -319,70 +325,80 @@ export default function OfficeRevenueStep({
   const snap = getOperationalOfficeHoldSnapshot();
 
   const [officeGla, setOfficeGla] = useState(
-    () => snap?.officeGlaSqft || defaultOfficeGlaSqft
+    () => snapPositive(snap?.officeGlaSqft, defaultOfficeGlaSqft)
   );
   const [retailGla, setRetailGla] = useState(
-    () => snap?.retailGlaSqft || defaultRetailGlaSqft
+    () => snapPositive(snap?.retailGlaSqft, defaultRetailGlaSqft)
   );
 
   const [officeRentPsf, setOfficeRentPsf] = useState(
-    () => snap?.officeRentPsfYear1 ?? benchmark?.baseRentPsf ?? 180
+    () =>
+      snapPositive(snap?.officeRentPsfYear1, benchmark?.baseRentPsf ?? 180)
   );
   const [officeEscalation, setOfficeEscalation] = useState(
-    () => snap?.officeRentEscalationPct ?? benchmark?.rentEscalation ?? 3
+    () =>
+      snapFinite(snap?.officeRentEscalationPct, benchmark?.rentEscalation ?? 3)
   );
   const [officeLeasedOpening, setOfficeLeasedOpening] = useState(
-    () => snap?.officeLeasedOpeningPct ?? benchmark?.openingOccupancy ?? 30
+    () =>
+      snapFinite(
+        snap?.officeLeasedOpeningPct,
+        benchmark?.openingOccupancy ?? 30
+      )
   );
   const [officeLeasedTarget, setOfficeLeasedTarget] = useState(
-    () => snap?.officeLeasedTargetPct ?? benchmark?.stabilizedOccupancy ?? 90
+    () =>
+      snapFinite(
+        snap?.officeLeasedTargetPct,
+        benchmark?.stabilizedOccupancy ?? 90
+      )
   );
   const [officeLeaseUpYears, setOfficeLeaseUpYears] = useState(
-    () => snap?.officeLeaseUpYears ?? benchmark?.leaseUpYears ?? 2.5
+    () => snapFinite(snap?.officeLeaseUpYears, benchmark?.leaseUpYears ?? 2.5)
   );
   const [officeFreeRentMonths, setOfficeFreeRentMonths] = useState(
-    () => snap?.officeFreeRentMonths ?? 6
+    () => snapFinite(snap?.officeFreeRentMonths, 6)
   );
 
   const [retailRentPsf, setRetailRentPsf] = useState(
-    () => snap?.retailRentPsfYear1 ?? DEFAULT_RETAIL_RENT_PSF
+    () => snapPositive(snap?.retailRentPsfYear1, DEFAULT_RETAIL_RENT_PSF)
   );
   const [retailEscalation, setRetailEscalation] = useState(
-    () => snap?.retailRentEscalationPct ?? 3
+    () => snapFinite(snap?.retailRentEscalationPct, 3)
   );
   const [retailLeasedOpening, setRetailLeasedOpening] = useState(
-    () => snap?.retailLeasedOpeningPct ?? DEFAULT_RETAIL_OPENING
+    () => snapFinite(snap?.retailLeasedOpeningPct, DEFAULT_RETAIL_OPENING)
   );
   const [retailLeasedTarget, setRetailLeasedTarget] = useState(
-    () => snap?.retailLeasedTargetPct ?? DEFAULT_RETAIL_TARGET
+    () => snapFinite(snap?.retailLeasedTargetPct, DEFAULT_RETAIL_TARGET)
   );
   const [retailLeaseUpYears, setRetailLeaseUpYears] = useState(
-    () => snap?.retailLeaseUpYears ?? DEFAULT_RETAIL_LEASE_UP
+    () => snapFinite(snap?.retailLeaseUpYears, DEFAULT_RETAIL_LEASE_UP)
   );
   const [retailFreeRentMonths, setRetailFreeRentMonths] = useState(
-    () => snap?.retailFreeRentMonths ?? DEFAULT_RETAIL_FREE_RENT
+    () => snapFinite(snap?.retailFreeRentMonths, DEFAULT_RETAIL_FREE_RENT)
   );
 
   const [includePercentageRent, setIncludePercentageRent] = useState(
     () => snap?.includePercentageRent ?? false
   );
   const [retailSalesPsf, setRetailSalesPsf] = useState(
-    () => snap?.retailSalesPsfYear1 ?? 4000
+    () => snapPositive(snap?.retailSalesPsfYear1, 4000)
   );
   const [retailSalesGrowth, setRetailSalesGrowth] = useState(
-    () => snap?.retailSalesGrowthPct ?? 3
+    () => snapFinite(snap?.retailSalesGrowthPct, 3)
   );
   const [percentageRentRate, setPercentageRentRate] = useState(
-    () => snap?.percentageRentRate ?? 5
+    () => snapPositive(snap?.percentageRentRate, 5)
   );
   const [breakpointType, setBreakpointType] = useState<"natural" | "fixed">(
     () => snap?.breakpointType ?? "natural"
   );
   const [breakpointMultiple, setBreakpointMultiple] = useState(
-    () => snap?.breakpointMultiple ?? 1
+    () => snapFinite(snap?.breakpointMultiple, 1)
   );
   const [fixedBreakpointPsf, setFixedBreakpointPsf] = useState(
-    () => snap?.fixedBreakpointPsf ?? 500
+    () => snapPositive(snap?.fixedBreakpointPsf, 500)
   );
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>(
@@ -410,7 +426,7 @@ export default function OfficeRevenueStep({
       profileKeyPrevRef.current != null &&
       profileKeyPrevRef.current !== profileKey;
     profileKeyPrevRef.current = profileKey;
-    if (!profileChanged && snap?.officeRentPsfYear1) return;
+    if (!profileChanged && (snap?.officeRentPsfYear1 ?? 0) > 0) return;
 
     setOverrides({});
     setManualYearValues({});
@@ -473,46 +489,43 @@ export default function OfficeRevenueStep({
     ]
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const prev = getOperationalOfficeHoldSnapshot();
-      updateOfficeHoldSnapshot(
-        {
-          ...prev,
-          officeGlaSqft: officeGla,
-          officeRentPsfYear1: officeRentPsf,
-          officeRentEscalationPct: officeEscalation,
-          officeLeasedOpeningPct: officeLeasedOpening,
-          officeLeasedTargetPct: officeLeasedTarget,
-          officeLeaseUpYears: officeLeaseUpYears,
-          officeFreeRentMonths: officeFreeRentMonths,
-          officeLeasedPctValues: tableRows.map((r) => r.officeLeasedPct),
-          officeRentValues: tableRows.map((r) => r.officeRent),
-          retailGlaSqft: retailGla,
-          retailRentPsfYear1: retailRentPsf,
-          retailRentEscalationPct: retailEscalation,
-          retailLeasedOpeningPct: retailLeasedOpening,
-          retailLeasedTargetPct: retailLeasedTarget,
-          retailLeaseUpYears: retailLeaseUpYears,
-          retailFreeRentMonths: retailFreeRentMonths,
-          retailLeasedPctValues: tableRows.map((r) => r.retailLeasedPct),
-          retailMinRentValues: tableRows.map((r) => r.retailMinRent),
-          includePercentageRent,
-          retailSalesPsfYear1: retailSalesPsf,
-          retailSalesGrowthPct: retailSalesGrowth,
-          percentageRentRate,
-          breakpointType,
-          breakpointMultiple,
-          fixedBreakpointPsf,
-          percentageRentValues: tableRows.map((r) => r.percentageRent),
-          totalBaseRentValues: tableRows.map((r) => r.totalBaseRent),
-          fieldOverrides: overrides,
-          manualYearValues,
-        },
-        "operational"
-      );
-    }, 300);
-    return () => clearTimeout(timer);
+  const persistSnapshot = useCallback(() => {
+    const prev = getOperationalOfficeHoldSnapshot();
+    updateOfficeHoldSnapshot(
+      {
+        ...prev,
+        officeGlaSqft: officeGla,
+        officeRentPsfYear1: officeRentPsf,
+        officeRentEscalationPct: officeEscalation,
+        officeLeasedOpeningPct: officeLeasedOpening,
+        officeLeasedTargetPct: officeLeasedTarget,
+        officeLeaseUpYears: officeLeaseUpYears,
+        officeFreeRentMonths: officeFreeRentMonths,
+        officeLeasedPctValues: tableRows.map((r) => r.officeLeasedPct),
+        officeRentValues: tableRows.map((r) => r.officeRent),
+        retailGlaSqft: retailGla,
+        retailRentPsfYear1: retailRentPsf,
+        retailRentEscalationPct: retailEscalation,
+        retailLeasedOpeningPct: retailLeasedOpening,
+        retailLeasedTargetPct: retailLeasedTarget,
+        retailLeaseUpYears: retailLeaseUpYears,
+        retailFreeRentMonths: retailFreeRentMonths,
+        retailLeasedPctValues: tableRows.map((r) => r.retailLeasedPct),
+        retailMinRentValues: tableRows.map((r) => r.retailMinRent),
+        includePercentageRent,
+        retailSalesPsfYear1: retailSalesPsf,
+        retailSalesGrowthPct: retailSalesGrowth,
+        percentageRentRate,
+        breakpointType,
+        breakpointMultiple,
+        fixedBreakpointPsf,
+        percentageRentValues: tableRows.map((r) => r.percentageRent),
+        totalBaseRentValues: tableRows.map((r) => r.totalBaseRent),
+        fieldOverrides: overrides,
+        manualYearValues,
+      },
+      "operational"
+    );
   }, [
     officeGla,
     officeRentPsf,
@@ -540,6 +553,17 @@ export default function OfficeRevenueStep({
     tableRows,
     updateOfficeHoldSnapshot,
   ]);
+
+  useEffect(() => {
+    const timer = setTimeout(persistSnapshot, 300);
+    return () => clearTimeout(timer);
+  }, [persistSnapshot]);
+
+  useEffect(() => {
+    if (!onRegisterPersist) return;
+    onRegisterPersist(persistSnapshot);
+    return () => onRegisterPersist(null);
+  }, [onRegisterPersist, persistSnapshot]);
 
   const handleResetAll = useCallback(() => {
     if (!benchmark) return;

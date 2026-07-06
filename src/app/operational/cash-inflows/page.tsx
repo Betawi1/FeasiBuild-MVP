@@ -2162,6 +2162,7 @@ function OperationalCashInflowsPageContent() {
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
   const hotelBenchmarkStepsLogged = useRef<Set<number>>(new Set());
+  const step0PersistRef = useRef<(() => void) | null>(null);
 
   const logC2HotelField = useCallback(
     (
@@ -3152,6 +3153,9 @@ function OperationalCashInflowsPageContent() {
   };
 
   const handleNext = () => {
+    if (currentStep === 0) {
+      step0PersistRef.current?.();
+    }
     if (currentStep === 2 && isRetail) {
       const snap = getOperationalRetailHoldSnapshot();
       const retailOpex = buildRetailOpexFromSnapshot(snap);
@@ -3356,6 +3360,9 @@ function OperationalCashInflowsPageContent() {
                 fieldError={fieldError}
                 defaultOfficeGlaSqft={defaultOfficeGlaSqft}
                 defaultRetailGlaSqft={defaultRetailGlaSqft}
+                onRegisterPersist={(persist) => {
+                  step0PersistRef.current = persist;
+                }}
               />
             ) : projectInfo.buildingType === "retail" ? (
               <RetailRevenueStep
@@ -3367,6 +3374,9 @@ function OperationalCashInflowsPageContent() {
                 fieldError={fieldError}
                 defaultResidentialGlaSqft={defaultResidentialGlaSqft}
                 defaultRetailGlaSqft={defaultRetailGlaSqft}
+                onRegisterPersist={(persist) => {
+                  step0PersistRef.current = persist;
+                }}
               />
             ) : projectInfo.buildingType === "hotel" ? (
               <HotelRevenueStep fieldError={fieldError} />
