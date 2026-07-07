@@ -15,6 +15,7 @@ import { getRetailOpexBenchmark } from "@/lib/benchmarks/retail-opex";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { RetailOpexConfig } from "@/store/useFinModelStore";
 import type { OperationalRetailHoldSnapshot } from "@/lib/operational-pnl";
+import { totalOperationalBua } from "@/lib/operational-pnl";
 
 export type RetailOpexStepErrors = Record<string, string>;
 
@@ -29,7 +30,11 @@ export function buildRetailOpexFromSnapshot(
   snap: OperationalRetailHoldSnapshot | undefined
 ): RetailOpexConfig | undefined {
   if (snap == null) return undefined;
-  if (snap.camFixedBase == null && !snap.opexTotalValues?.length) {
+  if (
+    snap.camFixedBaseRate == null &&
+    snap.camFixedBase == null &&
+    !snap.opexTotalValues?.length
+  ) {
     return undefined;
   }
 
@@ -50,16 +55,16 @@ export function buildRetailOpexFromSnapshot(
 
   return {
     cam: {
-      fixedBase: snap.camFixedBase ?? 0,
+      fixedBaseRate: snap.camFixedBaseRate ?? 0,
       variableRate: snap.camVariableRate ?? 0,
     },
     property: {
-      tax: snap.propertyTaxAnnual ?? 0,
-      insurance: snap.insuranceAnnual ?? 0,
+      taxPctOfGrossRent: snap.propertyTaxPctOfGrossRent ?? 0,
+      insurancePctOfGrossRent: snap.insurancePctOfGrossRent ?? 0,
     },
     marketing: {
       pctOfRevenue: snap.marketingPctOfRevenue ?? 0,
-      gAndA: snap.gAndAAnnual ?? 0,
+      gAndAPctOfRevenue: snap.gAndAPctOfRevenue ?? 0,
     },
     management: { feePct: snap.mgmtFeePctOfRevenue ?? 0 },
     renovation: {
@@ -115,6 +120,11 @@ const TABLE_STREAMS = [
 
 type TableStream = (typeof TABLE_STREAMS)[number];
 
+function roundPct2(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
 function effectiveLeasedPctForYear(
   yearIndex0: number,
   gla: number,
@@ -132,7 +142,10 @@ function effectiveLeasedPctForYear(
 export default function RetailOpexStep() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
   const step1Data = useFinModelStore((s) => s.operational.retailHoldSnapshot);
+  const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
   const currencyCode = projectInfo.currency || "AED";
+
+  const totalBua = totalOperationalBua(cashOutflows);
 
   const benchmark = useMemo(
     () =>
@@ -153,24 +166,69 @@ export default function RetailOpexStep() {
   const otherIncomeValues =
     step1Data?.otherIncomeTotalValues || Array(10).fill(0);
 
-  const [camFixedBase, setCamFixedBase] = useState(
-    step1Data?.camFixedBase ?? benchmark?.camFixedBase ?? 1_000_000
+  const resolveCamFixedBaseRate = () => {
+    if (step1Data?.camFixedBaseRate != null && step1Data.camFixedBaseRate > 0) {
+      return step1Data.camFixedBaseRate;
+    }
+    if (step1Data?.camFixedBase != null && totalBua > 0) {
+      return step1Data.camFixedBase / totalBua;
+    }
+    return benchmark?.camFixedBaseRate ?? 2;
+  };
+
+  const resolvePropertyTaxPct = () => {
+    if (
+      step1Data?.propertyTaxPctOfGrossRent != null &&
+      step1Data.propertyTaxPctOfGrossRent > 0
+    ) {
+      return roundPct2(step1Data.propertyTaxPctOfGrossRent);
+    }
+    const grossY1 = minRentValues[0] ?? 0;
+    if (step1Data?.propertyTaxAnnual != null && grossY1 > 0) {
+      return roundPct2((step1Data.propertyTaxAnnual / grossY1) * 100);
+    }
+    return roundPct2(benchmark?.propertyTaxPctOfGrossRent ?? 0.8);
+  };
+
+  const resolveInsurancePct = () => {
+    if (
+      step1Data?.insurancePctOfGrossRent != null &&
+      step1Data.insurancePctOfGrossRent > 0
+    ) {
+      return roundPct2(step1Data.insurancePctOfGrossRent);
+    }
+    const grossY1 = minRentValues[0] ?? 0;
+    if (step1Data?.insuranceAnnual != null && grossY1 > 0) {
+      return roundPct2((step1Data.insuranceAnnual / grossY1) * 100);
+    }
+    return roundPct2(benchmark?.insurancePctOfGrossRent ?? 0.16);
+  };
+
+  const resolveGAndAPct = () => {
+    if (step1Data?.gAndAPctOfRevenue != null && step1Data.gAndAPctOfRevenue > 0) {
+      return roundPct2(step1Data.gAndAPctOfRevenue);
+    }
+    const totalY1 = (minRentValues[0] ?? 0) + (otherIncomeValues[0] ?? 0);
+    if (step1Data?.gAndAAnnual != null && totalY1 > 0) {
+      return roundPct2((step1Data.gAndAAnnual / totalY1) * 100);
+    }
+    return roundPct2(benchmark?.gAndAPctOfRevenue ?? 0.43);
+  };
+
+  const [camFixedBaseRate, setCamFixedBaseRate] = useState(() =>
+    resolveCamFixedBaseRate()
   );
   const [camVariableRate, setCamVariableRate] = useState(
     step1Data?.camVariableRate ?? benchmark?.camVariableRate ?? 12
   );
-  const [propertyTax, setPropertyTax] = useState(
-    step1Data?.propertyTaxAnnual ?? benchmark?.propertyTaxAnnual ?? 600_000
+  const [propertyTaxPct, setPropertyTaxPct] = useState(() =>
+    resolvePropertyTaxPct()
   );
-  const [insurance, setInsurance] = useState(
-    step1Data?.insuranceAnnual ?? benchmark?.insuranceAnnual ?? 120_000
-  );
+  const [insurancePct, setInsurancePct] = useState(() => resolveInsurancePct());
   const [marketingPct, setMarketingPct] = useState(
     step1Data?.marketingPctOfRevenue ?? benchmark?.marketingPctOfRevenue ?? 1.8
   );
-  const [gAndA, setGAndA] = useState(
-    step1Data?.gAndAAnnual ?? benchmark?.gAndAAnnual ?? 400_000
-  );
+  const [gAndAPct, setGAndAPct] = useState(() => resolveGAndAPct());
   const [mgmtFeePct, setMgmtFeePct] = useState(
     step1Data?.mgmtFeePctOfRevenue ?? benchmark?.mgmtFeePctOfRevenue ?? 2.8
   );
@@ -207,15 +265,19 @@ export default function RetailOpexStep() {
       const minRent = minRentValues[i] || 0;
       const otherIncome = otherIncomeValues[i] || 0;
       const totalRevenue = minRent + otherIncome;
+      const grossRentalRevenue = minRent;
 
-      const effectiveLeasedPct = effectiveLeasedPctForYear(i, gla, step1Data);
-      const camVariable = camVariableRate * gla * (effectiveLeasedPct / 100);
-      const camTotal = camFixedBase + camVariable;
+      const leasedGla =
+        step1Data?.effectiveLeasedValues?.[i] ??
+        gla * (effectiveLeasedPctForYear(i, gla, step1Data) / 100);
+      const camFixedTotal = camFixedBaseRate * totalBua;
+      const camVariableTotal = camVariableRate * leasedGla;
+      const camTotal = camFixedTotal + camVariableTotal;
 
-      const taxAmount = propertyTax;
-      const insuranceAmount = insurance;
+      const taxAmount = grossRentalRevenue * (propertyTaxPct / 100);
+      const insuranceAmount = grossRentalRevenue * (insurancePct / 100);
       const marketingAmount = totalRevenue * (marketingPct / 100);
-      const gAndAAmount = gAndA;
+      const gAndAAmount = totalRevenue * (gAndAPct / 100);
       const mgmtFeeAmount = totalRevenue * (mgmtFeePct / 100);
 
       let renovationPct = renovationYears3to10;
@@ -285,15 +347,16 @@ export default function RetailOpexStep() {
     };
   }, [
     gla,
+    totalBua,
     step1Data,
     minRentValues,
     otherIncomeValues,
-    camFixedBase,
+    camFixedBaseRate,
     camVariableRate,
-    propertyTax,
-    insurance,
+    propertyTaxPct,
+    insurancePct,
     marketingPct,
-    gAndA,
+    gAndAPct,
     mgmtFeePct,
     renovationYear1,
     renovationYear2,
@@ -322,12 +385,12 @@ export default function RetailOpexStep() {
       occupancyValues: prev?.occupancyValues ?? [],
       effectiveLeasedValues: prev?.effectiveLeasedValues ?? [],
       revenueValues: prev?.revenueValues ?? minRentValues,
-      camFixedBase,
+      camFixedBaseRate,
       camVariableRate,
-      propertyTaxAnnual: propertyTax,
-      insuranceAnnual: insurance,
+      propertyTaxPctOfGrossRent: propertyTaxPct,
+      insurancePctOfGrossRent: insurancePct,
       marketingPctOfRevenue: marketingPct,
-      gAndAAnnual: gAndA,
+      gAndAPctOfRevenue: gAndAPct,
       mgmtFeePctOfRevenue: mgmtFeePct,
       renovationYear1,
       renovationYear2,
@@ -350,12 +413,12 @@ export default function RetailOpexStep() {
   }, [
     gla,
     minRentValues,
-    camFixedBase,
+    camFixedBaseRate,
     camVariableRate,
-    propertyTax,
-    insurance,
+    propertyTaxPct,
+    insurancePct,
     marketingPct,
-    gAndA,
+    gAndAPct,
     mgmtFeePct,
     renovationYear1,
     renovationYear2,
@@ -370,27 +433,29 @@ export default function RetailOpexStep() {
 
   useEffect(() => {
     if (!benchmark || Object.keys(overrides).length > 0) return;
-    if (step1Data?.camFixedBase != null) return;
-    setCamFixedBase(benchmark.camFixedBase);
+    if (step1Data?.camFixedBaseRate != null || step1Data?.camFixedBase != null) {
+      return;
+    }
+    setCamFixedBaseRate(benchmark.camFixedBaseRate);
     setCamVariableRate(benchmark.camVariableRate);
-    setPropertyTax(benchmark.propertyTaxAnnual);
-    setInsurance(benchmark.insuranceAnnual);
+    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
+    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
     setMarketingPct(benchmark.marketingPctOfRevenue);
-    setGAndA(benchmark.gAndAAnnual);
+    setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
     setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
     setRenovationYear1(benchmark.renovationYear1);
     setRenovationYear2(benchmark.renovationYear2);
     setRenovationYears3to10(benchmark.renovationYears3to10);
-  }, [benchmark, overrides, step1Data?.camFixedBase]);
+  }, [benchmark, overrides, step1Data?.camFixedBaseRate, step1Data?.camFixedBase]);
 
   const handleResetAll = () => {
     if (!benchmark) return;
-    setCamFixedBase(benchmark.camFixedBase);
+    setCamFixedBaseRate(benchmark.camFixedBaseRate);
     setCamVariableRate(benchmark.camVariableRate);
-    setPropertyTax(benchmark.propertyTaxAnnual);
-    setInsurance(benchmark.insuranceAnnual);
+    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
+    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
     setMarketingPct(benchmark.marketingPctOfRevenue);
-    setGAndA(benchmark.gAndAAnnual);
+    setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
     setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
     setRenovationYear1(benchmark.renovationYear1);
     setRenovationYear2(benchmark.renovationYear2);
@@ -400,13 +465,16 @@ export default function RetailOpexStep() {
   };
 
   const handleFieldChange = (field: string, value: number) => {
+    const pctFields2dp = new Set(["propertyTaxPct", "insurancePct", "gAndAPct"]);
+    const normalized = pctFields2dp.has(field) ? roundPct2(value) : value;
+
     const setters: Record<string, (v: number) => void> = {
-      camFixedBase: setCamFixedBase,
+      camFixedBaseRate: setCamFixedBaseRate,
       camVariableRate: setCamVariableRate,
-      propertyTax: setPropertyTax,
-      insurance: setInsurance,
+      propertyTaxPct: setPropertyTaxPct,
+      insurancePct: setInsurancePct,
       marketingPct: setMarketingPct,
-      gAndA: setGAndA,
+      gAndAPct: setGAndAPct,
       mgmtFeePct: setMgmtFeePct,
       renovationYear1: setRenovationYear1,
       renovationYear2: setRenovationYear2,
@@ -414,7 +482,7 @@ export default function RetailOpexStep() {
     };
 
     if (setters[field]) {
-      setters[field](value);
+      setters[field](normalized);
       setOverrides((prev) => ({ ...prev, [field]: true }));
     }
   };
@@ -492,18 +560,20 @@ export default function RetailOpexStep() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              CAM – Fixed Base ({currencyCode}/year)
+              CAM – Fixed Base Rate ({currencyCode}/psf of BUA/year)
             </label>
             <input
               type="number"
-              value={camFixedBase}
+              step={0.01}
+              value={camFixedBaseRate}
               onChange={(e) =>
-                handleFieldChange("camFixedBase", Number(e.target.value))
+                handleFieldChange("camFixedBaseRate", Number(e.target.value))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.camFixedBase ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.camFixedBaseRate ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
             <p className="mt-1 text-[10px] text-slate-500">
-              Does not change with lease-up
+              Annual fixed CAM = rate × total BUA (
+              {totalBua.toLocaleString()} sqft from Component 1)
             </p>
           </div>
           <div>
@@ -519,46 +589,60 @@ export default function RetailOpexStep() {
               className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.camVariableRate ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
             <p className="mt-1 text-[10px] text-slate-500">
-              Multiplied by GLA × Effective Leased % (from Step 1)
+              Multiplied by leased GLA (from Step 1)
             </p>
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          <strong>Note:</strong> Total CAM = Fixed + (Variable rate × GLA ×
-          Effective Leased %)
+          <strong>Note:</strong> Total CAM = (Fixed rate × Total BUA) + (Variable
+          rate × Leased GLA)
         </p>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
         <h3 className="mb-4 text-lg font-semibold text-white">
-          B. Property &amp; Insurance
+          B. Property Tax &amp; Insurance
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Property Tax ({currencyCode}/year)
+              Property Tax (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={propertyTax}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 5"
+              value={propertyTaxPct}
               onChange={(e) =>
-                handleFieldChange("propertyTax", Number(e.target.value))
+                handleFieldChange("propertyTaxPct", Number(e.target.value))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propertyTax ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propertyTaxPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 base rent revenue each year
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Insurance ({currencyCode}/year)
+              Insurance (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={insurance}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 1.5"
+              value={insurancePct}
               onChange={(e) =>
-                handleFieldChange("insurance", Number(e.target.value))
+                handleFieldChange("insurancePct", Number(e.target.value))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.insurance ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.insurancePct ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 base rent revenue each year
+            </p>
           </div>
         </div>
       </div>
@@ -587,14 +671,21 @@ export default function RetailOpexStep() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              G&amp;A ({currencyCode}/year)
+              G&amp;A (% of Total Revenue)
             </label>
             <input
               type="number"
-              value={gAndA}
-              onChange={(e) => handleFieldChange("gAndA", Number(e.target.value))}
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.gAndA ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 1"
+              value={gAndAPct}
+              onChange={(e) => handleFieldChange("gAndAPct", Number(e.target.value))}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.gAndAPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
+            <p className="mt-1 text-[10px] text-slate-500">
+              % of (Base Rent + Other Income) from Steps 1 &amp; 2
+            </p>
           </div>
         </div>
       </div>

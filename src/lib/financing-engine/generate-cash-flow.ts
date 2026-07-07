@@ -926,7 +926,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       row.ncf = availableInflows - row.totalOutflowsInclLand;
     }
 
-    // --- EQUITY INJECTION (M0): land + HDA; cash equity net of pref substitution (pref is not additive to required cash) ---
+    // --- EQUITY INJECTION (M0): full land cost + cash gap-fill; HDA deposit separate ---
     if (m === 0) {
       row.capitalLand = inputs.landEquityValue || 0;
       const prefAmount =

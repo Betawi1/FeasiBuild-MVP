@@ -242,9 +242,9 @@ export type RetailOpexProjectionRow = {
 };
 
 export type RetailOpexConfig = {
-  cam: { fixedBase: number; variableRate: number };
-  property: { tax: number; insurance: number };
-  marketing: { pctOfRevenue: number; gAndA: number };
+  cam: { fixedBaseRate: number; variableRate: number };
+  property: { taxPctOfGrossRent: number; insurancePctOfGrossRent: number };
+  marketing: { pctOfRevenue: number; gAndAPctOfRevenue: number };
   management: { feePct: number };
   renovation: { year1: number; year2: number; years3to10: number };
   projection: RetailOpexProjectionRow[];
@@ -266,13 +266,13 @@ export type ResidentialOpexProjectionRow = {
 
 export type ResidentialOpexConfig = {
   mgmtFeePctOfEgi: number;
-  maintenancePerUnitAnnual: number;
-  utilitiesFixedAnnual: number;
-  propertyTaxAnnual: number;
-  insuranceAnnual: number;
+  maintenancePctOfResidentialGla: number;
+  utilitiesPctOfCommonVacantGla: number;
+  propertyTaxPctOfGrossRent: number;
+  insurancePctOfGrossRent: number;
   marketingPctOfEgi: number;
-  gAndAAnnual: number;
-  capexPerUnitAnnual: number;
+  gAndAPctOfGrossRent: number;
+  capexReservePctOfTotalGla: number;
   estimatedTotalUnits: number;
   projection: ResidentialOpexProjectionRow[];
 };
@@ -342,9 +342,9 @@ export type OfficeOpexConfig = {
   camTotal: number;
   propertyTax: number;
   insurance: number;
-  cam: { fixedBase: number; variableRate: number };
-  property: { tax: number; insurance: number };
-  marketing: { pctOfRevenue: number; gAndA: number };
+  cam: { fixedBaseRate: number; variableRate: number };
+  property: { taxPctOfGrossRent: number; insurancePctOfGrossRent: number };
+  marketing: { pctOfRevenue: number; gAndAPctOfRevenue: number };
   management: { feePct: number };
   renovation: { year1: number; year2: number; years3to10: number };
   projection: OfficeOpexProjectionRow[];

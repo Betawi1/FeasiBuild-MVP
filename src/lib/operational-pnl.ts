@@ -84,8 +84,11 @@ export type OperationalRetailHoldSnapshot = {
   parkingRevenueValues?: number[];
   parkingOverrides?: boolean[];
 
-  /** Step 2 — advertising / kiosks */
+  /** Step 2 — advertising / kiosks (rate per sqft GLA/year) */
+  advertisingRatePerSqft?: number;
+  /** @deprecated Use advertisingRatePerSqft */
   advertisingIncomeYear1?: number;
+  /** @deprecated Removed — income is rate × GLA */
   advertisingGrowthPct?: number;
   advertisingValues?: number[];
   advertisingOverrides?: boolean[];
@@ -94,11 +97,23 @@ export type OperationalRetailHoldSnapshot = {
   otherIncomeTotalValues?: number[];
 
   /** Step 3 — operating expenses inputs */
+  /** CAM fixed base rate (local currency per psf of total BUA/year) */
+  camFixedBaseRate?: number;
+  /** @deprecated Use camFixedBaseRate */
   camFixedBase?: number;
   camVariableRate?: number;
+  /** Property tax as % of gross rental revenue (Step 1 base rent) */
+  propertyTaxPctOfGrossRent?: number;
+  /** Insurance as % of gross rental revenue (Step 1 base rent) */
+  insurancePctOfGrossRent?: number;
+  /** @deprecated Use propertyTaxPctOfGrossRent */
   propertyTaxAnnual?: number;
+  /** @deprecated Use insurancePctOfGrossRent */
   insuranceAnnual?: number;
   marketingPctOfRevenue?: number;
+  /** G&A as % of total revenue (base rent + other income) */
+  gAndAPctOfRevenue?: number;
+  /** @deprecated Use gAndAPctOfRevenue */
   gAndAAnnual?: number;
   mgmtFeePctOfRevenue?: number;
   renovationYear1?: number;
@@ -160,6 +175,31 @@ export const defaultOperationalRetailHoldSnapshot: OperationalRetailHoldSnapshot
     revenueValues: [],
   };
 
+/** Total BUA from Component 1 cash outflows (building + parking + basement). */
+export function totalOperationalBua(co: {
+  buildingBUA?: number;
+  parkingBUA?: number;
+  basementBUA?: number;
+}): number {
+  return (
+    (co.buildingBUA || 0) +
+    (co.parkingBUA || 0) +
+    (co.basementBUA || 0)
+  );
+}
+
+/** Round percentage inputs to 2 decimal places. */
+export function roundPct2(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
+/** Round rate inputs to 2 decimal places. */
+export function roundRate2(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
 /** Component 2 operational office hold — Step 1 (office + podium retail rent). */
 export type OperationalOfficeHoldSnapshot = {
   officeGlaSqft: number;
@@ -209,15 +249,22 @@ export type OperationalOfficeHoldSnapshot = {
   parkingOperatingDays?: number;
   parkingIncomeValues?: number[];
 
-  /** Step 2 — CAM / tax recoveries (annual totals) */
+  /** Step 2 — CAM / tax recoveries */
   camExpensesAed?: number;
+  propertyTaxPctOfGrossRent?: number;
+  insurancePctOfGrossRent?: number;
+  /** @deprecated Use propertyTaxPctOfGrossRent */
   propertyTaxAed?: number;
+  /** @deprecated Use insurancePctOfGrossRent */
   insuranceAed?: number;
   recoveryRate?: number;
   camRecoveryValues?: number[];
 
-  /** Step 2 — advertising */
+  /** Step 2 — advertising / signage (rate per sqft GLA/year) */
+  advertisingRatePerSqft?: number;
+  /** @deprecated Use advertisingRatePerSqft */
   advertisingIncomeYear1?: number;
+  /** @deprecated Removed — income is rate × GLA */
   advertisingGrowthPct?: number;
   advertisingValues?: number[];
 
@@ -229,11 +276,17 @@ export type OperationalOfficeHoldSnapshot = {
   otherIncomeManualYearValues?: Record<number, Record<string, number>>;
 
   /** Step 3 — operating expenses inputs */
+  camFixedBaseRate?: number;
+  /** @deprecated Use camFixedBaseRate */
   camFixedBase?: number;
   camVariableRate?: number;
+  /** @deprecated Use propertyTaxPctOfGrossRent (Step 2) */
   propertyTaxAnnual?: number;
+  /** @deprecated Use insurancePctOfGrossRent (Step 2) */
   insuranceAnnual?: number;
   marketingPctOfRevenue?: number;
+  gAndAPctOfRevenue?: number;
+  /** @deprecated Use gAndAPctOfRevenue */
   gAndAAnnual?: number;
   mgmtFeePctOfRevenue?: number;
   renovationYear1?: number;
@@ -340,12 +393,30 @@ export type OperationalResidentialHoldSnapshot = {
 
   /** Step 3 — operating expenses (gross lease, no CAM recoveries) */
   mgmtFeePctOfEgi?: number;
+  /** Maintenance & repairs as % of residential GLA (sqft) per year */
+  maintenancePctOfResidentialGla?: number;
+  /** Utilities as % of (common area + vacant GLA) per year */
+  utilitiesPctOfCommonVacantGla?: number;
+  /** @deprecated Use maintenancePctOfResidentialGla */
   maintenancePerUnitAnnual?: number;
+  /** @deprecated Use utilitiesPctOfCommonVacantGla */
+  utilitiesPerUnitAnnual?: number;
+  /** @deprecated Use utilitiesPctOfCommonVacantGla */
   utilitiesFixedAnnual?: number;
+  propertyTaxPctOfGrossRent?: number;
+  insurancePctOfGrossRent?: number;
+  /** @deprecated Use propertyTaxPctOfGrossRent */
   propertyTaxAnnual?: number;
+  /** @deprecated Use insurancePctOfGrossRent */
   insuranceAnnual?: number;
   marketingPctOfEgi?: number;
+  /** G&A as % of gross rental revenue (Step 1 residential + retail) */
+  gAndAPctOfGrossRent?: number;
+  /** Renovation / capex reserve as % of total GLA (sqft) per year */
+  capexReservePctOfTotalGla?: number;
+  /** @deprecated Use gAndAPctOfGrossRent */
   gAndAAnnual?: number;
+  /** @deprecated Use capexReservePctOfTotalGla */
   capexPerUnitAnnual?: number;
   estimatedTotalUnits?: number;
   opexMgmtFeeValues?: number[];
@@ -426,13 +497,13 @@ export const defaultOperationalResidentialHoldSnapshot: OperationalResidentialHo
     otherFeesIncomeValues: [],
     otherIncomeTotalValues: [],
     mgmtFeePctOfEgi: 4,
-    maintenancePerUnitAnnual: 1500,
-    utilitiesFixedAnnual: 200_000,
-    propertyTaxAnnual: 500_000,
-    insuranceAnnual: 80_000,
+    maintenancePctOfResidentialGla: 2.5,
+    utilitiesPctOfCommonVacantGla: 15,
+    propertyTaxPctOfGrossRent: 5,
+    insurancePctOfGrossRent: 1,
     marketingPctOfEgi: 1,
-    gAndAAnnual: 100_000,
-    capexPerUnitAnnual: 1000,
+    gAndAPctOfGrossRent: 3,
+    capexReservePctOfTotalGla: 5,
     estimatedTotalUnits: 0,
     opexMgmtFeeValues: [],
     opexMaintenanceValues: [],

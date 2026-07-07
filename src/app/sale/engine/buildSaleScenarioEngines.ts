@@ -314,7 +314,7 @@ function computeLandEquityInputs(
   const landPct = fin.landEquityPercent ?? 100;
   const landEquityCounted = landPct >= 100 ? lc * 0.7 : 0;
   const landEquityValue =
-    landPct >= 100 ? lc * 0.7 : lc * (landPct / 100);
+    landPct >= 100 ? lc : lc * (landPct / 100);
   const cashEquityRequired = Math.max(0, totalEquityRequired - landEquityCounted);
   return { landEquityValue, cashEquityRequired };
 }

@@ -58,6 +58,11 @@ type TableRow = {
   isOverridden: boolean;
 };
 
+function roundPct2(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
 export default function RetailOtherIncomeStep() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
   const step1Data = useFinModelStore((s) => s.operational.retailHoldSnapshot);
@@ -100,8 +105,26 @@ export default function RetailOtherIncomeStep() {
   const rentEscalation = step1Data?.rentEscalationPct ?? revenueBenchmark?.rentEscalation ?? 3;
 
   const defaultCamTotal = (incomeBenchmark?.camExpensesPerSqft ?? 35) * gla;
-  const defaultTaxTotal = (incomeBenchmark?.propertyTaxPerSqft ?? 20) * gla;
-  const defaultInsuranceTotal = (incomeBenchmark?.insurancePerSqft ?? 3) * gla;
+  const grossRentYear1 =
+    step1Data?.revenueValues?.[0] ??
+    gla *
+      baseRentPsfYear1 *
+      ((step1Data?.occupancyValues?.[0] ?? 95) / 100);
+  const defaultPropertyTaxPct =
+    grossRentYear1 > 0
+      ? roundPct2(
+          (((incomeBenchmark?.propertyTaxPerSqft ?? 20) * gla) /
+            grossRentYear1) *
+            100
+        )
+      : 5;
+  const defaultInsurancePct =
+    grossRentYear1 > 0
+      ? roundPct2(
+          (((incomeBenchmark?.insurancePerSqft ?? 3) * gla) / grossRentYear1) *
+            100
+        )
+      : 1.5;
   const defaultSpaces = defaultParkingSpaces(
     cashOutflows?.parkingBUA ?? 0,
     gla
@@ -129,12 +152,30 @@ export default function RetailOtherIncomeStep() {
   const [camExpenses, setCamExpenses] = useState(
     step1Data?.camExpensesAed ?? defaultCamTotal
   );
-  const [propertyTax, setPropertyTax] = useState(
-    step1Data?.propertyTaxAed ?? defaultTaxTotal
-  );
-  const [insurance, setInsurance] = useState(
-    step1Data?.insuranceAed ?? defaultInsuranceTotal
-  );
+  const [propertyTaxPct, setPropertyTaxPct] = useState(() => {
+    if (
+      step1Data?.propertyTaxPctOfGrossRent != null &&
+      step1Data.propertyTaxPctOfGrossRent > 0
+    ) {
+      return roundPct2(step1Data.propertyTaxPctOfGrossRent);
+    }
+    if (step1Data?.propertyTaxAed != null && grossRentYear1 > 0) {
+      return roundPct2((step1Data.propertyTaxAed / grossRentYear1) * 100);
+    }
+    return defaultPropertyTaxPct;
+  });
+  const [insurancePct, setInsurancePct] = useState(() => {
+    if (
+      step1Data?.insurancePctOfGrossRent != null &&
+      step1Data.insurancePctOfGrossRent > 0
+    ) {
+      return roundPct2(step1Data.insurancePctOfGrossRent);
+    }
+    if (step1Data?.insuranceAed != null && grossRentYear1 > 0) {
+      return roundPct2((step1Data.insuranceAed / grossRentYear1) * 100);
+    }
+    return defaultInsurancePct;
+  });
   const [recoveryRate, setRecoveryRate] = useState(
     step1Data?.recoveryRate ?? incomeBenchmark?.recoveryRate ?? 95
   );
@@ -154,16 +195,18 @@ export default function RetailOtherIncomeStep() {
     step1Data?.operatingDays ?? incomeBenchmark?.operatingDays ?? 365
   );
 
-  const [advertisingYear1, setAdvertisingYear1] = useState(
-    step1Data?.advertisingIncomeYear1 ??
-      incomeBenchmark?.advertisingIncomeYear1 ??
-      500_000
-  );
-  const [advertisingGrowthPct, setAdvertisingGrowthPct] = useState(
-    step1Data?.advertisingGrowthPct ??
-      incomeBenchmark?.advertisingGrowthPct ??
-      2.0
-  );
+  const [advertisingRatePerSqft, setAdvertisingRatePerSqft] = useState(() => {
+    if (
+      step1Data?.advertisingRatePerSqft != null &&
+      step1Data.advertisingRatePerSqft > 0
+    ) {
+      return step1Data.advertisingRatePerSqft;
+    }
+    if (step1Data?.advertisingIncomeYear1 != null && gla > 0) {
+      return step1Data.advertisingIncomeYear1 / gla;
+    }
+    return incomeBenchmark?.advertisingRatePerSqft ?? 0.875;
+  });
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [manualYearValues, setManualYearValues] = useState<
@@ -191,6 +234,8 @@ export default function RetailOtherIncomeStep() {
     [baseRentPsfYear1, gla, rentEscalation, leasedPctForYear]
   );
 
+  const revenueValues = step1Data?.revenueValues ?? [];
+
   const tableData = useMemo(() => {
     const rows: TableRow[] = [];
     let totalPercentageRent = 0;
@@ -215,7 +260,11 @@ export default function RetailOtherIncomeStep() {
       const excessSales = Math.max(0, totalSales - breakpointSales);
       const percentageRent = excessSales * (percentageRentRate / 100);
 
-      const totalRecoverableExpenses = camExpenses + propertyTax + insurance;
+      const grossRent = revenueValues[t - 1] ?? baseRentForYear(t);
+      const propertyTaxAmount = grossRent * (propertyTaxPct / 100);
+      const insuranceAmount = grossRent * (insurancePct / 100);
+      const totalRecoverableExpenses =
+        camExpenses + propertyTaxAmount + insuranceAmount;
       const recoveryIncome = totalRecoverableExpenses * (recoveryRate / 100);
 
       const parkingIncome =
@@ -224,8 +273,7 @@ export default function RetailOtherIncomeStep() {
         (parkingUtilization / 100) *
         operatingDays;
 
-      const advertisingIncome =
-        advertisingYear1 * Math.pow(1 + advertisingGrowthPct / 100, t - 1);
+      const advertisingIncome = advertisingRatePerSqft * gla;
 
       const totalOther =
         percentageRent + recoveryIncome + parkingIncome + advertisingIncome;
@@ -288,15 +336,16 @@ export default function RetailOtherIncomeStep() {
     breakpointMultiple,
     fixedBreakpointPsf,
     camExpenses,
-    propertyTax,
-    insurance,
+    propertyTaxPct,
+    insurancePct,
     recoveryRate,
+    revenueValues,
+    baseRentForYear,
     parkingSpaces,
     parkingRevenuePerDay,
     parkingUtilization,
     operatingDays,
-    advertisingYear1,
-    advertisingGrowthPct,
+    advertisingRatePerSqft,
     manualYearValues,
   ]);
 
@@ -333,18 +382,29 @@ export default function RetailOtherIncomeStep() {
         breakpointMultiple,
         fixedBreakpointPsf,
         camExpensesAed: camExpenses,
-        propertyTaxAed: propertyTax,
-        insuranceAed: insurance,
+        propertyTaxPctOfGrossRent: propertyTaxPct,
+        insurancePctOfGrossRent: insurancePct,
+        propertyTaxAed:
+          (revenueValues[0] ?? grossRentYear1) * (propertyTaxPct / 100),
+        insuranceAed:
+          (revenueValues[0] ?? grossRentYear1) * (insurancePct / 100),
         camExpensesPerSqft: gla > 0 ? camExpenses / gla : 0,
-        propertyTaxPerSqft: gla > 0 ? propertyTax / gla : 0,
-        insurancePerSqft: gla > 0 ? insurance / gla : 0,
+        propertyTaxPerSqft:
+          gla > 0
+            ? ((revenueValues[0] ?? grossRentYear1) * (propertyTaxPct / 100)) /
+              gla
+            : 0,
+        insurancePerSqft:
+          gla > 0
+            ? ((revenueValues[0] ?? grossRentYear1) * (insurancePct / 100)) /
+              gla
+            : 0,
         recoveryRate,
         parkingSpaces,
         parkingRevenuePerSpaceDay: parkingRevenuePerDay,
         parkingUtilization,
         operatingDays,
-        advertisingIncomeYear1: advertisingYear1,
-        advertisingGrowthPct,
+        advertisingRatePerSqft,
         percentageRentValues: tableData.rows.map((r) => r.percentageRent),
         camRecoveryValues: tableData.rows.map((r) => r.recoveries),
         parkingRevenueValues: tableData.rows.map((r) => r.parking),
@@ -364,15 +424,16 @@ export default function RetailOtherIncomeStep() {
     breakpointMultiple,
     fixedBreakpointPsf,
     camExpenses,
-    propertyTax,
-    insurance,
+    propertyTaxPct,
+    insurancePct,
     recoveryRate,
+    revenueValues,
+    grossRentYear1,
     parkingSpaces,
     parkingRevenuePerDay,
     parkingUtilization,
     operatingDays,
-    advertisingYear1,
-    advertisingGrowthPct,
+    advertisingRatePerSqft,
     tableData.rows,
   ]);
 
@@ -393,14 +454,13 @@ export default function RetailOtherIncomeStep() {
     setBreakpointType(incomeBenchmark.breakpointType);
     setBreakpointMultiple(incomeBenchmark.breakpointMultiple);
     setCamExpenses(incomeBenchmark.camExpensesPerSqft * gla);
-    setPropertyTax(incomeBenchmark.propertyTaxPerSqft * gla);
-    setInsurance(incomeBenchmark.insurancePerSqft * gla);
+    setPropertyTaxPct(defaultPropertyTaxPct);
+    setInsurancePct(defaultInsurancePct);
     setRecoveryRate(incomeBenchmark.recoveryRate);
     setParkingRevenuePerDay(incomeBenchmark.parkingRevenuePerSpaceDay);
     setParkingUtilization(incomeBenchmark.parkingUtilization);
     setOperatingDays(incomeBenchmark.operatingDays);
-    setAdvertisingYear1(incomeBenchmark.advertisingIncomeYear1);
-    setAdvertisingGrowthPct(incomeBenchmark.advertisingGrowthPct);
+    setAdvertisingRatePerSqft(incomeBenchmark.advertisingRatePerSqft);
     void profileKey;
   }, [incomeBenchmark, gla, overrides, projectInfo, step1Data?.avgTenantSalesPsf]);
 
@@ -412,20 +472,22 @@ export default function RetailOtherIncomeStep() {
     setBreakpointType(incomeBenchmark.breakpointType || "natural");
     setBreakpointMultiple(incomeBenchmark.breakpointMultiple || 1.0);
     setCamExpenses(incomeBenchmark.camExpensesPerSqft * gla);
-    setPropertyTax(incomeBenchmark.propertyTaxPerSqft * gla);
-    setInsurance(incomeBenchmark.insurancePerSqft * gla);
+    setPropertyTaxPct(defaultPropertyTaxPct);
+    setInsurancePct(defaultInsurancePct);
     setRecoveryRate(incomeBenchmark.recoveryRate || 95);
     setParkingRevenuePerDay(incomeBenchmark.parkingRevenuePerSpaceDay || 10);
     setParkingUtilization(incomeBenchmark.parkingUtilization || 70);
     setOperatingDays(incomeBenchmark.operatingDays || 365);
-    setAdvertisingYear1(incomeBenchmark.advertisingIncomeYear1 || 500_000);
-    setAdvertisingGrowthPct(incomeBenchmark.advertisingGrowthPct || 2.0);
+    setAdvertisingRatePerSqft(incomeBenchmark.advertisingRatePerSqft || 0.875);
     setParkingSpaces(defaultSpaces);
     setOverrides({});
     setManualYearValues({});
   };
 
   const handleFieldChange = (field: string, value: number) => {
+    const pctFields = new Set(["propertyTaxPct", "insurancePct"]);
+    const normalized = pctFields.has(field) ? roundPct2(value) : value;
+
     const setters: Record<string, (v: number) => void> = {
       avgTenantSalesPsf: setAvgTenantSalesPsf,
       salesGrowthPct: setSalesGrowthPct,
@@ -433,17 +495,16 @@ export default function RetailOtherIncomeStep() {
       breakpointMultiple: setBreakpointMultiple,
       fixedBreakpointPsf: setFixedBreakpointPsf,
       camExpenses: setCamExpenses,
-      propertyTax: setPropertyTax,
-      insurance: setInsurance,
+      propertyTaxPct: setPropertyTaxPct,
+      insurancePct: setInsurancePct,
       recoveryRate: setRecoveryRate,
       parkingRevenuePerDay: setParkingRevenuePerDay,
       parkingUtilization: setParkingUtilization,
-      advertisingYear1: setAdvertisingYear1,
-      advertisingGrowthPct: setAdvertisingGrowthPct,
+      advertisingRatePerSqft: setAdvertisingRatePerSqft,
     };
 
     if (setters[field]) {
-      setters[field](value);
+      setters[field](normalized);
       setOverrides((prev) => ({ ...prev, [field]: true }));
     }
   };
@@ -628,29 +689,43 @@ export default function RetailOtherIncomeStep() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Property Tax ({currencyCode})
+              Property Tax (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={propertyTax}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 5"
+              value={propertyTaxPct}
               onChange={(e) =>
-                handleFieldChange("propertyTax", Number(e.target.value))
+                handleFieldChange("propertyTaxPct", Number(e.target.value))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propertyTax ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propertyTaxPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 base rent revenue each year
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Insurance ({currencyCode})
+              Insurance (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={insurance}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 1.5"
+              value={insurancePct}
               onChange={(e) =>
-                handleFieldChange("insurance", Number(e.target.value))
+                handleFieldChange("insurancePct", Number(e.target.value))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.insurance ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.insurancePct ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 base rent revenue each year
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
@@ -734,29 +809,23 @@ export default function RetailOtherIncomeStep() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Annual Income – Year 1 ({currencyCode})
+              Advertising/Kiosks/Events Rate ({currencyCode} per sqft GLA/year)
             </label>
             <input
               type="number"
-              value={advertisingYear1}
+              step={0.01}
+              value={advertisingRatePerSqft}
               onChange={(e) =>
-                handleFieldChange("advertisingYear1", Number(e.target.value))
+                handleFieldChange(
+                  "advertisingRatePerSqft",
+                  Number(e.target.value)
+                )
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.advertisingYear1 ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.advertisingRatePerSqft ? "border-2 border-amber-500" : "border border-slate-600"}`}
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Annual Growth (%)
-            </label>
-            <input
-              type="number"
-              value={advertisingGrowthPct}
-              onChange={(e) =>
-                handleFieldChange("advertisingGrowthPct", Number(e.target.value))
-              }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.advertisingGrowthPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
-            />
+            <p className="mt-1 text-[10px] text-slate-500">
+              Annual income = rate × total GLA ({gla.toLocaleString()} sqft)
+            </p>
           </div>
         </div>
       </div>

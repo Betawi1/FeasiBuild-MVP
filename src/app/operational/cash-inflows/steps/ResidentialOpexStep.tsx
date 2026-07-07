@@ -17,7 +17,13 @@ import {
 } from "@/lib/benchmarks/residential-other-income";
 import { resolveResidentialOpexBenchmark } from "@/lib/benchmarks/residential-opex";
 import {
+  blendedResidentialLeasedPct,
+  utilitiesBaseSqft,
+} from "@/lib/residential-revenue-calculations";
+import {
   defaultOperationalResidentialHoldSnapshot,
+  roundPct2,
+  totalOperationalBua,
   type OperationalResidentialHoldSnapshot,
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
@@ -64,13 +70,13 @@ export function buildResidentialOpexFromSnapshot(
 
   return {
     mgmtFeePctOfEgi: snap.mgmtFeePctOfEgi ?? 0,
-    maintenancePerUnitAnnual: snap.maintenancePerUnitAnnual ?? 0,
-    utilitiesFixedAnnual: snap.utilitiesFixedAnnual ?? 0,
-    propertyTaxAnnual: snap.propertyTaxAnnual ?? 0,
-    insuranceAnnual: snap.insuranceAnnual ?? 0,
+    maintenancePctOfResidentialGla: snap.maintenancePctOfResidentialGla ?? 0,
+    utilitiesPctOfCommonVacantGla: snap.utilitiesPctOfCommonVacantGla ?? 0,
+    propertyTaxPctOfGrossRent: snap.propertyTaxPctOfGrossRent ?? 0,
+    insurancePctOfGrossRent: snap.insurancePctOfGrossRent ?? 0,
     marketingPctOfEgi: snap.marketingPctOfEgi ?? 0,
-    gAndAAnnual: snap.gAndAAnnual ?? 0,
-    capexPerUnitAnnual: snap.capexPerUnitAnnual ?? 0,
+    gAndAPctOfGrossRent: snap.gAndAPctOfGrossRent ?? 0,
+    capexReservePctOfTotalGla: snap.capexReservePctOfTotalGla ?? 0,
     estimatedTotalUnits,
     projection,
   };
@@ -142,11 +148,15 @@ function overrideFieldClass(overridden: boolean): string {
 
 export default function ResidentialOpexStep() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
   const residentialHoldSnapshot = useFinModelStore(
     (s) => s.operational.residentialHoldSnapshot
   );
   const stepData = residentialHoldSnapshot;
   const residentialGla = stepData?.residentialGlaSqft ?? 200_000;
+  const retailGla = stepData?.retailGlaSqft ?? 0;
+  const totalGla = residentialGla + retailGla;
+  const totalBua = totalOperationalBua(cashOutflows);
   const avgUnitSqft = stepData?.avgUnitSqft ?? 800;
   const estimatedTotalUnits = estimatedUnitsFromGla(
     residentialGla,
@@ -155,6 +165,7 @@ export default function ResidentialOpexStep() {
 
   const netRentValues = stepData?.residentialRentValues ?? [];
   const otherIncomeValues = stepData?.otherIncomeTotalValues ?? [];
+  const grossRentValues = stepData?.totalBaseRentValues ?? netRentValues;
 
   const benchmark = useMemo(() => {
     if (
@@ -181,31 +192,133 @@ export default function ResidentialOpexStep() {
     residentialGla,
   ]);
 
+  const resolveMaintenancePct = () => {
+    if (
+      stepData?.maintenancePctOfResidentialGla != null &&
+      stepData.maintenancePctOfResidentialGla > 0
+    ) {
+      return roundPct2(stepData.maintenancePctOfResidentialGla);
+    }
+    if (
+      stepData?.maintenancePerUnitAnnual != null &&
+      residentialGla > 0 &&
+      estimatedTotalUnits > 0
+    ) {
+      const total =
+        stepData.maintenancePerUnitAnnual * estimatedTotalUnits;
+      return roundPct2((total / residentialGla) * 100);
+    }
+    return roundPct2(benchmark?.maintenancePctOfResidentialGla ?? 2.5);
+  };
+
+  const resolveUtilitiesPct = () => {
+    if (
+      stepData?.utilitiesPctOfCommonVacantGla != null &&
+      stepData.utilitiesPctOfCommonVacantGla > 0
+    ) {
+      return roundPct2(stepData.utilitiesPctOfCommonVacantGla);
+    }
+    const blendedY1 = blendedResidentialLeasedPct(
+      1,
+      residentialGla,
+      retailGla,
+      stepData
+    );
+    const utilBase = utilitiesBaseSqft(totalBua, totalGla, blendedY1);
+    let legacyTotal = 0;
+    if (
+      stepData?.utilitiesPerUnitAnnual != null &&
+      estimatedTotalUnits > 0
+    ) {
+      legacyTotal = stepData.utilitiesPerUnitAnnual * estimatedTotalUnits;
+    } else if (stepData?.utilitiesFixedAnnual != null) {
+      legacyTotal = stepData.utilitiesFixedAnnual;
+    }
+    if (legacyTotal > 0 && utilBase > 0) {
+      return roundPct2((legacyTotal / utilBase) * 100);
+    }
+    return roundPct2(benchmark?.utilitiesPctOfCommonVacantGla ?? 15);
+  };
+
+  const resolveGAndAPct = () => {
+    if (
+      stepData?.gAndAPctOfGrossRent != null &&
+      stepData.gAndAPctOfGrossRent > 0
+    ) {
+      return roundPct2(stepData.gAndAPctOfGrossRent);
+    }
+    const grossY1 = grossRentValues[0] ?? 0;
+    if (stepData?.gAndAAnnual != null && grossY1 > 0) {
+      return roundPct2((stepData.gAndAAnnual / grossY1) * 100);
+    }
+    return roundPct2(benchmark?.gAndAPctOfGrossRent ?? 3);
+  };
+
+  const resolveCapexReservePct = () => {
+    if (
+      stepData?.capexReservePctOfTotalGla != null &&
+      stepData.capexReservePctOfTotalGla > 0
+    ) {
+      return roundPct2(stepData.capexReservePctOfTotalGla);
+    }
+    if (
+      stepData?.capexPerUnitAnnual != null &&
+      totalGla > 0 &&
+      estimatedTotalUnits > 0
+    ) {
+      const total = stepData.capexPerUnitAnnual * estimatedTotalUnits;
+      return roundPct2((total / totalGla) * 100);
+    }
+    return roundPct2(benchmark?.capexReservePctOfTotalGla ?? 5);
+  };
+
+  const resolvePropertyTaxPct = () => {
+    if (
+      stepData?.propertyTaxPctOfGrossRent != null &&
+      stepData.propertyTaxPctOfGrossRent > 0
+    ) {
+      return roundPct2(stepData.propertyTaxPctOfGrossRent);
+    }
+    const grossY1 = grossRentValues[0] ?? 0;
+    if (stepData?.propertyTaxAnnual != null && grossY1 > 0) {
+      return roundPct2((stepData.propertyTaxAnnual / grossY1) * 100);
+    }
+    return roundPct2(benchmark?.propertyTaxPctOfGrossRent ?? 5);
+  };
+
+  const resolveInsurancePct = () => {
+    if (
+      stepData?.insurancePctOfGrossRent != null &&
+      stepData.insurancePctOfGrossRent > 0
+    ) {
+      return roundPct2(stepData.insurancePctOfGrossRent);
+    }
+    const grossY1 = grossRentValues[0] ?? 0;
+    if (stepData?.insuranceAnnual != null && grossY1 > 0) {
+      return roundPct2((stepData.insuranceAnnual / grossY1) * 100);
+    }
+    return roundPct2(benchmark?.insurancePctOfGrossRent ?? 1);
+  };
+
   const [mgmtFeePct, setMgmtFeePct] = useState(
     stepData?.mgmtFeePctOfEgi ?? benchmark?.mgmtFeePctOfEgi ?? 4
   );
-  const [maintenancePerUnit, setMaintenancePerUnit] = useState(
-    stepData?.maintenancePerUnitAnnual ??
-      benchmark?.maintenancePerUnitAnnual ??
-      1500
+  const [maintenancePct, setMaintenancePct] = useState(() =>
+    resolveMaintenancePct()
   );
-  const [utilitiesFixed, setUtilitiesFixed] = useState(
-    stepData?.utilitiesFixedAnnual ?? benchmark?.utilitiesFixedAnnual ?? 200_000
+  const [utilitiesPct, setUtilitiesPct] = useState(() => resolveUtilitiesPct());
+  const [propertyTaxPct, setPropertyTaxPct] = useState(() =>
+    resolvePropertyTaxPct()
   );
-  const [propertyTax, setPropertyTax] = useState(
-    stepData?.propertyTaxAnnual ?? benchmark?.propertyTaxAnnual ?? 500_000
-  );
-  const [insurance, setInsurance] = useState(
-    stepData?.insuranceAnnual ?? benchmark?.insuranceAnnual ?? 80_000
+  const [insurancePct, setInsurancePct] = useState(() =>
+    resolveInsurancePct()
   );
   const [marketingPct, setMarketingPct] = useState(
     stepData?.marketingPctOfEgi ?? benchmark?.marketingPctOfEgi ?? 1
   );
-  const [gAndA, setGAndA] = useState(
-    stepData?.gAndAAnnual ?? benchmark?.gAndAAnnual ?? 100_000
-  );
-  const [capexPerUnit, setCapexPerUnit] = useState(
-    stepData?.capexPerUnitAnnual ?? benchmark?.capexPerUnitAnnual ?? 1000
+  const [gAndAPct, setGAndAPct] = useState(() => resolveGAndAPct());
+  const [capexReservePct, setCapexReservePct] = useState(() =>
+    resolveCapexReservePct()
   );
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>(
@@ -234,13 +347,21 @@ export default function ResidentialOpexStep() {
       const egi = netRent + otherIncome;
 
       const mgmtFee = egi * (mgmtFeePct / 100);
-      const maintenance = estimatedTotalUnits * maintenancePerUnit;
-      const utilities = utilitiesFixed;
-      const tax = propertyTax;
-      const ins = insurance;
+      const maintenance = (maintenancePct / 100) * residentialGla;
+      const blendedLeased = blendedResidentialLeasedPct(
+        t,
+        residentialGla,
+        retailGla,
+        stepData
+      );
+      const utilBase = utilitiesBaseSqft(totalBua, totalGla, blendedLeased);
+      const utilities = (utilitiesPct / 100) * utilBase;
+      const grossRentalRevenue = grossRentValues[i] ?? 0;
+      const tax = grossRentalRevenue * (propertyTaxPct / 100);
+      const ins = grossRentalRevenue * (insurancePct / 100);
       const marketing = egi * (marketingPct / 100);
-      const ga = gAndA;
-      const capex = estimatedTotalUnits * capexPerUnit;
+      const ga = grossRentalRevenue * (gAndAPct / 100);
+      const capex = (capexReservePct / 100) * totalGla;
 
       const opexTotal =
         mgmtFee +
@@ -307,17 +428,22 @@ export default function ResidentialOpexStep() {
       },
     };
   }, [
-    estimatedTotalUnits,
+    residentialGla,
+    retailGla,
+    totalGla,
+    totalBua,
+    stepData,
     netRentValues,
+    grossRentValues,
     otherIncomeValues,
     mgmtFeePct,
-    maintenancePerUnit,
-    utilitiesFixed,
-    propertyTax,
-    insurance,
+    maintenancePct,
+    utilitiesPct,
+    propertyTaxPct,
+    insurancePct,
     marketingPct,
-    gAndA,
-    capexPerUnit,
+    gAndAPct,
+    capexReservePct,
     manualYearValues,
   ]);
 
@@ -328,13 +454,13 @@ export default function ResidentialOpexStep() {
       ...prev,
       residentialGlaSqft: prev?.residentialGlaSqft ?? residentialGla,
       mgmtFeePctOfEgi: mgmtFeePct,
-      maintenancePerUnitAnnual: maintenancePerUnit,
-      utilitiesFixedAnnual: utilitiesFixed,
-      propertyTaxAnnual: propertyTax,
-      insuranceAnnual: insurance,
+      maintenancePctOfResidentialGla: maintenancePct,
+      utilitiesPctOfCommonVacantGla: utilitiesPct,
+      propertyTaxPctOfGrossRent: propertyTaxPct,
+      insurancePctOfGrossRent: insurancePct,
       marketingPctOfEgi: marketingPct,
-      gAndAAnnual: gAndA,
-      capexPerUnitAnnual: capexPerUnit,
+      gAndAPctOfGrossRent: gAndAPct,
+      capexReservePctOfTotalGla: capexReservePct,
       estimatedTotalUnits,
       opexMgmtFeeValues: tableData.rows.map((r) => r.mgmtFee),
       opexMaintenanceValues: tableData.rows.map((r) => r.maintenance),
@@ -357,13 +483,13 @@ export default function ResidentialOpexStep() {
   }, [
     residentialGla,
     mgmtFeePct,
-    maintenancePerUnit,
-    utilitiesFixed,
-    propertyTax,
-    insurance,
+    maintenancePct,
+    utilitiesPct,
+    propertyTaxPct,
+    insurancePct,
     marketingPct,
-    gAndA,
-    capexPerUnit,
+    gAndAPct,
+    capexReservePct,
     estimatedTotalUnits,
     tableData.rows,
     overrides,
@@ -379,43 +505,53 @@ export default function ResidentialOpexStep() {
     if (!benchmark || Object.keys(overrides).length > 0) return;
     if (stepData?.mgmtFeePctOfEgi != null) return;
     setMgmtFeePct(benchmark.mgmtFeePctOfEgi);
-    setMaintenancePerUnit(benchmark.maintenancePerUnitAnnual);
-    setUtilitiesFixed(benchmark.utilitiesFixedAnnual);
-    setPropertyTax(benchmark.propertyTaxAnnual);
-    setInsurance(benchmark.insuranceAnnual);
+    setMaintenancePct(roundPct2(benchmark.maintenancePctOfResidentialGla));
+    setUtilitiesPct(roundPct2(benchmark.utilitiesPctOfCommonVacantGla));
+    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
+    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
     setMarketingPct(benchmark.marketingPctOfEgi);
-    setGAndA(benchmark.gAndAAnnual);
-    setCapexPerUnit(benchmark.capexPerUnitAnnual);
+    setGAndAPct(roundPct2(benchmark.gAndAPctOfGrossRent));
+    setCapexReservePct(roundPct2(benchmark.capexReservePctOfTotalGla));
   }, [benchmark, overrides, stepData?.mgmtFeePctOfEgi]);
 
   const handleResetAll = () => {
     if (!benchmark) return;
     setMgmtFeePct(benchmark.mgmtFeePctOfEgi);
-    setMaintenancePerUnit(benchmark.maintenancePerUnitAnnual);
-    setUtilitiesFixed(benchmark.utilitiesFixedAnnual);
-    setPropertyTax(benchmark.propertyTaxAnnual);
-    setInsurance(benchmark.insuranceAnnual);
+    setMaintenancePct(roundPct2(benchmark.maintenancePctOfResidentialGla));
+    setUtilitiesPct(roundPct2(benchmark.utilitiesPctOfCommonVacantGla));
+    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
+    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
     setMarketingPct(benchmark.marketingPctOfEgi);
-    setGAndA(benchmark.gAndAAnnual);
-    setCapexPerUnit(benchmark.capexPerUnitAnnual);
+    setGAndAPct(roundPct2(benchmark.gAndAPctOfGrossRent));
+    setCapexReservePct(roundPct2(benchmark.capexReservePctOfTotalGla));
     setOverrides({});
     setManualYearValues({});
   };
 
   const handleFieldChange = (field: string, value: number) => {
+    const pctFields = new Set([
+      "maintenancePct",
+      "utilitiesPct",
+      "propertyTaxPct",
+      "insurancePct",
+      "gAndAPct",
+      "capexReservePct",
+    ]);
+    const normalized = pctFields.has(field) ? roundPct2(value) : value;
+
     const setters: Record<string, (v: number) => void> = {
       mgmtFeePct: setMgmtFeePct,
-      maintenancePerUnit: setMaintenancePerUnit,
-      utilitiesFixed: setUtilitiesFixed,
-      propertyTax: setPropertyTax,
-      insurance: setInsurance,
+      maintenancePct: setMaintenancePct,
+      utilitiesPct: setUtilitiesPct,
+      propertyTaxPct: setPropertyTaxPct,
+      insurancePct: setInsurancePct,
       marketingPct: setMarketingPct,
-      gAndA: setGAndA,
-      capexPerUnit: setCapexPerUnit,
+      gAndAPct: setGAndAPct,
+      capexReservePct: setCapexReservePct,
     };
 
     if (setters[field]) {
-      setters[field](value);
+      setters[field](normalized);
       setOverrides((prev) => ({ ...prev, [field]: true }));
     }
   };
@@ -495,21 +631,25 @@ export default function ResidentialOpexStep() {
         <h3 className="mb-4 text-lg font-semibold text-white">
           Maintenance &amp; Repairs
         </h3>
-        <div className="max-w-xs">
+        <div className="max-w-md">
           <label className="mb-1 block text-xs text-slate-400">
-            Annual Maintenance per Unit ({currencyCode})
+            Maintenance &amp; Repairs (% of Residential GLA/year)
           </label>
           <input
             type="number"
-            value={maintenancePerUnit}
+            step={0.01}
+            min={0}
+            max={100}
+            placeholder="e.g., 2.5"
+            value={maintenancePct}
             onChange={(e) =>
-              handleFieldChange("maintenancePerUnit", Number(e.target.value))
+              handleFieldChange("maintenancePct", Number(e.target.value))
             }
-            className={overrideFieldClass(!!overrides.maintenancePerUnit)}
+            className={overrideFieldClass(!!overrides.maintenancePct)}
           />
-          <p className="mt-1 text-[10px] text-slate-500">
-            Applied to TOTAL units ({estimatedTotalUnits.toLocaleString()}), not
-            just leased — landlord pays for all units regardless of vacancy
+          <p className="mt-1 text-sm text-slate-500">
+            Applied to Residential GLA from Step 1 (
+            {residentialGla.toLocaleString()} sqft)
           </p>
         </div>
       </div>
@@ -518,20 +658,26 @@ export default function ResidentialOpexStep() {
         <h3 className="mb-4 text-lg font-semibold text-white">
           Utilities (Common Areas + Vacant Units)
         </h3>
-        <div className="max-w-xs">
+        <div className="max-w-md">
           <label className="mb-1 block text-xs text-slate-400">
-            Annual Utilities ({currencyCode}/year)
+            Utilities (% of Common Area + Vacant GLA/year)
           </label>
           <input
             type="number"
-            value={utilitiesFixed}
+            step={0.01}
+            min={0}
+            max={100}
+            placeholder="e.g., 15"
+            value={utilitiesPct}
             onChange={(e) =>
-              handleFieldChange("utilitiesFixed", Number(e.target.value))
+              handleFieldChange("utilitiesPct", Number(e.target.value))
             }
-            className={overrideFieldClass(!!overrides.utilitiesFixed)}
+            className={overrideFieldClass(!!overrides.utilitiesPct)}
           />
-          <p className="mt-1 text-[10px] text-slate-500">
-            Fixed cost, not recovered from tenants
+          <p className="mt-1 text-sm text-slate-500">
+            Applied to: ((BUA - GLA) + (GLA × (100% - Leased %))) — includes
+            retail area and vacant units. BUA: {totalBua.toLocaleString()} sqft,
+            Total GLA: {totalGla.toLocaleString()} sqft.
           </p>
         </div>
       </div>
@@ -543,29 +689,43 @@ export default function ResidentialOpexStep() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Property Tax ({currencyCode}/year)
+              Property Tax (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={propertyTax}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 5"
+              value={propertyTaxPct}
               onChange={(e) =>
-                handleFieldChange("propertyTax", Number(e.target.value))
+                handleFieldChange("propertyTaxPct", Number(e.target.value))
               }
-              className={overrideFieldClass(!!overrides.propertyTax)}
+              className={overrideFieldClass(!!overrides.propertyTaxPct)}
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 residential + retail rent revenue each year
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Insurance ({currencyCode}/year)
+              Insurance (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={insurance}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 1.5"
+              value={insurancePct}
               onChange={(e) =>
-                handleFieldChange("insurance", Number(e.target.value))
+                handleFieldChange("insurancePct", Number(e.target.value))
               }
-              className={overrideFieldClass(!!overrides.insurance)}
+              className={overrideFieldClass(!!overrides.insurancePct)}
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 residential + retail rent revenue each year
+            </p>
           </div>
         </div>
       </div>
@@ -597,18 +757,24 @@ export default function ResidentialOpexStep() {
         <h3 className="mb-4 text-lg font-semibold text-white">
           G&amp;A (General &amp; Administrative)
         </h3>
-        <div className="max-w-xs">
+        <div className="max-w-md">
           <label className="mb-1 block text-xs text-slate-400">
-            G&amp;A ({currencyCode}/year)
+            G&amp;A (% of Annual Gross Rental Revenue)
           </label>
           <input
             type="number"
-            value={gAndA}
-            onChange={(e) => handleFieldChange("gAndA", Number(e.target.value))}
-            className={overrideFieldClass(!!overrides.gAndA)}
+            step={0.01}
+            min={0}
+            max={100}
+            placeholder="e.g., 3"
+            value={gAndAPct}
+            onChange={(e) =>
+              handleFieldChange("gAndAPct", Number(e.target.value))
+            }
+            className={overrideFieldClass(!!overrides.gAndAPct)}
           />
-          <p className="mt-1 text-[10px] text-slate-500">
-            Accounting, legal, office expenses
+          <p className="mt-1 text-sm text-slate-500">
+            Applied to Step 1 residential + retail rent revenue each year
           </p>
         </div>
       </div>
@@ -617,21 +783,25 @@ export default function ResidentialOpexStep() {
         <h3 className="mb-4 text-lg font-semibold text-white">
           Renovation / Capex Reserve
         </h3>
-        <div className="max-w-xs">
+        <div className="max-w-md">
           <label className="mb-1 block text-xs text-slate-400">
-            Annual Capex Reserve per Unit ({currencyCode})
+            Renovation / Capex Reserve (% of Total GLA/year)
           </label>
           <input
             type="number"
-            value={capexPerUnit}
+            step={0.01}
+            min={0}
+            max={100}
+            placeholder="e.g., 5"
+            value={capexReservePct}
             onChange={(e) =>
-              handleFieldChange("capexPerUnit", Number(e.target.value))
+              handleFieldChange("capexReservePct", Number(e.target.value))
             }
-            className={overrideFieldClass(!!overrides.capexPerUnit)}
+            className={overrideFieldClass(!!overrides.capexReservePct)}
           />
-          <p className="mt-1 text-[10px] text-slate-500">
-            For unit turnover, appliance replacement — applied to TOTAL units (
-            {estimatedTotalUnits.toLocaleString()})
+          <p className="mt-1 text-sm text-slate-500">
+            Applied to Total GLA (Residential + Retail) from Step 1 — for unit
+            turnover, appliance replacement ({totalGla.toLocaleString()} sqft)
           </p>
         </div>
       </div>
@@ -663,7 +833,7 @@ export default function ResidentialOpexStep() {
                 <th className="border-r border-slate-700 px-2 py-3">
                   Utilities
                   <br />
-                  (fixed)
+                  ({utilitiesPct}% base)
                 </th>
                 <th className="border-r border-slate-700 px-2 py-3">
                   Prop Tax
@@ -746,10 +916,10 @@ export default function ResidentialOpexStep() {
 
         <div className="border-t border-slate-700 bg-slate-800/50 p-3 text-[10px] text-slate-400">
           <p>
-            <strong>Note:</strong> Maintenance &amp; Capex per unit are
-            multiplied by total units ({estimatedTotalUnits.toLocaleString()}),
-            not leased units — landlord pays for all units regardless of vacancy
-            (common in residential).
+            <strong>Note:</strong> Maintenance scales with residential GLA;
+            utilities scale with common area + vacant GLA (varies by leased % each
+            year); G&amp;A scales with gross rent; capex reserve scales with total
+            GLA ({totalGla.toLocaleString()} sqft).
           </p>
         </div>
       </div>

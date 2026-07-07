@@ -17,6 +17,11 @@ import type {
   SuccessFactorsData,
 } from "@/types/feasibility";
 import { getBTRContext } from "@/lib/feasibility/btr-context";
+import {
+  blendedResidentialLeasedPct,
+  utilitiesBaseSqft,
+} from "@/lib/residential-revenue-calculations";
+import { totalOperationalBua } from "@/lib/operational-pnl";
 import { buildOperationalCostBreakdown } from "@/lib/feasibility/build-operational-cost-breakdown";
 
 const PNL_YEARS = OPERATIONAL_ROOM_REVENUE_YEARS;
@@ -237,21 +242,53 @@ export function buildBTROperationalExpensesData(
   const totalUnits =
     opex?.estimatedTotalUnits ?? snap?.estimatedTotalUnits ?? ctx.totalUnits ?? 0;
   const mgmtPct = opex?.mgmtFeePctOfEgi ?? 4;
-  const maintenance = opex?.maintenancePerUnitAnnual ?? 1500;
-  const utilities = opex?.utilitiesFixedAnnual ?? 200_000;
-  const propertyTax = opex?.propertyTaxAnnual ?? 500_000;
-  const insurance = opex?.insuranceAnnual ?? 80_000;
+  const residentialGla = ctx.residentialGla;
+  const retailGla = ctx.retailGla;
+  const totalGla = residentialGla + retailGla;
+  const totalBua = totalOperationalBua({
+    buildingBUA: bundle.component1?.buildingBUA ?? bundle.component1?.bua,
+    parkingBUA: bundle.component1?.parkingBUA,
+    basementBUA: 0,
+  });
+  const maintenancePct = opex?.maintenancePctOfResidentialGla ?? 2.5;
+  const utilitiesPct = opex?.utilitiesPctOfCommonVacantGla ?? 15;
+  const blendedY1 = blendedResidentialLeasedPct(
+    1,
+    residentialGla,
+    retailGla,
+    snap
+  );
+  const utilBase = utilitiesBaseSqft(totalBua, totalGla, blendedY1);
+  const maintenance =
+    snap?.opexMaintenanceValues?.[0] ??
+    (maintenancePct / 100) * residentialGla;
+  const utilities =
+    snap?.opexUtilitiesValues?.[0] ?? (utilitiesPct / 100) * utilBase;
+  const propertyTaxPct = opex?.propertyTaxPctOfGrossRent ?? 5;
+  const insurancePct = opex?.insurancePctOfGrossRent ?? 1;
+  const grossRentYear1 =
+    snap?.totalBaseRentValues?.[0] ?? snap?.residentialRentValues?.[0] ?? 0;
+  const propertyTax =
+    snap?.opexPropertyTaxValues?.[0] ??
+    grossRentYear1 * (propertyTaxPct / 100);
+  const insurance =
+    snap?.opexInsuranceValues?.[0] ??
+    grossRentYear1 * (insurancePct / 100);
   const marketingPct = opex?.marketingPctOfEgi ?? 1;
-  const gAndA = opex?.gAndAAnnual ?? 100_000;
-  const capex = opex?.capexPerUnitAnnual ?? 1000;
+  const gAndAPct = opex?.gAndAPctOfGrossRent ?? 3;
+  const gAndA =
+    snap?.opexGaValues?.[0] ?? grossRentYear1 * (gAndAPct / 100);
+  const capexReservePct = opex?.capexReservePctOfTotalGla ?? 5;
+  const capex =
+    snap?.opexCapexValues?.[0] ?? (capexReservePct / 100) * totalGla;
   const totalOpexYear1 =
     snap?.opexTotalValues?.[0] ??
-    maintenance * totalUnits +
+    maintenance +
       utilities +
       propertyTax +
       insurance +
       gAndA +
-      capex * totalUnits;
+      capex;
 
   return {
     currency: ctx.currency,
@@ -260,48 +297,48 @@ export function buildBTROperationalExpensesData(
       { item: "Property Management Fee", value: `${mgmtPct}%`, basis: "EGI" },
       {
         item: "Maintenance & Repairs",
-        value: maintenance.toLocaleString(),
-        basis: "per unit per year",
+        value: `${maintenancePct}%`,
+        basis: "of residential GLA per year",
       },
       {
         item: "Utilities (Common Areas + Vacant)",
-        value: utilities.toLocaleString(),
-        basis: "fixed per year",
+        value: `${utilitiesPct}%`,
+        basis: "of common area + vacant GLA per year",
       },
       {
         item: "Property Tax",
-        value: propertyTax.toLocaleString(),
-        basis: "per year",
+        value: `${propertyTaxPct}%`,
+        basis: "of gross rental revenue",
       },
       {
         item: "Insurance",
-        value: insurance.toLocaleString(),
-        basis: "per year",
+        value: `${insurancePct}%`,
+        basis: "of gross rental revenue",
       },
       { item: "Marketing & Leasing", value: `${marketingPct}%`, basis: "EGI" },
       {
         item: "G&A (General & Administrative)",
-        value: gAndA.toLocaleString(),
-        basis: "per year",
+        value: `${gAndAPct}%`,
+        basis: "of gross rental revenue",
       },
       {
         item: "Renovation / Capex Reserve",
-        value: capex.toLocaleString(),
-        basis: "per unit per year",
+        value: `${capexReservePct}%`,
+        basis: "of total GLA per year",
       },
     ],
     annualTotals: [
       { item: "Property Management Fee", amount: `${mgmtPct}% of EGI` },
       {
         item: "Maintenance & Repairs",
-        amount: maintenance * totalUnits,
+        amount: maintenance,
       },
       { item: "Utilities", amount: utilities },
       { item: "Property Tax", amount: propertyTax },
       { item: "Insurance", amount: insurance },
       { item: "Marketing & Leasing", amount: `${marketingPct}% of EGI` },
       { item: "G&A", amount: gAndA },
-      { item: "Renovation / Capex Reserve", amount: capex * totalUnits },
+      { item: "Renovation / Capex Reserve", amount: capex },
       { item: "Total OpEx (Year 1)", amount: Math.round(totalOpexYear1) },
     ],
     totalOpexYear1: Math.round(totalOpexYear1),

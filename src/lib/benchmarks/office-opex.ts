@@ -4,46 +4,87 @@ import {
   type OfficeSegment,
 } from "@/lib/benchmarks/office-construction-costs";
 
+const BENCHMARK_REF_BUA = 500_000;
+const BENCHMARK_REF_GLA = 250_000;
+const BENCHMARK_REF_GROSS_RENT = BENCHMARK_REF_GLA * 100 * 0.85;
+const BENCHMARK_REF_TOTAL_REVENUE = BENCHMARK_REF_GROSS_RENT * 1.2;
+
 export interface OfficeOpexBenchmark {
   country: string;
   segment: string;
   positioning: string;
 
-  camFixedBase: number;
+  camFixedBaseRate: number;
   camVariableRate: number;
-
-  propertyTaxAnnual: number;
-  insuranceAnnual: number;
-
+  propertyTaxPctOfGrossRent: number;
+  insurancePctOfGrossRent: number;
   marketingPctOfRevenue: number;
-  gAndAAnnual: number;
-
+  gAndAPctOfRevenue: number;
   mgmtFeePctOfRevenue: number;
-
   renovationYear1: number;
   renovationYear2: number;
   renovationYears3to10: number;
 }
 
-/** Dubai CBD hybrid (prime tower / Grade A) — default office opex profile. */
-export const DEFAULT_OFFICE_OPEX_BENCHMARK: OfficeOpexBenchmark = {
-  country: "UAE",
-  segment: "prime_tower",
-  positioning: "grade_a",
-  camFixedBase: 800_000,
-  camVariableRate: 12,
-  propertyTaxAnnual: 800_000,
-  insuranceAnnual: 150_000,
-  marketingPctOfRevenue: 1.5,
-  gAndAAnnual: 400_000,
-  mgmtFeePctOfRevenue: 3.0,
-  renovationYear1: 1.0,
-  renovationYear2: 2.0,
-  renovationYears3to10: 3.0,
+type LegacyOfficeOpexBenchmark = {
+  country: string;
+  segment: string;
+  positioning: string;
+  camFixedBase: number;
+  camVariableRate: number;
+  propertyTaxAnnual: number;
+  insuranceAnnual: number;
+  marketingPctOfRevenue: number;
+  gAndAAnnual: number;
+  mgmtFeePctOfRevenue: number;
+  renovationYear1: number;
+  renovationYear2: number;
+  renovationYears3to10: number;
 };
 
-export const OFFICE_OPEX_BENCHMARKS: OfficeOpexBenchmark[] = [
-  DEFAULT_OFFICE_OPEX_BENCHMARK,
+function convertLegacyOfficeOpexBenchmark(
+  legacy: LegacyOfficeOpexBenchmark
+): OfficeOpexBenchmark {
+  const roundPct2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    country: legacy.country,
+    segment: legacy.segment,
+    positioning: legacy.positioning,
+    camFixedBaseRate: legacy.camFixedBase / BENCHMARK_REF_BUA,
+    camVariableRate: legacy.camVariableRate,
+    propertyTaxPctOfGrossRent: roundPct2(
+      (legacy.propertyTaxAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    insurancePctOfGrossRent: roundPct2(
+      (legacy.insuranceAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    marketingPctOfRevenue: legacy.marketingPctOfRevenue,
+    gAndAPctOfRevenue: roundPct2(
+      (legacy.gAndAAnnual / BENCHMARK_REF_TOTAL_REVENUE) * 100
+    ),
+    mgmtFeePctOfRevenue: legacy.mgmtFeePctOfRevenue,
+    renovationYear1: legacy.renovationYear1,
+    renovationYear2: legacy.renovationYear2,
+    renovationYears3to10: legacy.renovationYears3to10,
+  };
+}
+
+const LEGACY_OFFICE_OPEX_BENCHMARKS: LegacyOfficeOpexBenchmark[] = [
+  {
+    country: "UAE",
+    segment: "prime_tower",
+    positioning: "grade_a",
+    camFixedBase: 800_000,
+    camVariableRate: 12,
+    propertyTaxAnnual: 800_000,
+    insuranceAnnual: 150_000,
+    marketingPctOfRevenue: 1.5,
+    gAndAAnnual: 400_000,
+    mgmtFeePctOfRevenue: 3.0,
+    renovationYear1: 1.0,
+    renovationYear2: 2.0,
+    renovationYears3to10: 3.0,
+  },
   {
     country: "UAE",
     segment: "prime_tower",
@@ -121,6 +162,17 @@ export const OFFICE_OPEX_BENCHMARKS: OfficeOpexBenchmark[] = [
   },
 ];
 
+export const OFFICE_OPEX_BENCHMARKS: OfficeOpexBenchmark[] =
+  LEGACY_OFFICE_OPEX_BENCHMARKS.map(convertLegacyOfficeOpexBenchmark);
+
+export const DEFAULT_OFFICE_OPEX_BENCHMARK: OfficeOpexBenchmark =
+  OFFICE_OPEX_BENCHMARKS.find(
+    (b) =>
+      b.country === "UAE" &&
+      b.segment === "prime_tower" &&
+      b.positioning === "grade_a"
+  )!;
+
 export function getOfficeOpexBenchmark(
   country: string,
   segment: string,
@@ -163,8 +215,7 @@ export function resolveOfficeOpexBenchmark(
   const sameCountry = OFFICE_OPEX_BENCHMARKS.filter((b) => b.country === c);
   if (sameCountry.length) {
     return (
-      sameCountry.find((b) => b.positioning === pos) ??
-      sameCountry[0]!
+      sameCountry.find((b) => b.positioning === pos) ?? sameCountry[0]!
     );
   }
 

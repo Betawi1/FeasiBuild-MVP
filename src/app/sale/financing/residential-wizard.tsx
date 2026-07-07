@@ -924,7 +924,7 @@ function ResidentialFinancingWizardContent() {
     const cashEquityRequired = Math.max(0, totalEquityRequired - landEquityCounted);
     const landEquityValue =
       formData.landEquityPercent >= 100
-        ? lc * LAND_EQUITY_HAIRCUT
+        ? lc
         : lc * (formData.landEquityPercent / 100);
 
     const drawdownMode = formDrawdownToEngine(formData.drawdownMode);

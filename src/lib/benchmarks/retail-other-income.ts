@@ -21,11 +21,32 @@ export interface RetailOtherIncomeBenchmark {
   parkingUtilization: number;
   operatingDays: number;
 
-  advertisingIncomeYear1: number;
-  advertisingGrowthPct: number;
+  /** Local currency per sqft GLA per year */
+  advertisingRatePerSqft: number;
 }
 
-export const RETAIL_OTHER_INCOME_BENCHMARKS: RetailOtherIncomeBenchmark[] = [
+const BENCHMARK_REF_GLA = 400_000;
+
+type LegacyOtherIncomeBenchmark = Omit<
+  RetailOtherIncomeBenchmark,
+  "advertisingRatePerSqft"
+> & {
+  advertisingIncomeYear1: number;
+  advertisingGrowthPct: number;
+};
+
+function convertLegacyOtherIncomeBenchmark(
+  legacy: LegacyOtherIncomeBenchmark
+): RetailOtherIncomeBenchmark {
+  const { advertisingIncomeYear1: _y1, advertisingGrowthPct: _g, ...rest } =
+    legacy;
+  return {
+    ...rest,
+    advertisingRatePerSqft: legacy.advertisingIncomeYear1 / BENCHMARK_REF_GLA,
+  };
+}
+
+const LEGACY_RETAIL_OTHER_INCOME_BENCHMARKS: LegacyOtherIncomeBenchmark[] = [
   {
     country: "UAE",
     segment: "regional_mall",
@@ -389,6 +410,9 @@ export const RETAIL_OTHER_INCOME_BENCHMARKS: RetailOtherIncomeBenchmark[] = [
   },
 ];
 
+export const RETAIL_OTHER_INCOME_BENCHMARKS: RetailOtherIncomeBenchmark[] =
+  LEGACY_RETAIL_OTHER_INCOME_BENCHMARKS.map(convertLegacyOtherIncomeBenchmark);
+
 export const DEFAULT_RETAIL_OTHER_INCOME_BENCHMARK: RetailOtherIncomeBenchmark =
   RETAIL_OTHER_INCOME_BENCHMARKS.find(
     (b) =>
@@ -477,14 +501,12 @@ export function buildTenantSalesPsfSeries(
 }
 
 export function buildAdvertisingIncomeSeries(
-  year1: number,
-  growthPct: number,
+  ratePerSqft: number,
+  glaSqft: number,
   years = OPERATIONAL_ROOM_REVENUE_YEARS
 ): number[] {
-  return Array.from({ length: years }, (_, i) => {
-    const v = year1 * Math.pow(1 + growthPct / 100, i);
-    return Math.round(v);
-  });
+  const annual = ratePerSqft * glaSqft;
+  return Array.from({ length: years }, () => Math.round(annual));
 }
 
 export type RetailOtherIncomeSeriesInput = {
@@ -504,8 +526,7 @@ export type RetailOtherIncomeSeriesInput = {
   parkingRevenuePerSpaceDay: number;
   parkingUtilization: number;
   operatingDays: number;
-  advertisingIncomeYear1: number;
-  advertisingGrowthPct: number;
+  advertisingRatePerSqft: number;
 };
 
 export type RetailOtherIncomeSeries = {
@@ -526,8 +547,8 @@ export function computeRetailOtherIncomeSeries(
     years
   );
   const advertising = buildAdvertisingIncomeSeries(
-    input.advertisingIncomeYear1,
-    input.advertisingGrowthPct,
+    input.advertisingRatePerSqft,
+    input.glaSqft,
     years
   );
 

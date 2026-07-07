@@ -1,5 +1,6 @@
 import { compoundRentForYearIndex } from "@/lib/benchmarks/retail-revenue";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
+import type { OperationalResidentialHoldSnapshot } from "@/lib/operational-pnl";
 
 export function leasedPctForYearMonths(
   year: number,
@@ -28,6 +29,50 @@ export function leasedPctForYear(
     return opening + (target - opening) * progress;
   }
   return target;
+}
+
+/** Weighted average of residential and retail leased % from Step 1. */
+export function blendedResidentialLeasedPct(
+  year: number,
+  residentialGla: number,
+  retailGla: number,
+  snap: OperationalResidentialHoldSnapshot | undefined
+): number {
+  const totalGla = residentialGla + retailGla;
+  if (totalGla <= 0) return 0;
+
+  const i = year - 1;
+  const residentialLeased =
+    snap?.residentialLeasedPctValues?.[i] ??
+    leasedPctForYearMonths(
+      year,
+      snap?.residentialLeasedOpeningPct ?? 60,
+      snap?.residentialLeasedTargetPct ?? 90,
+      snap?.residentialLeaseUpMonths ?? 10
+    );
+  const retailLeased =
+    snap?.retailLeasedPctValues?.[i] ??
+    leasedPctForYear(
+      year,
+      snap?.retailLeasedOpeningPct ?? 50,
+      snap?.retailLeasedTargetPct ?? 95,
+      snap?.retailLeaseUpYears ?? 1.5
+    );
+
+  return (
+    (residentialGla * residentialLeased + retailGla * retailLeased) / totalGla
+  );
+}
+
+/** Common area + vacant GLA base for utilities opex. */
+export function utilitiesBaseSqft(
+  totalBua: number,
+  totalGla: number,
+  blendedLeasedPct: number
+): number {
+  const commonArea = totalBua - totalGla;
+  const vacantGla = totalGla * (1 - blendedLeasedPct / 100);
+  return Math.max(0, commonArea + vacantGla);
 }
 
 export type ResidentialRevenueInputs = {

@@ -370,7 +370,7 @@ export function buildFinancingEnginePreview(params: {
   finStream: FinModelStreamKey;
   effectiveInterestRatePercent: number;
   debtFacilityAmount: number;
-  /** Component 4 Step 3 — post-haircut land equity counted toward TDC (e.g. land × 70% when land is 100% equity). */
+  /** Component 4 Step 3 — full land cost injected as equity at M0 (100% land equity = entire land value; haircut applies only to equity requirement). */
   landEquityValue: number;
   /** Component 4 Step 3 — cash equity required after land equity counted toward TDC. */
   cashEquityRequired: number;

@@ -23,9 +23,10 @@ export interface OfficeOtherIncomeBenchmark {
   insurancePerSqft: number;
   recoveryRate: number;
 
-  advertisingIncomeYear1: number;
-  advertisingGrowthPct: number;
+  advertisingRatePerSqft: number;
 }
+
+const BENCHMARK_REF_GLA = 250_000;
 
 const DEFAULT_OFFICE_OTHER_INCOME: OfficeOtherIncomeBenchmark = {
   country: "UAE",
@@ -43,8 +44,7 @@ const DEFAULT_OFFICE_OTHER_INCOME: OfficeOtherIncomeBenchmark = {
   propertyTaxPerSqft: 3.2,
   insurancePerSqft: 0.6,
   recoveryRate: 95,
-  advertisingIncomeYear1: 200_000,
-  advertisingGrowthPct: 2,
+  advertisingRatePerSqft: 200_000 / BENCHMARK_REF_GLA,
 };
 
 /** Segment-scaled defaults (office hold — parking & recoveries). */
@@ -52,7 +52,7 @@ const SEGMENT_SCALE: Record<string, Partial<OfficeOtherIncomeBenchmark>> = {
   prime_tower: {
     monthlyPassPrice: 550,
     retailHourlyRate: 6,
-    advertisingIncomeYear1: 280_000,
+    advertisingRatePerSqft: 280_000 / BENCHMARK_REF_GLA,
     camExpensesPerSqft: 8,
   },
   business_park: {
@@ -60,19 +60,19 @@ const SEGMENT_SCALE: Record<string, Partial<OfficeOtherIncomeBenchmark>> = {
     officeReservedSpaces: 700,
     monthlyPassPrice: 400,
     retailHourlyRate: 4,
-    advertisingIncomeYear1: 150_000,
+    advertisingRatePerSqft: 150_000 / BENCHMARK_REF_GLA,
   },
   secondary: {
     monthlyPassPrice: 350,
     retailHourlyRate: 3.5,
-    advertisingIncomeYear1: 120_000,
+    advertisingRatePerSqft: 120_000 / BENCHMARK_REF_GLA,
     recoveryRate: 92,
   },
   co_working: {
     officeReservedSpaces: 200,
     monthlyPassPrice: 450,
     officePassOccupancy: 85,
-    advertisingIncomeYear1: 180_000,
+    advertisingRatePerSqft: 180_000 / BENCHMARK_REF_GLA,
   },
 };
 
@@ -130,5 +130,25 @@ export function defaultRecoveriesFromGla(
     camTotal: Math.round(benchmark.camExpensesPerSqft * gla),
     propertyTax: Math.round(benchmark.propertyTaxPerSqft * gla),
     insurance: Math.round(benchmark.insurancePerSqft * gla),
+  };
+}
+
+export function defaultRecoveryPctsFromGla(
+  benchmark: OfficeOtherIncomeBenchmark,
+  totalGlaSqft: number,
+  grossRentYear1: number
+): { camTotal: number; propertyTaxPct: number; insurancePct: number } {
+  const lump = defaultRecoveriesFromGla(benchmark, totalGlaSqft);
+  const roundPct2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    camTotal: lump.camTotal,
+    propertyTaxPct:
+      grossRentYear1 > 0
+        ? roundPct2((lump.propertyTax / grossRentYear1) * 100)
+        : 5,
+    insurancePct:
+      grossRentYear1 > 0
+        ? roundPct2((lump.insurance / grossRentYear1) * 100)
+        : 1.5,
   };
 }

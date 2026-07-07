@@ -13,11 +13,14 @@ import {
 } from "recharts";
 import {
   defaultRecoveriesFromGla,
+  defaultRecoveryPctsFromGla,
   resolveOfficeOtherIncomeBenchmark,
 } from "@/lib/benchmarks/office-other-income";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import {
   defaultOperationalOfficeHoldSnapshot,
+  roundPct2,
+  roundRate2,
   type OperationalOfficeHoldSnapshot,
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
@@ -88,11 +91,12 @@ export function computeOfficeOtherIncomeRows(params: {
   retailUtilization: number;
   operatingDays: number;
   camExpenses: number;
-  propertyTax: number;
-  insurance: number;
+  grossRentByYear: number[];
+  propertyTaxPct: number;
+  insurancePct: number;
   recoveryRate: number;
-  advertisingYear1: number;
-  advertisingGrowth: number;
+  advertisingRatePerSqft: number;
+  totalGla: number;
   manualYearValues: Record<number, Record<string, number>>;
 }): { rows: OfficeOtherIncomeRow[]; totals: Record<string, number> } {
   const rows: OfficeOtherIncomeRow[] = [];
@@ -116,13 +120,15 @@ export function computeOfficeOtherIncomeRows(params: {
 
     const parkingIncome = officeParkingAnnual + retailParkingAnnual;
 
+    const grossRent = params.grossRentByYear[t - 1] ?? 0;
+    const propertyTaxAmount = grossRent * (params.propertyTaxPct / 100);
+    const insuranceAmount = grossRent * (params.insurancePct / 100);
     const totalRecoverable =
-      params.camExpenses + params.propertyTax + params.insurance;
+      params.camExpenses + propertyTaxAmount + insuranceAmount;
     const recoveryIncome = totalRecoverable * (params.recoveryRate / 100);
 
     const advertisingIncome =
-      params.advertisingYear1 *
-      Math.pow(1 + params.advertisingGrowth / 100, t - 1);
+      params.advertisingRatePerSqft * params.totalGla;
 
     const totalOther = parkingIncome + recoveryIncome + advertisingIncome;
 
@@ -164,16 +170,16 @@ export default function OfficeOtherIncomeStep() {
   const storeCam = useFinModelStore(
     (s) => s.operational.projectInfo.officeOpex?.camTotal
   );
-  const storeTax = useFinModelStore(
-    (s) => s.operational.projectInfo.officeOpex?.propertyTax
+  const storeTaxPct = useFinModelStore(
+    (s) => s.operational.projectInfo.officeOpex?.property?.taxPctOfGrossRent
   );
-  const storeIns = useFinModelStore(
-    (s) => s.operational.projectInfo.officeOpex?.insurance
+  const storeInsPct = useFinModelStore(
+    (s) => s.operational.projectInfo.officeOpex?.property?.insurancePctOfGrossRent
   );
   const opexLocked =
     storeCam !== undefined ||
-    storeTax !== undefined ||
-    storeIns !== undefined;
+    storeTaxPct !== undefined ||
+    storeInsPct !== undefined;
   const parkingSectionOverride = useFinModelStore(
     (s) =>
       !!s.operational.officeHoldSnapshot?.otherIncomeSectionOverrides?.parking
@@ -201,6 +207,11 @@ export default function OfficeOtherIncomeStep() {
   const totalGla =
     (step1?.officeGlaSqft ?? 0) + (step1?.retailGlaSqft ?? 0);
 
+  const grossRentYear1 =
+    step1?.totalBaseRentValues?.[0] ??
+    (step1?.officeGlaSqft ?? 0) * (step1?.officeRentPsfYear1 ?? 0) * 0.85;
+  const grossRentByYear = step1?.totalBaseRentValues ?? [];
+
   const incomeBenchmark = useMemo(
     () =>
       resolveOfficeOtherIncomeBenchmark(
@@ -220,8 +231,8 @@ export default function OfficeOtherIncomeStep() {
   );
 
   const defaultRecoveries = useMemo(
-    () => defaultRecoveriesFromGla(incomeBenchmark, totalGla),
-    [incomeBenchmark, totalGla]
+    () => defaultRecoveryPctsFromGla(incomeBenchmark, totalGla, grossRentYear1),
+    [incomeBenchmark, totalGla, grossRentYear1]
   );
 
   const snap = getOperationalOfficeHoldSnapshot();
@@ -262,24 +273,39 @@ export default function OfficeOtherIncomeStep() {
     () =>
       storeCam ?? snap?.camExpensesAed ?? defaultRecoveries.camTotal
   );
-  const [propertyTax, setPropertyTax] = useState(
-    () =>
-      storeTax ?? snap?.propertyTaxAed ?? defaultRecoveries.propertyTax
-  );
-  const [insurance, setInsurance] = useState(
-    () => storeIns ?? snap?.insuranceAed ?? defaultRecoveries.insurance
-  );
+  const [propertyTaxPct, setPropertyTaxPct] = useState(() => {
+    if (storeTaxPct != null && storeTaxPct > 0) return roundPct2(storeTaxPct);
+    if (snap?.propertyTaxPctOfGrossRent != null && snap.propertyTaxPctOfGrossRent > 0) {
+      return roundPct2(snap.propertyTaxPctOfGrossRent);
+    }
+    if (snap?.propertyTaxAed != null && grossRentYear1 > 0) {
+      return roundPct2((snap.propertyTaxAed / grossRentYear1) * 100);
+    }
+    return defaultRecoveries.propertyTaxPct;
+  });
+  const [insurancePct, setInsurancePct] = useState(() => {
+    if (storeInsPct != null && storeInsPct > 0) return roundPct2(storeInsPct);
+    if (snap?.insurancePctOfGrossRent != null && snap.insurancePctOfGrossRent > 0) {
+      return roundPct2(snap.insurancePctOfGrossRent);
+    }
+    if (snap?.insuranceAed != null && grossRentYear1 > 0) {
+      return roundPct2((snap.insuranceAed / grossRentYear1) * 100);
+    }
+    return defaultRecoveries.insurancePct;
+  });
   const [recoveryRate, setRecoveryRate] = useState(
     () => snap?.recoveryRate ?? incomeBenchmark.recoveryRate
   );
 
-  const [advertisingYear1, setAdvertisingYear1] = useState(
-    () =>
-      snap?.advertisingIncomeYear1 ?? incomeBenchmark.advertisingIncomeYear1
-  );
-  const [advertisingGrowth, setAdvertisingGrowth] = useState(
-    () => snap?.advertisingGrowthPct ?? incomeBenchmark.advertisingGrowthPct
-  );
+  const [advertisingRatePerSqft, setAdvertisingRatePerSqft] = useState(() => {
+    if (snap?.advertisingRatePerSqft != null && snap.advertisingRatePerSqft > 0) {
+      return roundRate2(snap.advertisingRatePerSqft);
+    }
+    if (snap?.advertisingIncomeYear1 != null && totalGla > 0) {
+      return roundRate2(snap.advertisingIncomeYear1 / totalGla);
+    }
+    return roundRate2(incomeBenchmark.advertisingRatePerSqft);
+  });
 
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
@@ -291,14 +317,18 @@ export default function OfficeOtherIncomeStep() {
   }, [storeCam, recoveriesSectionOverride]);
 
   useEffect(() => {
-    if (recoveriesSectionOverride || storeTax === undefined) return;
-    setPropertyTax((prev) => (prev !== storeTax ? storeTax : prev));
-  }, [storeTax, recoveriesSectionOverride]);
+    if (recoveriesSectionOverride || storeTaxPct === undefined) return;
+    setPropertyTaxPct((prev) =>
+      prev !== storeTaxPct ? roundPct2(storeTaxPct) : prev
+    );
+  }, [storeTaxPct, recoveriesSectionOverride]);
 
   useEffect(() => {
-    if (recoveriesSectionOverride || storeIns === undefined) return;
-    setInsurance((prev) => (prev !== storeIns ? storeIns : prev));
-  }, [storeIns, recoveriesSectionOverride]);
+    if (recoveriesSectionOverride || storeInsPct === undefined) return;
+    setInsurancePct((prev) =>
+      prev !== storeInsPct ? roundPct2(storeInsPct) : prev
+    );
+  }, [storeInsPct, recoveriesSectionOverride]);
 
   const tableData = useMemo(
     () =>
@@ -312,11 +342,12 @@ export default function OfficeOtherIncomeStep() {
         retailUtilization,
         operatingDays,
         camExpenses,
-        propertyTax,
-        insurance,
+        grossRentByYear,
+        propertyTaxPct,
+        insurancePct,
         recoveryRate,
-        advertisingYear1,
-        advertisingGrowth,
+        advertisingRatePerSqft,
+        totalGla,
         manualYearValues,
       }),
     [
@@ -329,11 +360,12 @@ export default function OfficeOtherIncomeStep() {
       retailUtilization,
       operatingDays,
       camExpenses,
-      propertyTax,
-      insurance,
+      grossRentByYear,
+      propertyTaxPct,
+      insurancePct,
       recoveryRate,
-      advertisingYear1,
-      advertisingGrowth,
+      advertisingRatePerSqft,
+      totalGla,
       manualYearValues,
     ]
   );
@@ -355,11 +387,12 @@ export default function OfficeOtherIncomeStep() {
       retailUtilization,
       parkingOperatingDays: operatingDays,
       camExpensesAed: camExpenses,
-      propertyTaxAed: propertyTax,
-      insuranceAed: insurance,
+      propertyTaxPctOfGrossRent: propertyTaxPct,
+      insurancePctOfGrossRent: insurancePct,
+      propertyTaxAed: (grossRentByYear[0] ?? grossRentYear1) * (propertyTaxPct / 100),
+      insuranceAed: (grossRentByYear[0] ?? grossRentYear1) * (insurancePct / 100),
       recoveryRate,
-      advertisingIncomeYear1: advertisingYear1,
-      advertisingGrowthPct: advertisingGrowth,
+      advertisingRatePerSqft,
       parkingIncomeValues: tableData.rows.map((r) => r.parking),
       camRecoveryValues: tableData.rows.map((r) => r.recoveries),
       advertisingValues: tableData.rows.map((r) => r.advertising),
@@ -379,11 +412,12 @@ export default function OfficeOtherIncomeStep() {
     retailUtilization,
     operatingDays,
     camExpenses,
-    propertyTax,
-    insurance,
+    propertyTaxPct,
+    insurancePct,
     recoveryRate,
-    advertisingYear1,
-    advertisingGrowth,
+    advertisingRatePerSqft,
+    grossRentByYear,
+    grossRentYear1,
     tableData.rows,
     manualYearValues,
     updateOfficeHoldSnapshot,
@@ -429,14 +463,21 @@ export default function OfficeOtherIncomeStep() {
     };
     const recoverySetters: Record<string, (v: number) => void> = {
       camExpenses: setCamExpenses,
-      propertyTax: setPropertyTax,
-      insurance: setInsurance,
+      propertyTaxPct: setPropertyTaxPct,
+      insurancePct: setInsurancePct,
       recoveryRate: setRecoveryRate,
     };
     const advertisingSetters: Record<string, (v: number) => void> = {
-      advertisingYear1: setAdvertisingYear1,
-      advertisingGrowth: setAdvertisingGrowth,
+      advertisingRatePerSqft: setAdvertisingRatePerSqft,
     };
+
+    const pctFields = new Set(["propertyTaxPct", "insurancePct"]);
+    const rateFields = new Set(["advertisingRatePerSqft"]);
+    const normalized = pctFields.has(field)
+      ? roundPct2(value)
+      : rateFields.has(field)
+        ? roundRate2(value)
+        : value;
 
     const map =
       section === "parking"
@@ -446,7 +487,7 @@ export default function OfficeOtherIncomeStep() {
           : advertisingSetters;
 
     if (map[field]) {
-      map[field](value);
+      map[field](normalized);
       setSectionOverride(section, true);
     }
   };
@@ -480,8 +521,8 @@ export default function OfficeOtherIncomeStep() {
   const handleResetRecoveries = () => {
     const d = defaultRecoveries;
     setCamExpenses(storeCam ?? d.camTotal);
-    setPropertyTax(storeTax ?? d.propertyTax);
-    setInsurance(storeIns ?? d.insurance);
+    setPropertyTaxPct(storeTaxPct ?? d.propertyTaxPct);
+    setInsurancePct(storeInsPct ?? d.insurancePct);
     setRecoveryRate(incomeBenchmark.recoveryRate);
     setSectionOverride("recoveries", false);
     setManualYearValues((prev) => {
@@ -497,8 +538,9 @@ export default function OfficeOtherIncomeStep() {
   };
 
   const handleResetAdvertising = () => {
-    setAdvertisingYear1(incomeBenchmark.advertisingIncomeYear1);
-    setAdvertisingGrowth(incomeBenchmark.advertisingGrowthPct);
+    setAdvertisingRatePerSqft(
+      roundRate2(incomeBenchmark.advertisingRatePerSqft)
+    );
     setSectionOverride("advertising", false);
     setManualYearValues((prev) => {
       const next = { ...prev };
@@ -814,16 +856,20 @@ export default function OfficeOtherIncomeStep() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Property Tax ({currencyCode}) – from Step 4
+              Property Tax (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={propertyTax}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 5"
+              value={propertyTaxPct}
               readOnly={opexLocked}
               onChange={(e) =>
                 handleFieldChange(
                   "recoveries",
-                  "propertyTax",
+                  "propertyTaxPct",
                   Number(e.target.value) || 0
                 )
               }
@@ -833,19 +879,26 @@ export default function OfficeOtherIncomeStep() {
                   : overrideFieldClass(recoveriesOverride)
               }
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 base rent revenue each year
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Insurance ({currencyCode}) – from Step 4
+              Insurance (% of Gross Rental Revenue)
             </label>
             <input
               type="number"
-              value={insurance}
+              step={0.01}
+              min={0}
+              max={100}
+              placeholder="e.g., 1.5"
+              value={insurancePct}
               readOnly={opexLocked}
               onChange={(e) =>
                 handleFieldChange(
                   "recoveries",
-                  "insurance",
+                  "insurancePct",
                   Number(e.target.value) || 0
                 )
               }
@@ -855,6 +908,9 @@ export default function OfficeOtherIncomeStep() {
                   : overrideFieldClass(recoveriesOverride)
               }
             />
+            <p className="mt-1 text-sm text-slate-500">
+              Applied to Step 1 base rent revenue each year
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
@@ -881,41 +937,29 @@ export default function OfficeOtherIncomeStep() {
         <h3 className="mb-4 text-lg font-semibold text-white">
           Advertising / Signage
         </h3>
-        <div className="grid max-w-md grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid max-w-md grid-cols-1 gap-4">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Annual Income – Year 1 ({currencyCode})
+              Advertising/Signage Rate ({currencyCode} per sqft GLA/year)
             </label>
             <input
               type="number"
-              value={advertisingYear1}
+              step={0.01}
+              min={0}
+              placeholder="e.g., 50"
+              value={advertisingRatePerSqft}
               onChange={(e) =>
                 handleFieldChange(
                   "advertising",
-                  "advertisingYear1",
+                  "advertisingRatePerSqft",
                   Number(e.target.value) || 0
                 )
               }
               className={overrideFieldClass(advertisingOverride)}
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Annual Growth (%)
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              value={advertisingGrowth}
-              onChange={(e) =>
-                handleFieldChange(
-                  "advertising",
-                  "advertisingGrowth",
-                  Number(e.target.value) || 0
-                )
-              }
-              className={overrideFieldClass(advertisingOverride)}
-            />
+            <p className="mt-1 text-sm text-slate-500">
+              Annual income = Rate × Total GLA ({totalGla.toLocaleString()} sqft)
+            </p>
           </div>
         </div>
       </div>

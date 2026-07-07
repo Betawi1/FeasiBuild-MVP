@@ -1,19 +1,31 @@
 import { normalizeRetailCountry } from "@/lib/benchmarks/retail-construction-costs";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 
+/** Reference sizes for converting legacy lump-sum benchmarks to rates/percentages. */
+const BENCHMARK_REF_BUA = 500_000;
+const BENCHMARK_REF_GLA = 400_000;
+const BENCHMARK_REF_GROSS_RENT =
+  BENCHMARK_REF_GLA * 200 * 0.92;
+const BENCHMARK_REF_TOTAL_REVENUE = BENCHMARK_REF_GROSS_RENT * 1.25;
+
 export interface RetailOpexBenchmark {
   country: string;
   segment: string;
   positioning: string;
 
-  camFixedBase: number;
+  /** Local currency per psf of total BUA per year */
+  camFixedBaseRate: number;
+  /** Local currency per psf of leased GLA per year */
   camVariableRate: number;
 
-  propertyTaxAnnual: number;
-  insuranceAnnual: number;
+  /** % of gross rental revenue (Step 1 base rent) */
+  propertyTaxPctOfGrossRent: number;
+  /** % of gross rental revenue (Step 1 base rent) */
+  insurancePctOfGrossRent: number;
 
   marketingPctOfRevenue: number;
-  gAndAAnnual: number;
+  /** % of total revenue (base rent + other income) */
+  gAndAPctOfRevenue: number;
 
   mgmtFeePctOfRevenue: number;
 
@@ -22,7 +34,50 @@ export interface RetailOpexBenchmark {
   renovationYears3to10: number;
 }
 
-export const RETAIL_OPEX_BENCHMARKS: RetailOpexBenchmark[] = [
+type LegacyRetailOpexBenchmark = {
+  country: string;
+  segment: string;
+  positioning: string;
+  camFixedBase: number;
+  camVariableRate: number;
+  propertyTaxAnnual: number;
+  insuranceAnnual: number;
+  marketingPctOfRevenue: number;
+  gAndAAnnual: number;
+  mgmtFeePctOfRevenue: number;
+  renovationYear1: number;
+  renovationYear2: number;
+  renovationYears3to10: number;
+};
+
+function convertLegacyOpexBenchmark(
+  legacy: LegacyRetailOpexBenchmark
+): RetailOpexBenchmark {
+  const roundPct2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    country: legacy.country,
+    segment: legacy.segment,
+    positioning: legacy.positioning,
+    camFixedBaseRate: legacy.camFixedBase / BENCHMARK_REF_BUA,
+    camVariableRate: legacy.camVariableRate,
+    propertyTaxPctOfGrossRent: roundPct2(
+      (legacy.propertyTaxAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    insurancePctOfGrossRent: roundPct2(
+      (legacy.insuranceAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    marketingPctOfRevenue: legacy.marketingPctOfRevenue,
+    gAndAPctOfRevenue: roundPct2(
+      (legacy.gAndAAnnual / BENCHMARK_REF_TOTAL_REVENUE) * 100
+    ),
+    mgmtFeePctOfRevenue: legacy.mgmtFeePctOfRevenue,
+    renovationYear1: legacy.renovationYear1,
+    renovationYear2: legacy.renovationYear2,
+    renovationYears3to10: legacy.renovationYears3to10,
+  };
+}
+
+const LEGACY_RETAIL_OPEX_BENCHMARKS: LegacyRetailOpexBenchmark[] = [
   {
     country: "UAE",
     segment: "regional_mall",
@@ -310,6 +365,9 @@ export const RETAIL_OPEX_BENCHMARKS: RetailOpexBenchmark[] = [
   },
 ];
 
+export const RETAIL_OPEX_BENCHMARKS: RetailOpexBenchmark[] =
+  LEGACY_RETAIL_OPEX_BENCHMARKS.map(convertLegacyOpexBenchmark);
+
 export const DEFAULT_RETAIL_OPEX_BENCHMARK: RetailOpexBenchmark =
   RETAIL_OPEX_BENCHMARKS.find(
     (b) =>
@@ -376,13 +434,15 @@ export function resolveRetailOpexBenchmark(
 
 export type RetailOpexSeriesInput = {
   totalRevenueByYear: number[];
+  grossRentalRevenueByYear: number[];
   leasedGlaByYear: number[];
-  camFixedBase: number;
+  totalBua: number;
+  camFixedBaseRate: number;
   camVariableRate: number;
-  propertyTaxAnnual: number;
-  insuranceAnnual: number;
+  propertyTaxPctOfGrossRent: number;
+  insurancePctOfGrossRent: number;
   marketingPctOfRevenue: number;
-  gAndAAnnual: number;
+  gAndAPctOfRevenue: number;
   mgmtFeePctOfRevenue: number;
   renovationYear1: number;
   renovationYear2: number;
@@ -424,19 +484,26 @@ export function computeRetailOpexSeries(
   const renovation: number[] = [];
   const total: number[] = [];
 
+  const camFixedTotal = input.camFixedBaseRate * input.totalBua;
+
   for (let i = 0; i < years; i++) {
     const leasedGla = input.leasedGlaByYear[i] ?? 0;
     const revenue = input.totalRevenueByYear[i] ?? 0;
+    const grossRent = input.grossRentalRevenueByYear[i] ?? 0;
 
     const camLine = Math.round(
-      input.camFixedBase + input.camVariableRate * leasedGla
+      camFixedTotal + input.camVariableRate * leasedGla
     );
-    const taxLine = Math.round(input.propertyTaxAnnual);
-    const insLine = Math.round(input.insuranceAnnual);
+    const taxLine = Math.round(
+      grossRent * (input.propertyTaxPctOfGrossRent / 100)
+    );
+    const insLine = Math.round(
+      grossRent * (input.insurancePctOfGrossRent / 100)
+    );
     const mktLine = Math.round(
       revenue * (input.marketingPctOfRevenue / 100)
     );
-    const gaLine = Math.round(input.gAndAAnnual);
+    const gaLine = Math.round(revenue * (input.gAndAPctOfRevenue / 100));
     const mgmtLine = Math.round(
       revenue * (input.mgmtFeePctOfRevenue / 100)
     );

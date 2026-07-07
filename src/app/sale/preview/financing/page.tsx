@@ -372,8 +372,9 @@ function FinancingPreviewPageContent({
     const lc = cashOutflows.landCost || 0;
     const pct = financing.landEquityPercent ?? 100;
     const landEquityValue =
-      financing.landEquityValue ??
-      (pct >= 100 ? lc * 0.7 : lc * (pct / 100));
+      pct >= 100
+        ? lc
+        : financing.landEquityValue ?? lc * (pct / 100);
     const cashEquityRequired = financing.cashEquityRequired ?? 0;
     return { landEquityValue, cashEquityRequired };
   }, [cashOutflows.landCost, financing]);

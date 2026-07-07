@@ -4,11 +4,42 @@ import {
 } from "@/lib/benchmarks/residential-construction-costs";
 import { estimatedUnitsFromGla } from "@/lib/benchmarks/residential-other-income";
 
+const BENCHMARK_REF_GLA = 200_000;
+const BENCHMARK_REF_RETAIL_GLA = 30_000;
+const BENCHMARK_REF_TOTAL_GLA = BENCHMARK_REF_GLA + BENCHMARK_REF_RETAIL_GLA;
+const BENCHMARK_REF_BUA = 450_000;
+const BENCHMARK_REF_UNITS = 250;
+const BENCHMARK_REF_GROSS_RENT = BENCHMARK_REF_GLA * 45 * 0.85;
+const BENCHMARK_REF_BLENDED_LEASED_PCT = 70;
+
+const roundPct2 = (v: number) => Math.round(v * 100) / 100;
+
+function benchmarkUtilitiesBase(): number {
+  const commonArea = BENCHMARK_REF_BUA - BENCHMARK_REF_TOTAL_GLA;
+  const vacantGla =
+    BENCHMARK_REF_TOTAL_GLA * (1 - BENCHMARK_REF_BLENDED_LEASED_PCT / 100);
+  return commonArea + vacantGla;
+}
+
 export interface ResidentialOpexBenchmark {
   country: string;
   segment: string;
   positioning: string;
 
+  mgmtFeePctOfEgi: number;
+  maintenancePctOfResidentialGla: number;
+  utilitiesPctOfCommonVacantGla: number;
+  propertyTaxPctOfGrossRent: number;
+  insurancePctOfGrossRent: number;
+  marketingPctOfEgi: number;
+  gAndAPctOfGrossRent: number;
+  capexReservePctOfTotalGla: number;
+}
+
+type LegacyResidentialOpexBenchmark = {
+  country: string;
+  segment: string;
+  positioning: string;
   mgmtFeePctOfEgi: number;
   maintenancePerUnitAnnual: number;
   utilitiesFixedAnnual: number;
@@ -17,9 +48,43 @@ export interface ResidentialOpexBenchmark {
   marketingPctOfEgi: number;
   gAndAAnnual: number;
   capexPerUnitAnnual: number;
+};
+
+function convertLegacyResidentialOpexBenchmark(
+  legacy: LegacyResidentialOpexBenchmark
+): ResidentialOpexBenchmark {
+  const maintenanceTotal = legacy.maintenancePerUnitAnnual * BENCHMARK_REF_UNITS;
+  const capexTotal = legacy.capexPerUnitAnnual * BENCHMARK_REF_UNITS;
+  const utilitiesBase = benchmarkUtilitiesBase();
+
+  return {
+    country: legacy.country,
+    segment: legacy.segment,
+    positioning: legacy.positioning,
+    mgmtFeePctOfEgi: legacy.mgmtFeePctOfEgi,
+    maintenancePctOfResidentialGla: roundPct2(
+      (maintenanceTotal / BENCHMARK_REF_GLA) * 100
+    ),
+    utilitiesPctOfCommonVacantGla: roundPct2(
+      (legacy.utilitiesFixedAnnual / utilitiesBase) * 100
+    ),
+    propertyTaxPctOfGrossRent: roundPct2(
+      (legacy.propertyTaxAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    insurancePctOfGrossRent: roundPct2(
+      (legacy.insuranceAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    marketingPctOfEgi: legacy.marketingPctOfEgi,
+    gAndAPctOfGrossRent: roundPct2(
+      (legacy.gAndAAnnual / BENCHMARK_REF_GROSS_RENT) * 100
+    ),
+    capexReservePctOfTotalGla: roundPct2(
+      (capexTotal / BENCHMARK_REF_TOTAL_GLA) * 100
+    ),
+  };
 }
 
-const BASE: ResidentialOpexBenchmark = {
+const LEGACY_BASE: LegacyResidentialOpexBenchmark = {
   country: "UAE",
   segment: "high_rise",
   positioning: "grade_a",
@@ -33,7 +98,7 @@ const BASE: ResidentialOpexBenchmark = {
   capexPerUnitAnnual: 1000,
 };
 
-const SEGMENT_SCALE: Record<string, Partial<ResidentialOpexBenchmark>> = {
+const SEGMENT_SCALE: Record<string, Partial<LegacyResidentialOpexBenchmark>> = {
   high_rise: {
     utilitiesFixedAnnual: 220_000,
     maintenancePerUnitAnnual: 1600,
@@ -57,7 +122,10 @@ const SEGMENT_SCALE: Record<string, Partial<ResidentialOpexBenchmark>> = {
   },
 };
 
-const POSITIONING_SCALE: Record<string, Partial<ResidentialOpexBenchmark>> = {
+const POSITIONING_SCALE: Record<
+  string,
+  Partial<LegacyResidentialOpexBenchmark>
+> = {
   luxury: {
     mgmtFeePctOfEgi: 4.5,
     maintenancePerUnitAnnual: 2000,
@@ -108,8 +176,8 @@ export function resolveResidentialOpexBenchmark(
     isServicedApartment
   );
 
-  let bench: ResidentialOpexBenchmark = {
-    ...BASE,
+  const legacy: LegacyResidentialOpexBenchmark = {
+    ...LEGACY_BASE,
     ...(SEGMENT_SCALE[seg] ?? {}),
     ...(POSITIONING_SCALE[pos] ?? {}),
     country: c,
@@ -117,23 +185,27 @@ export function resolveResidentialOpexBenchmark(
     positioning: pos,
   };
 
-  const units = estimatedUnitsFromGla(residentialGlaSqft, 800);
   const gla = Math.max(0, residentialGlaSqft);
+  const units = estimatedUnitsFromGla(gla, 800);
 
   if (gla > 0) {
-    bench.utilitiesFixedAnnual = Math.round(
-      bench.utilitiesFixedAnnual * (gla / 200_000)
+    legacy.utilitiesFixedAnnual = Math.round(
+      legacy.utilitiesFixedAnnual * (gla / BENCHMARK_REF_GLA)
     );
-    bench.propertyTaxAnnual = Math.round(
+    legacy.propertyTaxAnnual = Math.round(
       (construction?.landRate ?? 3500) * gla * 0.012
     );
-    bench.gAndAAnnual = Math.round(bench.gAndAAnnual * (units / 250));
+    legacy.gAndAAnnual = Math.round(
+      legacy.gAndAAnnual * (units / BENCHMARK_REF_UNITS)
+    );
   }
+
+  let bench = convertLegacyResidentialOpexBenchmark(legacy);
 
   if (isServicedApartment) {
     bench.mgmtFeePctOfEgi = Math.min(6, bench.mgmtFeePctOfEgi + 0.5);
-    bench.maintenancePerUnitAnnual = Math.round(
-      bench.maintenancePerUnitAnnual * 1.15
+    bench.maintenancePctOfResidentialGla = roundPct2(
+      bench.maintenancePctOfResidentialGla * 1.15
     );
   }
 

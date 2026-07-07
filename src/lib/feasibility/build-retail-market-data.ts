@@ -263,7 +263,7 @@ export function buildMallOperationalExpensesData(
   const rev = buildMallOperationalRevenuesData(bundle).totalRevenue;
   const marketing = rev * (ctx.marketingPercentage / 100);
   const mgmt = rev * (ctx.managementFeePercentage / 100);
-  const camVar = ctx.gla * ctx.camVariable;
+  const camVar = ctx.gla * ctx.camVariable * (ctx.stabilizedOccupancy / 100);
   const total =
     ctx.camFixed + camVar + ctx.propertyTax + ctx.insurance + marketing + ctx.gAndA + mgmt;
 

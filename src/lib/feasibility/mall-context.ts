@@ -1,5 +1,6 @@
 import type { FeasibilityProjectBundle } from "@/types/feasibility";
 import type { OperationalRetailHoldSnapshot } from "@/lib/operational-pnl";
+import { totalOperationalBua } from "@/lib/operational-pnl";
 
 export interface MallContext {
   city: string;
@@ -54,7 +55,47 @@ export function getMallContext(bundle: FeasibilityProjectBundle): MallContext {
   const c1 = bundle.component1;
   const c4 = bundle.component4;
   const gla = snap?.glaSqft ?? c1.bua ?? 180_000;
+  const totalBua = totalOperationalBua(c1) || c1.bua || 0;
   const baseRentYear1 = snap?.baseRentPerSqftValues?.[0] ?? 250;
+  const grossRentYear1 =
+    snap?.revenueValues?.[0] ?? gla * baseRentYear1 * ((snap?.occupancyValues?.[0] ?? 55) / 100);
+  const totalRevYear1 =
+    grossRentYear1 + (snap?.otherIncomeTotalValues?.[0] ?? 0);
+  const leasedGlaYear1 =
+    snap?.effectiveLeasedValues?.[0] ??
+    gla * ((snap?.occupancyValues?.[0] ?? 55) / 100);
+
+  const camFixedRate =
+    snap?.camFixedBaseRate ??
+    (snap?.camFixedBase != null && totalBua > 0
+      ? snap.camFixedBase / totalBua
+      : 2);
+  const propertyTaxPct =
+    snap?.propertyTaxPctOfGrossRent ??
+    (snap?.propertyTaxAnnual != null && grossRentYear1 > 0
+      ? (snap.propertyTaxAnnual / grossRentYear1) * 100
+      : 0.8);
+  const insurancePct =
+    snap?.insurancePctOfGrossRent ??
+    (snap?.insuranceAnnual != null && grossRentYear1 > 0
+      ? (snap.insuranceAnnual / grossRentYear1) * 100
+      : 0.16);
+  const gAndAPct =
+    snap?.gAndAPctOfRevenue ??
+    (snap?.gAndAAnnual != null && totalRevYear1 > 0
+      ? (snap.gAndAAnnual / totalRevYear1) * 100
+      : 0.43);
+  const advertisingRate =
+    snap?.advertisingRatePerSqft ??
+    (snap?.advertisingIncomeYear1 != null && gla > 0
+      ? snap.advertisingIncomeYear1 / gla
+      : 0.875);
+
+  const camFixed = camFixedRate * totalBua;
+  const propertyTax = grossRentYear1 * (propertyTaxPct / 100);
+  const insurance = grossRentYear1 * (insurancePct / 100);
+  const gAndA = totalRevYear1 * (gAndAPct / 100);
+  const otherIncome = advertisingRate * gla;
   const stabilizedOccupancy =
     snap?.occupancyValues?.[2] ??
     snap?.occupancyValues?.at(-1) ??
@@ -79,15 +120,15 @@ export function getMallContext(bundle: FeasibilityProjectBundle): MallContext {
     parkingSpaces: snap?.parkingSpaces ?? 1200,
     parkingRevenue: snap?.parkingRevenuePerSpaceDay ?? 15,
     parkingUtilization: snap?.parkingUtilization ?? 65,
-    camFixed: snap?.camFixedBase ?? 1_000_000,
+    camFixed,
     camVariable: snap?.camVariableRate ?? 12,
     recoveryRate: snap?.recoveryRate ?? 95,
-    propertyTax: snap?.propertyTaxAnnual ?? 600_000,
-    insurance: snap?.insuranceAnnual ?? 120_000,
+    propertyTax,
+    insurance,
     marketingPercentage: snap?.marketingPctOfRevenue ?? 1.8,
-    gAndA: snap?.gAndAAnnual ?? 400_000,
+    gAndA,
     managementFeePercentage: snap?.mgmtFeePctOfRevenue ?? 2.8,
-    otherIncome: snap?.advertisingIncomeYear1 ?? 1_000_000,
+    otherIncome,
     tiAllowance: snap?.tiCapital ?? 26_300_000,
     leasingCommissions: snap?.leasingCommCapital ?? 8_800_000,
     constructionPeriod: c1.constructionPeriod,

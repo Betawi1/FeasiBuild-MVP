@@ -71,7 +71,10 @@ function getSaleFinancingEngineRows(
       finStream: "sale",
       effectiveInterestRatePercent: resolveSaleEffectiveInterestRate(bundle),
       debtFacilityAmount: resolveSaleDebtFacilityAmount(bundle),
-      landEquityValue: financing.landEquityValue ?? cashOutflows.landCost ?? 0,
+      landEquityValue:
+        (financing.landEquityPercent ?? 100) >= 100
+          ? cashOutflows.landCost ?? financing.landEquityValue ?? 0
+          : financing.landEquityValue ?? cashOutflows.landCost ?? 0,
       cashEquityRequired: financing.cashEquityRequired ?? 0,
     });
     return preview.rows ?? [];
