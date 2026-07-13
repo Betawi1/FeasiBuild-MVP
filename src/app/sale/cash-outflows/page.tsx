@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   useCallback,
   useEffect,
@@ -10,8 +11,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
-import type { HotelOperatingType } from "@/config/hotel-cost-profiles";
-import { isValidHotelCombo } from "@/config/hotel-cost-profiles";
+import { getCurrencyForCountry } from "@/lib/constants/countryCurrencies";
 import useFinModelStore from "@/store/useFinModelStore";
 import useSaleModelStore, {
   type CashOutflows,
@@ -38,12 +38,22 @@ import {
   getRecommendations,
   type SaleRecommendationBuildingType,
 } from "@/app/sale/data/recommendations";
-import type { StageAllocation } from "@/store/useFinModelStore";
+import type { StageAllocation, AiResearchData } from "@/store/useFinModelStore";
+import { useAiResearch } from "@/hooks/useAiResearch";
+import type { AiAssetType } from "@/lib/constants/aiPrompts";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
+import { AiInput } from "@/components/ui/AiInput";
+import { AiHintBox } from "@/components/ui/AiHintBox";
+import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
 import {
   logSaleCashOutflow,
   SALE_CASH_OUTFLOW_AUDIT_FIELDS,
   SALE_CASH_OUTFLOW_STAGE_ALLOCATION_FIELDS,
 } from "@/lib/sale-audit-fields";
+
+const LocationMapPicker = dynamic(() => import("@/components/LocationMapPicker"), {
+  ssr: false,
+});
 
 type Errors = Record<string, string>;
 
@@ -185,51 +195,17 @@ function getBenchmarkSource(country: string, city: string): string {
   return "Industry benchmarks";
 }
 
-const HOTEL_OPERATING_TYPE_CARDS: {
-  value: HotelOperatingType;
-  icon: string;
-  label: string;
-  hint: string;
-  title: string;
-}[] = [
-  {
-    value: "business",
-    icon: "💼",
-    label: "Business / Upscale",
-    hint: "Full-service, conference, corporate demand.",
-    title: "Business and upscale full-service hotels (3–5★ in this model).",
-  },
-  {
-    value: "resort",
-    icon: "🏖️",
-    label: "Resort / Leisure",
-    hint: "Pool, F&B, destination leisure.",
-    title: "Resort and leisure hotels (4–5★ in this model).",
-  },
-  {
-    value: "boutique",
-    icon: "✨",
-    label: "Boutique / Lifestyle",
-    hint: "Design-led, smaller key count.",
-    title: "Boutique and lifestyle hotels (3–4★ in this model).",
-  },
-  {
-    value: "budget",
-    icon: "🏨",
-    label: "Budget / Economy",
-    hint: "Limited service, lean FF&E.",
-    title: "Economy and limited-service hotels (1★ in this model).",
-  },
-];
-
-const HOTEL_STARS_BY_TYPE: Record<HotelOperatingType, number[]> = {
-  budget: [1],
-  boutique: [3, 4],
-  business: [3, 4, 5],
-  resort: [4, 5],
-};
-
 const STREAM = "sale" as const;
+
+const SALE_SUBTYPE_TO_AI_ASSET: Record<
+  NonNullable<ProjectInfo["buildingSubType"]>,
+  AiAssetType
+> = {
+  residential_landed: "sale-residential-landed",
+  residential_high_rise: "sale-residential-highrise",
+  commercial_landed: "sale-commercial-landed",
+  commercial_strata_office: "sale-commercial-strata",
+};
 
 function CashOutflowsPageContent() {
   const router = useRouter();
@@ -237,54 +213,375 @@ function CashOutflowsPageContent() {
   const streamPrefix = useStreamPrefix();
   const projectInfo = useSaleModelStore((s) => s.projectInfo);
   const cashOutflows = useSaleModelStore((s) => s.cashOutflows);
-  const isHotelProduct = projectInfo.buildingType === "hotel";
+  const [isMapGeocoding, setIsMapGeocoding] = useState(false);
   const updateProjectInfoForStream = useSaleModelStore((s) => s.updateProjectInfo);
   const updateCashOutflowsForStream = useSaleModelStore((s) => s.updateCashOutflows);
+  const updateCashInflowsForStream = useSaleModelStore((s) => s.updateCashInflows);
   const readSaleCashOutflows = useSaleModelStore((s) => s.readSaleCashOutflows);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
-  const [selectedCountry, setSelectedCountry] = useState<string>("");
   const cashOutflowStepVisitLogged = useRef<Set<number>>(new Set());
+  const hasResearchedForSalesRef = useRef<string | null>(null);
+  const [isAiResearching, setIsAiResearching] = useState(false);
 
-  const availableCurrencies = useMemo((): ProjectInfo["currency"][] => {
-    const country = COUNTRIES.find((c) => c.code === selectedCountry);
-    if (!country) return ["AED", "USD"];
-    return [country.currency as ProjectInfo["currency"], "USD"];
-  }, [selectedCountry]);
-
-  const handleCountryChange = (countryCode: string) => {
-    setSelectedCountry(countryCode);
-    if (!countryCode) {
-      updateProjectInfoForStream({
-        country: "",
-        countryCode: "",
-        city: "",
-      });
-      return;
-    }
-    const country = COUNTRIES.find((c) => c.code === countryCode);
-    if (!country) return;
-    updateProjectInfoForStream({
-      country: country.name,
-      countryCode,
-      city: "",
-      currency: country.currency as ProjectInfo["currency"],
-    });
-    logSaleCashOutflow("country", country.name, 1);
-    console.log("💾 [Sale Step 1] Saving:", {
-      countryCode,
-      city: "",
-      currency: country.currency,
-      storePath: "sale.projectInfo",
-    });
-  };
+  const { performResearch } = useAiResearch();
 
   /** Avoid clobbering edits; `type="number"` + `Number(x) || 0` was persisting 0 mid-typing. */
   const constructionPeriodFocusedRef = useRef(false);
   const [constructionPeriodDraft, setConstructionPeriodDraft] = useState(() =>
     String(cashOutflows.constructionPeriod)
   );
+
+  const isSaleLandedProduct = useMemo(
+    () => Boolean(projectInfo.buildingSubType?.includes("landed")),
+    [projectInfo.buildingSubType]
+  );
+
+  // High-Rise Auto-Calcs
+  const salesHighRiseTotalFloors = useMemo(() => {
+    return (
+      (projectInfo.salesHighRiseBasements || 0) +
+      (projectInfo.salesHighRisePodiums || 0) +
+      (projectInfo.salesHighRiseGroundFloors || 0) +
+      (projectInfo.salesHighRiseUpperFloors || 0)
+    );
+  }, [
+    projectInfo.salesHighRiseBasements,
+    projectInfo.salesHighRisePodiums,
+    projectInfo.salesHighRiseGroundFloors,
+    projectInfo.salesHighRiseUpperFloors,
+  ]);
+
+  const salesHighRiseSaleableBUA = useMemo(() => {
+    const bua = projectInfo.salesHighRiseTotalBUA || 0;
+    const ratio = projectInfo.salesHighRiseSaleableRatio || 0;
+    return Math.round(bua * (ratio / 100));
+  }, [projectInfo.salesHighRiseTotalBUA, projectInfo.salesHighRiseSaleableRatio]);
+
+  // Landed Auto-Calcs
+  const salesLandedTotalFloors = useMemo(() => {
+    return 1 + (projectInfo.salesLandedUpperFloors || 0);
+  }, [projectInfo.salesLandedUpperFloors]);
+
+  const salesLandedTotalBUA = useMemo(() => {
+    return (projectInfo.salesLandedNumUnits || 0) * (projectInfo.salesLandedBUAperUnit || 0);
+  }, [projectInfo.salesLandedNumUnits, projectInfo.salesLandedBUAperUnit]);
+
+  const salesLandedTotalSaleableBUA = useMemo(() => {
+    const bua = salesLandedTotalBUA;
+    const ratio = projectInfo.salesLandedSaleableRatio || 0;
+    return Math.round(bua * (ratio / 100));
+  }, [salesLandedTotalBUA, projectInfo.salesLandedSaleableRatio]);
+
+  const salesLandedTotalSaleableLandArea = useMemo(() => {
+    return (projectInfo.salesLandedNumUnits || 0) * (projectInfo.salesLandedLandAreaPerUnit || 0);
+  }, [projectInfo.salesLandedNumUnits, projectInfo.salesLandedLandAreaPerUnit]);
+
+  const salesLandedTotalLandArea = useMemo(() => {
+    const saleableLand = salesLandedTotalSaleableLandArea;
+    const commonPct = projectInfo.salesLandedCommonAreaPct || 0;
+    if (commonPct >= 100) return 0;
+    return Math.round(saleableLand / (1 - commonPct / 100));
+  }, [salesLandedTotalSaleableLandArea, projectInfo.salesLandedCommonAreaPct]);
+
+  // Sync High-Rise Step 5 BUA data to Cash Outflows state when entering Step 6
+  useEffect(() => {
+    if (!isSaleLandedProduct && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {};
+      if (projectInfo.salesHighRiseTotalBUA) {
+        updates.buildingBUA = projectInfo.salesHighRiseTotalBUA;
+      }
+      if (projectInfo.salesHighRiseBasementBUA) {
+        updates.basementBUA = projectInfo.salesHighRiseBasementBUA;
+      }
+      if (projectInfo.salesHighRisePodiumBUA) {
+        updates.parkingBUA = projectInfo.salesHighRisePodiumBUA;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateCashOutflowsForStream(updates);
+        console.log("🔗 Synced High-Rise Step 5 BUA to Cash Outflows:", updates);
+      }
+    }
+  }, [
+    isSaleLandedProduct,
+    currentStep,
+    projectInfo.salesHighRiseTotalBUA,
+    projectInfo.salesHighRiseBasementBUA,
+    projectInfo.salesHighRisePodiumBUA,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Landed Step 5 BUA data to Cash Outflows state when entering Step 6
+  useEffect(() => {
+    if (isSaleLandedProduct && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {
+        basementBUA: 0,
+        parkingBUA: 0,
+      };
+      if (salesLandedTotalBUA) {
+        updates.buildingBUA = salesLandedTotalBUA;
+      }
+
+      updateCashOutflowsForStream(updates);
+      console.log("🔗 Synced Landed Step 5 BUA to Cash Outflows:", updates);
+    }
+  }, [
+    isSaleLandedProduct,
+    currentStep,
+    salesLandedTotalBUA,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync High-Rise Step 5 Land Area to Cash Outflows state when entering Step 9
+  useEffect(() => {
+    if (!isSaleLandedProduct && currentStep === 8) {
+      if (projectInfo.salesHighRiseLandArea) {
+        updateCashOutflowsForStream({ landArea: projectInfo.salesHighRiseLandArea });
+        console.log(
+          "🔗 Synced High-Rise Step 5 Land Area to Cash Outflows:",
+          projectInfo.salesHighRiseLandArea
+        );
+      }
+    }
+  }, [
+    isSaleLandedProduct,
+    currentStep,
+    projectInfo.salesHighRiseLandArea,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Landed Step 5 Total Land Area to Cash Outflows state when entering Step 9
+  useEffect(() => {
+    if (isSaleLandedProduct && currentStep === 8) {
+      if (salesLandedTotalLandArea) {
+        updateCashOutflowsForStream({ landArea: salesLandedTotalLandArea });
+        console.log(
+          "🔗 Synced Landed Step 5 Total Land Area to Cash Outflows:",
+          salesLandedTotalLandArea
+        );
+      }
+    }
+  }, [
+    isSaleLandedProduct,
+    currentStep,
+    salesLandedTotalLandArea,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sales AI Research Trigger (Step 6 — currentStep 5)
+  useEffect(() => {
+    if (currentStep !== 5) return;
+    if (!projectInfo.country || !projectInfo.city) return;
+    if (!projectInfo.buildingSubType) return;
+
+    const saleAiAssetType = SALE_SUBTYPE_TO_AI_ASSET[projectInfo.buildingSubType];
+    if (!saleAiAssetType) return;
+
+    if (projectInfo.coordinates && !projectInfo.subMarket) {
+      console.log("⏳ Sales AI Research paused: Waiting for map neighborhood lookup...");
+      return;
+    }
+
+    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.buildingSubType}-${projectInfo.salesMarketPositioning || "unspecified"}-${projectInfo.salesFinishingStandard || "unspecified"}-${
+      isSaleLandedProduct
+        ? `${projectInfo.salesLandedNumUnits}-${projectInfo.salesLandedBUAperUnit}-${salesLandedTotalLandArea}-${projectInfo.salesLandedSaleableRatio}`
+        : `${projectInfo.salesHighRiseTotalBUA}-${projectInfo.salesHighRiseBasementBUA}-${projectInfo.salesHighRiseLandArea}-${projectInfo.salesHighRiseSaleableRatio}`
+    }`;
+
+    const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
+    if (savedFingerprint === researchKey) {
+      console.log("✅ Sales AI Research skipped: Parameters match saved fingerprint.");
+      return;
+    }
+
+    if (cashOutflows?.aiResearchData && !savedFingerprint) {
+      console.log("⚠️ Legacy Sales project detected. Injecting fingerprint silently...");
+      const dataWithFingerprint = {
+        ...cashOutflows.aiResearchData,
+        _researchKey: researchKey,
+      };
+      updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+      return;
+    }
+
+    const researchParams = {
+      assetType: saleAiAssetType,
+      location: {
+        country: projectInfo.country,
+        city: projectInfo.city,
+        currency: projectInfo.currency,
+        subMarket: projectInfo.subMarket,
+        coordinates: projectInfo.coordinates,
+      },
+      buildingConfig: isSaleLandedProduct
+        ? {
+            numUnits: projectInfo.salesLandedNumUnits,
+            buaPerUnit: projectInfo.salesLandedBUAperUnit,
+            landAreaPerUnit: projectInfo.salesLandedLandAreaPerUnit,
+            commonAreaPct: projectInfo.salesLandedCommonAreaPct,
+            totalLandArea: salesLandedTotalLandArea,
+            totalBUA: salesLandedTotalBUA,
+            positioning: projectInfo.salesMarketPositioning,
+            furnishingLevel: projectInfo.salesFinishingStandard,
+          }
+        : {
+            basements: projectInfo.salesHighRiseBasements,
+            podiums: projectInfo.salesHighRisePodiums,
+            upperFloors: projectInfo.salesHighRiseUpperFloors,
+            totalBUA: projectInfo.salesHighRiseTotalBUA,
+            basementBUA: projectInfo.salesHighRiseBasementBUA,
+            podiumBUA: projectInfo.salesHighRisePodiumBUA,
+            landArea: projectInfo.salesHighRiseLandArea,
+            positioning: projectInfo.salesMarketPositioning,
+            furnishingLevel: projectInfo.salesFinishingStandard,
+          },
+    };
+
+    const triggerResearch = async () => {
+      try {
+        setIsAiResearching(true);
+        console.log("🤖 Triggering Sales AI research...");
+        console.log("📍 Location & Building Payload:", researchParams);
+
+        const rawAiData = await performResearch(researchParams);
+
+        if (rawAiData) {
+          const researchData = rawAiData as unknown as AiResearchData;
+          console.log(
+            "🤖 Sales AI Research Data:",
+            JSON.stringify(researchData, null, 2)
+          );
+
+          const dataWithFingerprint = { ...researchData, _researchKey: researchKey };
+          const c1 = researchData.c1_development;
+          const rates = c1?.construction_rates;
+          const soft = c1?.soft_costs;
+          const patch: Partial<CashOutflows> = { aiResearchData: dataWithFingerprint };
+
+          if (rates?.building_rate_psf) patch.buildingRate = rates.building_rate_psf;
+          if (rates?.parking_rate_psf) patch.parkingRate = rates.parking_rate_psf;
+          if (rates?.basement_rate_psf) patch.basementRate = rates.basement_rate_psf;
+          if (isSaleLandedProduct && rates?.infrastructure_rate_psf) {
+            patch.infrastructureRate = rates.infrastructure_rate_psf;
+          }
+          if (soft?.sc_percentage != null) patch.softCostPercent = soft.sc_percentage;
+          if (soft?.powc_percentage != null) patch.powcPercent = soft.powc_percentage;
+          if (c1?.land_rate_psf) patch.landRate = c1.land_rate_psf;
+          if (c1?.construction_period?.months) {
+            patch.constructionPeriod = c1.construction_period.months;
+          }
+          if (c1?.s_curve) {
+            patch.stageAllocation = {
+              stage1Label: cashOutflows.stageAllocation.stage1Label || "Enabling",
+              stage1Percent: c1.s_curve.stage_1_pct || 10,
+              stage2Label: cashOutflows.stageAllocation.stage2Label || "Sub-Structure",
+              stage2Percent: c1.s_curve.stage_2_pct || 20,
+              stage3Label: cashOutflows.stageAllocation.stage3Label || "Super Structure",
+              stage3Percent: c1.s_curve.stage_3_pct || 40,
+              stage4Label: cashOutflows.stageAllocation.stage4Label || "Finishes",
+              stage4Percent: c1.s_curve.stage_4_pct || 30,
+            };
+          }
+          if (c1?.powc_breakdown) {
+            patch.powcAllocation = {
+              siteEstablishment: c1.powc_breakdown.site_establishment_pct,
+              overhead: c1.powc_breakdown.overhead_pct,
+              authorityFees: c1.powc_breakdown.authority_fees_pct,
+            };
+          }
+          if (c1?.sc_breakdown) {
+            patch.softCostAllocation = {
+              architect: c1.sc_breakdown.architect_pct,
+              projectManagement: c1.sc_breakdown.pm_pct,
+              engineering: c1.sc_breakdown.engineering_pct,
+              geotechnical: c1.sc_breakdown.geotech_pct,
+              otherFees: c1.sc_breakdown.other_pct,
+            };
+          }
+
+          updateCashOutflowsForStream(patch);
+
+          const c2 = researchData.c2_sales;
+          if (c2?.avg_sales_price_psf || c2?.deductions) {
+            const existingInflows =
+              useFinModelStore.getState().sale.cashInflows;
+            updateCashInflowsForStream({
+              ...(c2.avg_sales_price_psf
+                ? { salesPrice: c2.avg_sales_price_psf }
+                : {}),
+              ...(c2.deductions
+                ? {
+                    buyerMix: {
+                      ...existingInflows.buyerMix,
+                      ...(c2.deductions.agent_commission_pct != null
+                        ? {
+                            brokerCommissionPercent:
+                              c2.deductions.agent_commission_pct,
+                          }
+                        : {}),
+                      ...(c2.deductions.vat_pct != null
+                        ? { vatPercent: c2.deductions.vat_pct }
+                        : {}),
+                      ...(c2.deductions.escrow_fees_pct != null
+                        ? { escrowFeePercent: c2.deductions.escrow_fees_pct }
+                        : {}),
+                      ...(c2.deductions.avg_sales_discount_pct != null
+                        ? {
+                            salesDiscountPercent:
+                              c2.deductions.avg_sales_discount_pct,
+                          }
+                        : {}),
+                    },
+                  }
+                : {}),
+            });
+          }
+
+          console.log("📊 Auto-populated fields from Sales AI research:", patch);
+
+          hasResearchedForSalesRef.current = researchKey;
+        }
+      } catch (error) {
+        console.error("❌ Sales AI research failed:", error);
+      } finally {
+        setIsAiResearching(false);
+      }
+    };
+
+    void triggerResearch();
+  }, [
+    currentStep,
+    isSaleLandedProduct,
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.subMarket,
+    projectInfo.coordinates,
+    projectInfo.currency,
+    projectInfo.buildingSubType,
+    projectInfo.salesMarketPositioning,
+    projectInfo.salesFinishingStandard,
+    projectInfo.salesHighRiseBasements,
+    projectInfo.salesHighRisePodiums,
+    projectInfo.salesHighRiseUpperFloors,
+    projectInfo.salesHighRiseTotalBUA,
+    projectInfo.salesHighRiseBasementBUA,
+    projectInfo.salesHighRisePodiumBUA,
+    projectInfo.salesHighRiseLandArea,
+    projectInfo.salesHighRiseSaleableRatio,
+    projectInfo.salesLandedNumUnits,
+    projectInfo.salesLandedBUAperUnit,
+    projectInfo.salesLandedLandAreaPerUnit,
+    projectInfo.salesLandedCommonAreaPct,
+    projectInfo.salesLandedSaleableRatio,
+    salesLandedTotalLandArea,
+    salesLandedTotalBUA,
+    cashOutflows?.aiResearchData,
+    performResearch,
+    updateCashOutflowsForStream,
+    updateCashInflowsForStream,
+  ]);
 
   const totalSteps = 13; // 0-12
 
@@ -300,46 +597,6 @@ function CashOutflowsPageContent() {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only isolation log
   }, []);
-
-  useEffect(() => {
-    const pi = useFinModelStore.getState().sale.projectInfo;
-    const hasCountry = !!pi.country?.trim();
-    const saved = pi.countryCode?.trim();
-    if (hasCountry && saved && COUNTRIES.some((c) => c.code === saved)) {
-      setSelectedCountry(saved);
-      return;
-    }
-    const byName = hasCountry
-      ? COUNTRIES.find((c) => c.name === pi.country)
-      : undefined;
-    if (byName) {
-      setSelectedCountry(byName.code);
-      return;
-    }
-    setSelectedCountry("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once from persisted sale slice
-  }, []);
-
-  useEffect(() => {
-    const avail = new Set(availableCurrencies);
-    if (avail.has(projectInfo.currency)) return;
-    const country = COUNTRIES.find((c) => c.code === selectedCountry);
-    const fallback = country?.currency as ProjectInfo["currency"] | undefined;
-    if (fallback) updateProjectInfoForStream({ currency: fallback });
-  }, [
-    availableCurrencies,
-    projectInfo.currency,
-    selectedCountry,
-    updateProjectInfoForStream,
-  ]);
-
-  useEffect(() => {
-    console.log("🌍 [Sale C1] Country/Currency Selection:", {
-      selectedCountry,
-      availableCurrencies,
-      stream: "sale",
-    });
-  }, [selectedCountry, availableCurrencies]);
 
   /** Persist sale stream + business model for financing engine hard routing. */
   useEffect(() => {
@@ -384,7 +641,7 @@ function CashOutflowsPageContent() {
       }
     }
 
-    // UI shows "Step 1..14"; internal state is 0..13
+    // UI shows "Step 1..13"; internal state is 0..12
     const desired = Math.min(totalSteps - 1, Math.max(0, Math.round(parsed) - 1));
     setCurrentStep(desired);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -420,44 +677,48 @@ function CashOutflowsPageContent() {
 
     if (uiStep === 4 && !cashOutflowStepVisitLogged.current.has(4)) {
       cashOutflowStepVisitLogged.current.add(4);
-      logSaleCashOutflow("basements", projectInfo.buildingConfig.basements ?? 0, 4);
-      logSaleCashOutflow(
-        "podiumFloors",
-        projectInfo.buildingConfig.podiumFloors ?? 0,
-        4
-      );
-      logSaleCashOutflow(
-        "towerFloors",
-        projectInfo.buildingConfig.towerFloors ?? 0,
-        4
-      );
-      logSaleCashOutflow(
-        "landedUnits",
-        projectInfo.buildingConfig.landedUnits ?? 0,
-        4
-      );
-      logSaleCashOutflow(
-        "landedLandAreaPerUnit",
-        projectInfo.buildingConfig.landedLandAreaPerUnit ?? 0,
-        4
-      );
-      logSaleCashOutflow(
-        "landedBUAPerUnit",
-        projectInfo.buildingConfig.landedBUAPerUnit ?? 0,
-        4
-      );
+      if (projectInfo.salesMarketPositioning) {
+        logSaleCashOutflow(
+          "salesMarketPositioning",
+          projectInfo.salesMarketPositioning,
+          4
+        );
+      }
+      if (projectInfo.salesFinishingStandard) {
+        logSaleCashOutflow(
+          "salesFinishingStandard",
+          projectInfo.salesFinishingStandard,
+          4
+        );
+      }
     }
 
     if (uiStep === 5 && !cashOutflowStepVisitLogged.current.has(5)) {
       cashOutflowStepVisitLogged.current.add(5);
+      logSaleCashOutflow("basements", projectInfo.buildingConfig.basements ?? 0, 5);
       logSaleCashOutflow(
-        "hasRetailComponent",
-        !!projectInfo.buildingConfig.hasRetailComponent,
+        "podiumFloors",
+        projectInfo.buildingConfig.podiumFloors ?? 0,
         5
       );
       logSaleCashOutflow(
-        "retailPercentage",
-        projectInfo.buildingConfig.retailPercentage ?? 0,
+        "towerFloors",
+        projectInfo.buildingConfig.towerFloors ?? 0,
+        5
+      );
+      logSaleCashOutflow(
+        "landedUnits",
+        projectInfo.buildingConfig.landedUnits ?? 0,
+        5
+      );
+      logSaleCashOutflow(
+        "landedLandAreaPerUnit",
+        projectInfo.buildingConfig.landedLandAreaPerUnit ?? 0,
+        5
+      );
+      logSaleCashOutflow(
+        "landedBUAPerUnit",
+        projectInfo.buildingConfig.landedBUAPerUnit ?? 0,
         5
       );
     }
@@ -534,6 +795,8 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.country,
     projectInfo.currency,
+    projectInfo.salesFinishingStandard,
+    projectInfo.salesMarketPositioning,
   ]);
 
   const updateFormData = (field: string, value: unknown) => {
@@ -605,14 +868,11 @@ function CashOutflowsPageContent() {
   const parkingCost = cashOutflows.parkingBUA * cashOutflows.parkingRate;
   const basementCost = cashOutflows.basementBUA * cashOutflows.basementRate;
 
-  const landedTotalSaleableLandArea =
-    (projectInfo.buildingConfig.landedUnits ?? 0) *
-    (projectInfo.buildingConfig.landedLandAreaPerUnit ?? 0);
-  const landedTotalLandArea =
-    landedTotalSaleableLandArea > 0 ? landedTotalSaleableLandArea / 0.7 : 0;
   const infrastructureRate = cashOutflows.infrastructureRate ?? 0;
   const infrastructureCosts =
-    streamPrefix === "/sale" ? infrastructureRate * landedTotalLandArea : 0;
+    streamPrefix === "/sale" && isSaleLandedProduct
+      ? infrastructureRate * salesLandedTotalLandArea
+      : 0;
 
   // Base construction cost (CC before contingency) — not the same as store `constructionCost`
   // after “Generate”, which is CC including contingency.
@@ -659,7 +919,7 @@ function CashOutflowsPageContent() {
     projectInfo.buildingConfig.towerFloors,
   ]);
 
-  // --- STEP 6 LOGIC (reconnect DB by profile) ---
+  // --- STEP 5 LOGIC (reconnect DB by profile) ---
   const step6Recommendations = useMemo(() => {
     const params = buildRecommendationQuery(
       projectInfo.countryCode,
@@ -692,8 +952,59 @@ function CashOutflowsPageContent() {
     infrastructureRate: number;
   } | null>(null);
 
+  const aiDataRaw = cashOutflows.aiResearchData;
+  const aiData = useMemo(() => {
+    if (!aiDataRaw) return undefined;
+    if (
+      aiDataRaw.c1_development &&
+      !(aiDataRaw.c1_development as { construction_rates?: unknown }).construction_rates
+    ) {
+      return normalizeAiResearchData(aiDataRaw) as unknown as AiResearchData;
+    }
+    return aiDataRaw;
+  }, [aiDataRaw]);
+  const aiC1 = aiData?.c1_development;
+  const aiRates = aiC1?.construction_rates;
+
+  const aiBuildingRate = aiRates?.building_rate_psf;
+  const aiParkingRate = aiRates?.parking_rate_psf;
+  const aiBasementRate = aiRates?.basement_rate_psf;
+  const aiInfraRate = aiRates?.infrastructure_rate_psf;
+  const aiLandRate = aiC1?.land_rate_psf;
+  const aiScPct = aiC1?.soft_costs?.sc_percentage;
+  const aiPowcPct = aiC1?.soft_costs?.powc_percentage;
+  const aiScurve = aiC1?.s_curve;
+  const aiPowcBreakdown = aiC1?.powc_breakdown;
+  const aiScBreakdown = aiC1?.sc_breakdown;
+
+  const mvpBuildingRate = step6Recommendations?.constructionCosts.buildingRate;
+  const mvpParkingRate = step6Recommendations?.constructionCosts.parkingRate;
+  const mvpBasementRate = step6Recommendations?.constructionCosts.basementRate;
+  const mvpInfraRate = step6Recommendations?.constructionCosts.infrastructureRate ?? 0;
+  const mvpScPct = saleRecommendations?.softCosts.scPercent;
+  const mvpPowcPct = saleRecommendations?.softCosts.powcPercent;
+  const mvpStage1 = saleRecommendations?.constructionStages?.allocation.stage1Percent;
+  const mvpStage2 = saleRecommendations?.constructionStages?.allocation.stage2Percent;
+  const mvpStage3 = saleRecommendations?.constructionStages?.allocation.stage3Percent;
+  const mvpStage4 = saleRecommendations?.constructionStages?.allocation.stage4Percent;
+
+  const benchBuildingRate = aiBuildingRate ?? mvpBuildingRate;
+  const benchParkingRate = aiParkingRate ?? mvpParkingRate;
+  const benchBasementRate = aiBasementRate ?? mvpBasementRate;
+  const benchInfraRate = aiInfraRate ?? mvpInfraRate;
+  const benchScPct = aiScPct ?? mvpScPct;
+  const benchPowcPct = aiPowcPct ?? mvpPowcPct;
+  const benchStage1 = aiScurve?.stage_1_pct ?? mvpStage1;
+  const benchStage2 = aiScurve?.stage_2_pct ?? mvpStage2;
+  const benchStage3 = aiScurve?.stage_3_pct ?? mvpStage3;
+  const benchStage4 = aiScurve?.stage_4_pct ?? mvpStage4;
+
+  const isRateOverride = (current: number, bench?: number) =>
+    bench != null && Math.abs(current - bench) > 0.001;
+
   useEffect(() => {
     if (currentStep !== 5 || !step6Recommendations?.constructionCosts) return;
+    if (aiRates?.building_rate_psf) return;
 
     const rates = step6Recommendations.constructionCosts;
     const updates: Partial<CashOutflows> = {};
@@ -769,43 +1080,22 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  const isBuildingManual = step6Recommendations
-    ? cashOutflows.buildingRate !==
-      step6Recommendations.constructionCosts.buildingRate
-    : false;
-  const isParkingManual = step6Recommendations
-    ? cashOutflows.parkingRate !==
-      step6Recommendations.constructionCosts.parkingRate
-    : false;
-  const isBasementManual = step6Recommendations
-    ? cashOutflows.basementRate !==
-      step6Recommendations.constructionCosts.basementRate
-    : false;
-  const infraRec = step6Recommendations?.constructionCosts.infrastructureRate ?? 0;
-  const infraCur = cashOutflows.infrastructureRate ?? 0;
-  const isInfraManual = step6Recommendations ? infraCur !== infraRec : false;
+  const isBuildingManual = isRateOverride(cashOutflows.buildingRate, benchBuildingRate);
+  const isParkingManual = isRateOverride(cashOutflows.parkingRate, benchParkingRate);
+  const isBasementManual = isRateOverride(cashOutflows.basementRate, benchBasementRate);
+  const isInfraManual = isRateOverride(cashOutflows.infrastructureRate ?? 0, benchInfraRate);
 
   const isAnyRateManual =
     isBuildingManual || isParkingManual || isBasementManual || isInfraManual;
 
-  const isStep6Manual = step6Recommendations
-    ? cashOutflows.buildingRate !==
-        step6Recommendations.constructionCosts.buildingRate ||
-      cashOutflows.parkingRate !==
-        step6Recommendations.constructionCosts.parkingRate ||
-      cashOutflows.basementRate !==
-        step6Recommendations.constructionCosts.basementRate ||
-      (cashOutflows.infrastructureRate ?? 0) !==
-        (step6Recommendations.constructionCosts.infrastructureRate ?? 0)
-    : false;
+  const isStep6Manual = isAnyRateManual;
 
-  const handleResetStep6 = () => {
-    if (!step6Recommendations?.constructionCosts) return;
+  const resetStep6ToBenchmark = () => {
     updateCashOutflowsForStream({
-      buildingRate: step6Recommendations.constructionCosts.buildingRate,
-      parkingRate: step6Recommendations.constructionCosts.parkingRate,
-      basementRate: step6Recommendations.constructionCosts.basementRate,
-      infrastructureRate: step6Recommendations.constructionCosts.infrastructureRate,
+      ...(benchBuildingRate != null ? { buildingRate: benchBuildingRate } : {}),
+      ...(benchParkingRate != null ? { parkingRate: benchParkingRate } : {}),
+      ...(benchBasementRate != null ? { basementRate: benchBasementRate } : {}),
+      ...(benchInfraRate != null ? { infrastructureRate: benchInfraRate } : {}),
     });
   };
 
@@ -815,10 +1105,11 @@ function CashOutflowsPageContent() {
     return found ? found.subType : sub || "—";
   };
 
-  // --- STEP 8 (currentStep 7): RECOMMENDATION ENGINE — SC & POWC ---
+  // --- STEP 7 (currentStep 6): RECOMMENDATION ENGINE — SC & POWC ---
 
   useEffect(() => {
     if (currentStep !== 7 || !saleRecommendations?.softCosts) return;
+    if (aiScPct != null || aiPowcPct != null) return;
 
     const rates = saleRecommendations.softCosts;
     const updates: Partial<CashOutflows> = {};
@@ -838,27 +1129,22 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  const isSCManual = saleRecommendations
-    ? cashOutflows.softCostPercent !==
-      saleRecommendations.softCosts.scPercent
-    : false;
-  const isPOWCManual = saleRecommendations
-    ? cashOutflows.powcPercent !== saleRecommendations.softCosts.powcPercent
-    : false;
+  const isSCManual = isRateOverride(cashOutflows.softCostPercent, benchScPct);
+  const isPOWCManual = isRateOverride(cashOutflows.powcPercent, benchPowcPct);
   const isAnySCPOWCManual = isSCManual || isPOWCManual;
 
-  const handleResetSCPOWC = () => {
-    if (!saleRecommendations?.softCosts) return;
+  const resetScPowcToBenchmark = () => {
     updateCashOutflowsForStream({
-      softCostPercent: saleRecommendations.softCosts.scPercent,
-      powcPercent: saleRecommendations.softCosts.powcPercent,
+      ...(benchScPct != null ? { softCostPercent: benchScPct } : {}),
+      ...(benchPowcPct != null ? { powcPercent: benchPowcPct } : {}),
     });
   };
 
-  // --- STEP 12 (currentStep 11): CONSTRUCTION STAGES — profile benchmarks ---
+  // --- STEP 11 (currentStep 10): CONSTRUCTION STAGES — profile benchmarks ---
 
   useEffect(() => {
     if (currentStep !== 11 || !saleRecommendations?.constructionStages) return;
+    if (aiScurve?.stage_1_pct != null) return;
 
     const stages = saleRecommendations.constructionStages;
     const curr = cashOutflows.stageAllocation;
@@ -909,36 +1195,34 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  const isStageAllocationManual = saleRecommendations
-    ? cashOutflows.stageAllocation.stage1Percent !==
-        saleRecommendations.constructionStages.allocation.stage1Percent ||
-      cashOutflows.stageAllocation.stage2Percent !==
-        saleRecommendations.constructionStages.allocation.stage2Percent ||
-      cashOutflows.stageAllocation.stage3Percent !==
-        saleRecommendations.constructionStages.allocation.stage3Percent ||
-      cashOutflows.stageAllocation.stage4Percent !==
-        saleRecommendations.constructionStages.allocation.stage4Percent
-    : false;
+  const isStageAllocationManual =
+    isRateOverride(cashOutflows.stageAllocation.stage1Percent, benchStage1) ||
+    isRateOverride(cashOutflows.stageAllocation.stage2Percent, benchStage2) ||
+    isRateOverride(cashOutflows.stageAllocation.stage3Percent, benchStage3) ||
+    isRateOverride(cashOutflows.stageAllocation.stage4Percent, benchStage4);
 
-  const handleResetStages = () => {
-    if (!saleRecommendations?.constructionStages) return;
-    const stages = saleRecommendations.constructionStages;
+  const resetStagesToBenchmark = () => {
+    const stages = saleRecommendations?.constructionStages;
     updateCashOutflowsForStream({
       stageAllocation: {
         ...cashOutflows.stageAllocation,
-        stage1Label: stages.labels.stage1,
-        stage2Label: stages.labels.stage2,
-        stage3Label: stages.labels.stage3,
-        stage4Label: stages.labels.stage4 ?? "Finishes",
-        stage1Percent: stages.allocation.stage1Percent,
-        stage2Percent: stages.allocation.stage2Percent,
-        stage3Percent: stages.allocation.stage3Percent,
-        stage4Percent: stages.allocation.stage4Percent,
+        ...(stages
+          ? {
+              stage1Label: stages.labels.stage1,
+              stage2Label: stages.labels.stage2,
+              stage3Label: stages.labels.stage3,
+              stage4Label: stages.labels.stage4 ?? "Finishes",
+            }
+          : {}),
+        ...(benchStage1 != null ? { stage1Percent: benchStage1 } : {}),
+        ...(benchStage2 != null ? { stage2Percent: benchStage2 } : {}),
+        ...(benchStage3 != null ? { stage3Percent: benchStage3 } : {}),
+        ...(benchStage4 != null ? { stage4Percent: benchStage4 } : {}),
       },
     });
   };
 
-  // --- STEP 9 (currentStep 8): LAND COST — city-level benchmarks ---
+  // --- STEP 8 (currentStep 7): LAND COST — city-level benchmarks ---
 
   const cityLandRate = useMemo(() => {
     if (!projectInfo.countryCode || !projectInfo.city?.trim()) return null;
@@ -968,47 +1252,89 @@ function CashOutflowsPageContent() {
 
   useEffect(() => {
     if (currentStep !== 8 || !cityLandRate) return;
-
-    const updates: Partial<CashOutflows> = {};
+    if (aiLandRate) return;
 
     if (!cashOutflows.landRate) {
-      updates.landRate = cityLandRate.ratePerSqft;
-    }
-
-    if (projectInfo.buildingSubType?.includes("landed")) {
-      const derivedArea =
-        landedTotalSaleableLandArea > 0
-          ? Math.round(landedTotalLandArea)
-          : 0;
-      if (!cashOutflows.landArea && derivedArea > 0) {
-        updates.landArea = derivedArea;
-      }
-    }
-
-    if (Object.keys(updates).length > 0) {
-      updateCashOutflowsForStream(updates);
+      updateCashOutflowsForStream({ landRate: cityLandRate.ratePerSqft });
     }
   }, [
     currentStep,
     cityLandRate,
     cashOutflows.landRate,
-    cashOutflows.landArea,
-    projectInfo.buildingSubType,
-    landedTotalSaleableLandArea,
-    landedTotalLandArea,
+    aiLandRate,
     updateCashOutflowsForStream,
   ]);
 
-  const isLandRateManual = cityLandRate
-    ? cashOutflows.landRate !== cityLandRate.ratePerSqft
-    : false;
+  const mvpLandRate = cityLandRate?.ratePerSqft;
+  const benchLandRate = aiLandRate ?? mvpLandRate;
 
-  const handleResetLandRate = () => {
-    if (!cityLandRate) return;
+  const isLandRateManual = isRateOverride(cashOutflows.landRate, benchLandRate);
+
+  const resetLandRateToBenchmark = () => {
+    if (benchLandRate == null) return;
+    updateCashOutflowsForStream({ landRate: benchLandRate });
+  };
+
+  const resetAllocationsToBenchmark = () => {
     updateCashOutflowsForStream({
-      landRate: cityLandRate.ratePerSqft,
+      ...(aiPowcBreakdown
+        ? {
+            powcAllocation: {
+              siteEstablishment: aiPowcBreakdown.site_establishment_pct,
+              overhead: aiPowcBreakdown.overhead_pct,
+              authorityFees: aiPowcBreakdown.authority_fees_pct,
+            },
+          }
+        : {}),
+      ...(aiScBreakdown
+        ? {
+            softCostAllocation: {
+              architect: aiScBreakdown.architect_pct,
+              projectManagement: aiScBreakdown.pm_pct,
+              engineering: aiScBreakdown.engineering_pct,
+              geotechnical: aiScBreakdown.geotech_pct,
+              otherFees: aiScBreakdown.other_pct,
+            },
+          }
+        : {}),
     });
   };
+
+  const powcAllocCurrent =
+    cashOutflows.powcAllocation ?? { ...DEFAULT_POWC_ALLOCATION };
+  const softAllocCurrent =
+    cashOutflows.softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
+
+  const isPowcAllocationManual =
+    (aiPowcBreakdown?.site_establishment_pct != null &&
+      isRateOverride(
+        powcAllocCurrent.siteEstablishment,
+        aiPowcBreakdown.site_establishment_pct
+      )) ||
+    (aiPowcBreakdown?.overhead_pct != null &&
+      isRateOverride(powcAllocCurrent.overhead, aiPowcBreakdown.overhead_pct)) ||
+    (aiPowcBreakdown?.authority_fees_pct != null &&
+      isRateOverride(
+        powcAllocCurrent.authorityFees,
+        aiPowcBreakdown.authority_fees_pct
+      ));
+
+  const isScAllocationManual =
+    (aiScBreakdown?.architect_pct != null &&
+      isRateOverride(softAllocCurrent.architect, aiScBreakdown.architect_pct)) ||
+    (aiScBreakdown?.pm_pct != null &&
+      isRateOverride(softAllocCurrent.projectManagement, aiScBreakdown.pm_pct)) ||
+    (aiScBreakdown?.engineering_pct != null &&
+      isRateOverride(
+        softAllocCurrent.engineering,
+        aiScBreakdown.engineering_pct
+      )) ||
+    (aiScBreakdown?.geotech_pct != null &&
+      isRateOverride(softAllocCurrent.geotechnical, aiScBreakdown.geotech_pct)) ||
+    (aiScBreakdown?.other_pct != null &&
+      isRateOverride(softAllocCurrent.otherFees, aiScBreakdown.other_pct));
+
+  const isStep13Manual = isPowcAllocationManual || isScAllocationManual;
 
   // --- PROFILE BENCHMARK (step aliases for UI) ---
   const currentRecommendations = saleRecommendations;
@@ -1016,13 +1342,14 @@ function CashOutflowsPageContent() {
   const isStep9Manual = isLandRateManual;
   const isStep12Manual = isStageAllocationManual;
 
-  const handleResetStep8 = handleResetSCPOWC;
-  const handleResetStep9 = handleResetLandRate;
-  const handleResetStep12 = handleResetStages;
+  const handleResetStep6 = resetStep6ToBenchmark;
+  const handleResetStep8 = resetScPowcToBenchmark;
+  const handleResetStep9 = resetLandRateToBenchmark;
+  const handleResetStep12 = resetStagesToBenchmark;
 
   useEffect(() => {
     if (currentStep !== 7) return;
-    console.log("[Step 8 Debug]", {
+    console.log("[Step 7 Debug]", {
       hasRecommendations: !!currentRecommendations,
       isManual: isStep8Manual,
       scPercent: cashOutflows.softCostPercent,
@@ -1051,41 +1378,21 @@ function CashOutflowsPageContent() {
     }
 
     if (step === 3) {
+      if (!projectInfo.salesMarketPositioning?.trim()) {
+        newErrors.salesMarketPositioning = "Market positioning is required.";
+      }
+      if (!projectInfo.salesFinishingStandard?.trim()) {
+        newErrors.salesFinishingStandard = "Finishing standard is required.";
+      }
+    }
+
+    if (step === 4) {
       if (bc.basements < 0)
         newErrors.basements = "Basements cannot be negative.";
       if (bc.podiumFloors < 0)
         newErrors.podiumFloors = "Podium/parking floors cannot be negative.";
       if (bc.towerFloors <= 0)
         newErrors.towerFloors = "Tower floors must be greater than 0.";
-    }
-
-    if (step === 4 && isHotelProduct) {
-      const op = projectInfo.hotelOperatingType ?? "";
-      if (!op) {
-        newErrors.hotelOperatingType = "Select a hotel operating segment.";
-      }
-      const star = Number(projectInfo.hotelStarRating);
-      if (!Number.isFinite(star) || star <= 0) {
-        newErrors.hotelStarRating = "Select a star rating for this segment.";
-      } else if (op) {
-        const combo = isValidHotelCombo(op, star);
-        if (!combo.valid && combo.message) {
-          newErrors.hotelStarRating = combo.message;
-        }
-      }
-    }
-
-    if (
-      step === 4 &&
-      (projectInfo.buildingType === "residential" ||
-        projectInfo.buildingType === "office")
-    ) {
-      if (bc.hasRetailComponent) {
-        if (bc.retailPercentage <= 0 || bc.retailPercentage > 50) {
-          newErrors.retailPercentage =
-            "Retail percentage should be between 1% and 50%.";
-        }
-      }
     }
 
     if (step === 5) {
@@ -1129,13 +1436,17 @@ function CashOutflowsPageContent() {
     }
 
     if (step === 9) {
-      if (landToTdcRatio > 51) {
-        newErrors.landRatio =
-          "Land/TDC should be ≤ 51%. Adjust land or development costs.";
+      const landTarget = aiData?.guardrails?.land_tdc_target_pct;
+      const dcTarget = aiData?.guardrails?.dc_tdc_target_pct;
+
+      const landMax = landTarget?.max ?? 51;
+      const dcMin = dcTarget?.min ?? 49;
+
+      if (landToTdcRatio > landMax) {
+        newErrors.landRatio = `Land/TDC should be ≤ ${landMax}%. Adjust land or development costs.`;
       }
-      if (dcToTdcRatio < 49) {
-        newErrors.dcRatio =
-          "Development/TDC should be ≥ 49%. Current balance is land-heavy.";
+      if (dcToTdcRatio < dcMin) {
+        newErrors.dcRatio = `Development/TDC should be ≥ ${dcMin}%. Current balance is land-heavy.`;
       }
     }
 
@@ -1290,6 +1601,39 @@ function CashOutflowsPageContent() {
     projectInfo.buildingConfig.towerFloors,
   ]);
 
+  const renderSaleBenchmarkBar = ({
+    hasManualOverride,
+    onReset,
+  }: {
+    hasManualOverride?: boolean;
+    onReset?: () => void;
+  }) => (
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Benchmark
+        </span>
+        <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
+          {getPrettySubTypeName()} • {projectInfo.city} • {projectInfo.country}
+        </span>
+        {hasManualOverride && (
+          <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+            Manual overrides
+          </span>
+        )}
+      </div>
+      {hasManualOverride && onReset && (
+        <button
+          type="button"
+          onClick={onReset}
+          className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+        >
+          Reset to benchmark
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-12 pb-32">
       <div className="max-w-4xl mx-auto">
@@ -1321,6 +1665,18 @@ function CashOutflowsPageContent() {
           </div>
         </div>
 
+        {isAiResearching && (
+          <div className="mb-6 flex items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+            <div>
+              <p className="font-medium text-blue-400">AI Research in Progress...</p>
+              <p className="text-sm text-slate-400">
+                Fetching market benchmarks for your project
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Step Content */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 space-y-8">
           {/* Step 0: Location */}
@@ -1334,18 +1690,30 @@ function CashOutflowsPageContent() {
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     Country
                   </label>
-                  <select
-                    value={selectedCountry}
-                    onChange={(e) => handleCountryChange(e.target.value)}
+                  <input
+                    type="text"
+                    value={projectInfo.country}
+                    onChange={(e) => {
+                      const countryName = e.target.value;
+                      const detectedCurrency = getCurrencyForCountry(countryName);
+                      const matchedCountry = COUNTRIES.find(
+                        (c) =>
+                          c.name.toLowerCase() === countryName.trim().toLowerCase()
+                      );
+
+                      updateProjectInfoForStream({
+                        country: countryName,
+                        countryCode: matchedCountry?.code ?? "",
+                        city: "",
+                        currency: detectedCurrency as ProjectInfo["currency"],
+                        coordinates: null,
+                        subMarket: undefined,
+                      });
+                      if (countryName) logSaleCashOutflow("country", countryName, 1);
+                    }}
+                    placeholder="Enter any country (e.g., United States, Japan, Germany)"
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">Select country</option>
-                    {COUNTRIES.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                   {fieldError("country") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("country")}
@@ -1356,34 +1724,35 @@ function CashOutflowsPageContent() {
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     City
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={projectInfo.city}
-                    onChange={(e) => updateFormData("city", e.target.value)}
-                    disabled={!selectedCountry}
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value="">Select city</option>
-                    {(COUNTRIES.find((c) => c.code === selectedCountry)?.cities ?? []).map((city) => (
-                      <option key={city} value={city}>
-                        {city}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(e) =>
+                      updateProjectInfoForStream({ city: e.target.value })
+                    }
+                    placeholder="Enter any city (e.g., New York, Tokyo, London)"
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
                   {fieldError("city") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("city")}
                     </p>
                   )}
                 </div>
-                {selectedCountry ? (
-                  <p className="text-xs text-slate-500">
-                    Next step: choose{" "}
-                    <span className="text-emerald-400 font-medium">
-                      {availableCurrencies.join(" or ")}
-                    </span>{" "}
-                    (local currency or USD).
-                  </p>
-                ) : null}
+                {projectInfo.country && projectInfo.city && (
+                  <LocationMapPicker
+                    country={projectInfo.country}
+                    city={projectInfo.city}
+                    savedPin={projectInfo.coordinates}
+                    onGeocodingChange={setIsMapGeocoding}
+                    onPinDrop={async (lat, lng, subMarket) => {
+                      updateProjectInfoForStream({
+                        coordinates: { lat, lng },
+                        subMarket: subMarket || undefined,
+                      });
+                    }}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -1396,14 +1765,10 @@ function CashOutflowsPageContent() {
               </h2>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Project Currency
+                  Currency
                 </label>
                 <select
-                  value={
-                    availableCurrencies.includes(projectInfo.currency)
-                      ? projectInfo.currency
-                      : availableCurrencies[0]
-                  }
+                  value={projectInfo.currency}
                   onChange={(e) => {
                     const curr = e.target.value as ProjectInfo["currency"];
                     updateProjectInfoForStream({ currency: curr });
@@ -1411,12 +1776,19 @@ function CashOutflowsPageContent() {
                   }}
                   className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  {availableCurrencies.map((curr) => (
-                    <option key={curr} value={curr}>
-                      {curr} - {getCurrencyName(curr)}
-                    </option>
-                  ))}
+                  <option value={getCurrencyForCountry(projectInfo.country)}>
+                    {getCurrencyForCountry(projectInfo.country)}{" "}
+                    {projectInfo.country
+                      ? `(${projectInfo.country} Local)`
+                      : "(Default)"}
+                  </option>
+                  {getCurrencyForCountry(projectInfo.country) !== "USD" && (
+                    <option value="USD">USD (US Dollar)</option>
+                  )}
                 </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Auto-detected based on country. You can change this if needed.
+                </p>
                 {fieldError("currency") && (
                   <p className="mt-1 text-sm text-red-400">
                     {fieldError("currency")}
@@ -1506,254 +1878,613 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Building Configuration */}
+          {/* Step 4: Market Segmentation & Positioning */}
           {currentStep === 3 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-6">
-                Building Configuration
+            <div className="space-y-8">
+              <h2 className="text-xl font-bold text-white border-b border-slate-700 pb-4">
+                Market Segmentation & Positioning
               </h2>
-              {streamPrefix === "/sale" ? (() => {
-                const sub = projectInfo.buildingSubType ?? "residential_landed";
-                const activeTab =
-                  sub === "residential_high_rise" || sub === "commercial_strata_office"
-                    ? "highrise"
-                    : "landed";
 
-                const landedUnits = projectInfo.buildingConfig.landedUnits ?? 0;
-                const landedLandAreaPerUnit =
-                  projectInfo.buildingConfig.landedLandAreaPerUnit ?? 0;
-                const landedBUAPerUnit = projectInfo.buildingConfig.landedBUAPerUnit ?? 0;
-
-                const totalBUA = landedUnits * landedBUAPerUnit;
-                const totalSaleableLand = landedUnits * landedLandAreaPerUnit;
-                const totalLandArea = totalSaleableLand > 0 ? totalSaleableLand / 0.7 : 0;
-
-                return (
-                  <>
-                    <div className="flex border-b border-slate-700 mb-6">
+              {/* Market Positioning */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-white">Market positioning</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    {
+                      value: "Affordable",
+                      label: "Affordable",
+                      desc: "Bottom 25% market prices",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: "Mid-Market",
+                      label: "Mid-Market",
+                      desc: "Market average ±10%",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: "Upper-Mid Market",
+                      label: "Upper-Mid",
+                      desc: "Top 25% market prices",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: "Prime / Luxury",
+                      label: "Luxury",
+                      desc: "Top 10% market prices",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+                        </svg>
+                      ),
+                    },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        updateProjectInfoForStream({
+                          salesMarketPositioning: option.value,
+                        });
+                        console.log(
+                          "🛒 Store Update - Market Positioning:",
+                          option.value
+                        );
+                      }}
+                      className={`relative flex flex-col p-4 rounded-xl border-2 text-left cursor-pointer transition-all ${
+                        projectInfo.salesMarketPositioning === option.value
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        {option.icon}
+                        <svg
+                          className="w-4 h-4 text-slate-500"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </div>
+                      <h4 className="font-semibold text-white">{option.label}</h4>
+                      <p className="text-xs text-slate-400 mt-1">{option.desc}</p>
                       <div
-                        className={`px-6 py-3 text-sm font-medium transition-colors ${
-                          activeTab === "highrise"
-                            ? "text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/5"
-                            : "text-slate-500"
+                        className={`mt-3 h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                          projectInfo.salesMarketPositioning === option.value
+                            ? "border-emerald-500"
+                            : "border-slate-600"
                         }`}
                       >
-                        High-Rise Config
+                        {projectInfo.salesMarketPositioning === option.value && (
+                          <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                        )}
                       </div>
+                    </button>
+                  ))}
+                </div>
+                {fieldError("salesMarketPositioning") && (
+                  <p className="text-sm text-red-400">
+                    {fieldError("salesMarketPositioning")}
+                  </p>
+                )}
+              </div>
+
+              {/* Finishing Standard */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-white">Finishing standard</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    {
+                      value: "Core & Shell",
+                      label: "Core & Shell",
+                      desc: "Shell + basic finishes, M&E rough-ins",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: "Standard Finish",
+                      label: "Standard",
+                      desc: "Standard finishes, basic appliances & fixtures",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: "Premium Finish",
+                      label: "Premium",
+                      desc: "High-end finishes, premium appliances & smart home",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                        </svg>
+                      ),
+                    },
+                    {
+                      value: "Fully Furnished",
+                      label: "Fully Furnished",
+                      desc: "Premium finish + furniture, decor, linens",
+                      icon: (
+                        <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                        </svg>
+                      ),
+                    },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        updateProjectInfoForStream({
+                          salesFinishingStandard: option.value,
+                        });
+                        console.log(
+                          "🛒 Store Update - Finishing Standard:",
+                          option.value
+                        );
+                      }}
+                      className={`relative flex flex-col p-4 rounded-xl border-2 text-left cursor-pointer transition-all ${
+                        projectInfo.salesFinishingStandard === option.value
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        {option.icon}
+                        <svg
+                          className="w-4 h-4 text-slate-500"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </div>
+                      <h4 className="font-semibold text-white">{option.label}</h4>
+                      <p className="text-xs text-slate-400 mt-1">{option.desc}</p>
                       <div
-                        className={`px-6 py-3 text-sm font-medium transition-colors ${
-                          activeTab === "landed"
-                            ? "text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/5"
-                            : "text-slate-500"
+                        className={`mt-3 h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                          projectInfo.salesFinishingStandard === option.value
+                            ? "border-emerald-500"
+                            : "border-slate-600"
                         }`}
                       >
-                        Landed Config
+                        {projectInfo.salesFinishingStandard === option.value && (
+                          <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {fieldError("salesFinishingStandard") && (
+                  <p className="text-sm text-red-400">
+                    {fieldError("salesFinishingStandard")}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Building Configuration */}
+          {currentStep === 4 && (
+            <div className="space-y-6">
+              {streamPrefix === "/sale" ? (
+                <>
+                  <h2 className="border-b border-slate-700 pb-4 text-xl font-bold capitalize text-white">
+                    {isSaleLandedProduct ? "Landed" : "High-Rise"} Configuration
+                  </h2>
+
+                  <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+                    <p className="text-sm text-slate-400">
+                      Configuration form auto-selected from Building Type in Step 3.
+                      To change, go back to Step 3 and select a different product type.
+                    </p>
+                  </div>
+
+                  {!isSaleLandedProduct && (
+                    <div className="space-y-6">
+                      <h3 className="text-lg font-semibold text-slate-200">
+                        High-Rise Configuration
+                      </h3>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Basements (B)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={projectInfo.salesHighRiseBasements || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseBasements: val });
+                              console.log("🛒 Store Update - HighRise Basements:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Podium / Parking (P)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={8}
+                            value={projectInfo.salesHighRisePodiums || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRisePodiums: val });
+                              console.log("🛒 Store Update - HighRise Podiums:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Ground Floor (G)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={1}
+                            value={projectInfo.salesHighRiseGroundFloors || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseGroundFloors: val });
+                              console.log("🛒 Store Update - HighRise Ground:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Upper Floors (Storeys)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={80}
+                            value={projectInfo.salesHighRiseUpperFloors || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseUpperFloors: val });
+                              console.log("🛒 Store Update - HighRise Upper Floors:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total Floors (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesHighRiseTotalFloors}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total Building BUA (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesHighRiseTotalBUA || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseTotalBUA: val });
+                              console.log("🛒 Store Update - HighRise BUA:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Basement BUA (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesHighRiseBasementBUA || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseBasementBUA: val });
+                              console.log("🛒 Store Update - HighRise Basement BUA:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Podium / Parking BUA (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesHighRisePodiumBUA || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRisePodiumBUA: val });
+                              console.log("🛒 Store Update - HighRise Podium BUA:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Saleable BUA Ratio (%)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={projectInfo.salesHighRiseSaleableRatio || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseSaleableRatio: val });
+                              console.log("🛒 Store Update - HighRise Ratio:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Saleable BUA (sqft) (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesHighRiseSaleableBUA}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-1">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Land Area (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesHighRiseLandArea || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesHighRiseLandArea: val });
+                              console.log("🛒 Store Update - HighRise Land Area:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
                       </div>
                     </div>
+                  )}
 
-                    <div className="mb-6 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
-                      <p className="text-sm text-slate-400">
-                        ℹ️ Configuration form auto-selected based on Building Type from Step 3.
-                        To change, go back to Step 3 and select a different building type.
-                      </p>
+                  {isSaleLandedProduct && (
+                    <div className="space-y-6">
+                      <h3 className="text-lg font-semibold text-slate-200">
+                        Landed Configuration
+                      </h3>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Ground Floor (G)
+                          </label>
+                          <input
+                            type="number"
+                            value={1}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                          <p className="mt-1 text-xs text-slate-500">Fixed</p>
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Upper Floors (Storeys)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={4}
+                            value={projectInfo.salesLandedUpperFloors || 1}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesLandedUpperFloors: val });
+                              console.log("🛒 Store Update - Landed Upper Floors:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total Floors (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesLandedTotalFloors}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Number of Units
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesLandedNumUnits || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesLandedNumUnits: val });
+                              console.log("🛒 Store Update - Landed Units:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            BUA per Unit (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesLandedBUAperUnit || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesLandedBUAperUnit: val });
+                              console.log("🛒 Store Update - Landed BUA/Unit:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total BUA (sqft) (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesLandedTotalBUA}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Saleable BUA Ratio (%)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={projectInfo.salesLandedSaleableRatio ?? 100}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesLandedSaleableRatio: val });
+                              console.log("🛒 Store Update - Landed Ratio:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total Saleable BUA (sqft) (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesLandedTotalSaleableBUA}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Land Area per Unit (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={projectInfo.salesLandedLandAreaPerUnit || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({
+                                salesLandedLandAreaPerUnit: val,
+                              });
+                              console.log("🛒 Store Update - Landed Land/Unit:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total Saleable Land Area (sqft) (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesLandedTotalSaleableLandArea}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Common Area (%)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={99}
+                            value={projectInfo.salesLandedCommonAreaPct || 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              updateProjectInfoForStream({ salesLandedCommonAreaPct: val });
+                              console.log("🛒 Store Update - Landed Common Area:", val);
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-300">
+                            Total Land Area (sqft) (Auto)
+                          </label>
+                          <input
+                            type="number"
+                            value={salesLandedTotalLandArea}
+                            readOnly
+                            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+                          />
+                        </div>
+                      </div>
                     </div>
-
-                    {activeTab === "highrise" ? (
-                      <div className="space-y-6">
-                        <h3 className="text-lg font-semibold text-white">
-                          Hi-Rise Residential & Strata Office Development Configuration
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Basements (No. of levels)
-                            </label>
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.basements}
-                              min={0}
-                              onChange={(e) =>
-                                updateFormData("basements", Number(e.target.value) || 0)
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            {fieldError("basements") && (
-                              <p className="mt-1 text-sm text-red-400">
-                                {fieldError("basements")}
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Podium / Parking Floors
-                            </label>
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.podiumFloors}
-                              min={0}
-                              onChange={(e) =>
-                                updateFormData("podiumFloors", Number(e.target.value) || 0)
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            {fieldError("podiumFloors") && (
-                              <p className="mt-1 text-sm text-red-400">
-                                {fieldError("podiumFloors")}
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Tower Floors
-                            </label>
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.towerFloors}
-                              min={1}
-                              onChange={(e) => {
-                                const v = Number(e.target.value) || 0;
-                                console.log("💾 [Sale Step 4] Saving:", {
-                                  floors: v,
-                                  gPlusFloors: v,
-                                  storePath: "sale.projectInfo",
-                                });
-                                updateFormData("towerFloors", v);
-                              }}
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            {fieldError("towerFloors") && (
-                              <p className="mt-1 text-sm text-red-400">
-                                {fieldError("towerFloors")}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        <h3 className="text-lg font-semibold text-white">
-                          Landed Residential & Commercial Development Configuration
-                        </h3>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Number of Units
-                            </label>
-                            <input
-                              type="number"
-                              value={landedUnits}
-                              min={1}
-                              onChange={(e) => {
-                                const v = Number(e.target.value) || 0;
-                                updateProjectInfoForStream({
-                                  buildingConfig: {
-                                    ...projectInfo.buildingConfig,
-                                    landedUnits: v,
-                                  },
-                                });
-                                logSaleCashOutflow("landedUnits", v, 4);
-                              }}
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              placeholder="e.g., 50"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Land Area per Unit (sqft)
-                            </label>
-                            <input
-                              type="number"
-                              value={landedLandAreaPerUnit}
-                              min={1}
-                              onChange={(e) => {
-                                const v = Number(e.target.value) || 0;
-                                updateProjectInfoForStream({
-                                  buildingConfig: {
-                                    ...projectInfo.buildingConfig,
-                                    landedLandAreaPerUnit: v,
-                                  },
-                                });
-                                logSaleCashOutflow("landedLandAreaPerUnit", v, 4);
-                              }}
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              placeholder="e.g., 4000"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              BUA per Unit (sqft)
-                            </label>
-                            <input
-                              type="number"
-                              value={landedBUAPerUnit}
-                              min={1}
-                              onChange={(e) => {
-                                const v = Number(e.target.value) || 0;
-                                updateProjectInfoForStream({
-                                  buildingConfig: {
-                                    ...projectInfo.buildingConfig,
-                                    landedBUAPerUnit: v,
-                                  },
-                                });
-                                logSaleCashOutflow("landedBUAPerUnit", v, 4);
-                              }}
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              placeholder="e.g., 2500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                          <h4 className="text-sm font-semibold text-white mb-3">
-                            Summary
-                          </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                              <p className="text-xs text-slate-400 mb-1">
-                                Total BUA (sqft)
-                              </p>
-                              <p className="text-lg font-semibold text-emerald-400">
-                                {totalBUA.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Units × BUA per Unit
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-400 mb-1">
-                                Total Saleable Land Area (sqft)
-                              </p>
-                              <p className="text-lg font-semibold text-emerald-400">
-                                {totalSaleableLand.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Units × Land Area per Unit
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-400 mb-1">
-                                Total Land Area (sqft)
-                              </p>
-                              <p className="text-lg font-semibold text-emerald-400">
-                                {totalLandArea.toLocaleString(undefined, {
-                                  maximumFractionDigits: 0,
-                                })}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Saleable Land ÷ 70%
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })() : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  )}
+                </>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-300">
                       Basements (No. of levels)
                     </label>
                     <input
@@ -1763,7 +2494,7 @@ function CashOutflowsPageContent() {
                       onChange={(e) =>
                         updateFormData("basements", Number(e.target.value) || 0)
                       }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {fieldError("basements") && (
                       <p className="mt-1 text-sm text-red-400">
@@ -1772,7 +2503,7 @@ function CashOutflowsPageContent() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-300">
                       Podium / Parking Floors
                     </label>
                     <input
@@ -1780,12 +2511,9 @@ function CashOutflowsPageContent() {
                       value={projectInfo.buildingConfig.podiumFloors}
                       min={0}
                       onChange={(e) =>
-                        updateFormData(
-                          "podiumFloors",
-                          Number(e.target.value) || 0
-                        )
+                        updateFormData("podiumFloors", Number(e.target.value) || 0)
                       }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {fieldError("podiumFloors") && (
                       <p className="mt-1 text-sm text-red-400">
@@ -1794,7 +2522,7 @@ function CashOutflowsPageContent() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-300">
                       Tower Floors
                     </label>
                     <input
@@ -1804,7 +2532,7 @@ function CashOutflowsPageContent() {
                       onChange={(e) =>
                         updateFormData("towerFloors", Number(e.target.value) || 0)
                       }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {fieldError("towerFloors") && (
                       <p className="mt-1 text-sm text-red-400">
@@ -1817,220 +2545,19 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 5: Hotel segment & rating (for-sale hotel products) / mixed-use */}
-          {currentStep === 4 && (
-            <div>
-              {isHotelProduct ? (
-                <>
-                  <h2 className="text-xl font-semibold text-white mb-2">
-                    Hotel operating segment & star rating
-                  </h2>
-                  <p className="text-sm text-slate-400 mb-6">
-                    Choose the positioning that best matches your for-sale hotel product.
-                    Star options follow typical industry pairings; invalid combinations block
-                    the next step.
-                  </p>
-
-                  <p className="text-sm font-medium text-slate-200 mb-3">
-                    Operating segment
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                    {HOTEL_OPERATING_TYPE_CARDS.map((opt) => {
-                      const selected =
-                        projectInfo.hotelOperatingType === opt.value;
-                      return (
-                        <HoverTipAbove key={opt.value} tip={opt.title}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const allowed = HOTEL_STARS_BY_TYPE[opt.value];
-                              const cur = Number(projectInfo.hotelStarRating);
-                              const keepStar = allowed.includes(cur);
-                              updateProjectInfoForStream({
-                                hotelOperatingType: opt.value,
-                                hotelStarRating: keepStar
-                                  ? projectInfo.hotelStarRating
-                                  : "",
-                              });
-                            }}
-                            className={`w-full min-h-[100px] cursor-pointer rounded-xl border p-5 text-left shadow-sm transition-all ${
-                              selected
-                                ? "border-emerald-500 bg-emerald-500/15 text-emerald-100 ring-2 ring-emerald-500/40"
-                                : "border-slate-600 bg-slate-800/80 text-slate-100 hover:border-slate-500 hover:bg-slate-800"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <span className="shrink-0 text-2xl" aria-hidden>
-                                {opt.icon}
-                              </span>
-                              <div className="min-w-0">
-                                <span className="block text-base font-semibold leading-snug">
-                                  {opt.label}
-                                </span>
-                                <span className="mt-2 block text-xs font-normal leading-relaxed text-slate-400">
-                                  {opt.hint}
-                                </span>
-                              </div>
-                            </div>
-                          </button>
-                        </HoverTipAbove>
-                      );
-                    })}
-                  </div>
-                  {fieldError("hotelOperatingType") && (
-                    <p className="mb-4 text-sm text-red-400">
-                      {fieldError("hotelOperatingType")}
-                    </p>
-                  )}
-
-                  <p className="text-sm font-medium text-slate-200 mb-3">
-                    Star rating
-                  </p>
-                  {projectInfo.hotelOperatingType ? (
-                    <div className="flex flex-wrap gap-3">
-                      {HOTEL_STARS_BY_TYPE[
-                        projectInfo.hotelOperatingType as HotelOperatingType
-                      ].map((s) => {
-                        const selected =
-                          projectInfo.hotelStarRating === String(s);
-                        return (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() =>
-                              updateProjectInfoForStream({ hotelStarRating: String(s) })
-                            }
-                            className={`rounded-lg border px-5 py-3 text-sm font-semibold transition-all ${
-                              selected
-                                ? "border-emerald-500 bg-emerald-500/20 text-emerald-200 ring-2 ring-emerald-500/30"
-                                : "border-slate-600 bg-slate-800 text-slate-200 hover:border-slate-500"
-                            }`}
-                          >
-                            {s}★
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">
-                      Select an operating segment to see allowed star ratings.
-                    </p>
-                  )}
-                  {fieldError("hotelStarRating") && (
-                    <p className="mt-3 text-sm text-red-400">
-                      {fieldError("hotelStarRating")}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  <h2 className="text-xl font-semibold text-white mb-6">
-                    Mixed-Use (Retail on Ground/Podium)
-                  </h2>
-                  {projectInfo.buildingType === "residential" ||
-                  projectInfo.buildingType === "office" ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-slate-200">
-                            Retail / Mixed-use Component
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            Toggle if the Hi-Rise Residential ground/podium includes retail or F&amp;B.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateFormData(
-                              "hasRetailComponent",
-                              !projectInfo.buildingConfig.hasRetailComponent
-                            )
-                          }
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            projectInfo.buildingConfig.hasRetailComponent
-                              ? "bg-emerald-600"
-                              : "bg-slate-600"
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              projectInfo.buildingConfig.hasRetailComponent
-                                ? "translate-x-6"
-                                : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {projectInfo.buildingConfig.hasRetailComponent && (
-                        <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Retail BUA as % of Ground/Podium BUA
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.retailPercentage}
-                              min={1}
-                              max={50}
-                              onChange={(e) =>
-                                updateFormData(
-                                  "retailPercentage",
-                                  Number(e.target.value) || 0
-                                )
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            <span className="text-slate-400 text-sm">%</span>
-                          </div>
-                          {fieldError("retailPercentage") && (
-                            <p className="mt-1 text-sm text-red-400">
-                              {fieldError("retailPercentage")}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-400">
-                      Mixed-use toggle is primarily for residential and office
-                      towers.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Step 5: Construction Costs (Step 6 of 14) */}
+          {/* Step 6: Construction Costs */}
           {currentStep === 5 && (
             <div>
-              {/* BENCHMARK PROFILE BAR */}
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200 border border-slate-700">
-                  {getPrettySubTypeName()} • {projectInfo.city} • {projectInfo.country}
-                </span>
-
-                {isStep6Manual && step6Recommendations && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
-                    Manual overrides
-                  </span>
-                )}
-
-                {step6Recommendations && (
-                  <button
-                    type="button"
-                    onClick={handleResetStep6}
-                    className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
-                  >
-                    Use profile defaults
-                  </button>
-                )}
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride: isStep6Manual,
+                onReset:
+                  benchBuildingRate != null ||
+                  benchParkingRate != null ||
+                  benchBasementRate != null ||
+                  benchInfraRate != null
+                    ? handleResetStep6
+                    : undefined,
+              })}
 
               <h2 className="text-xl font-semibold text-white mb-6">
                 Construction Costs (CC)
@@ -2045,50 +2572,42 @@ function CashOutflowsPageContent() {
                     Superstructure / Main Building
                   </h3>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
                       Building BUA (sqft)
                     </label>
                     <input
                       type="number"
-                      value={cashOutflows.buildingBUA}
-                      onChange={(e) =>
-                        updateFormData(
-                          "buildingBUA",
-                          Number(e.target.value) || 0
-                        )
+                      value={
+                        isSaleLandedProduct
+                          ? salesLandedTotalBUA || 0
+                          : projectInfo.salesHighRiseTotalBUA || 0
                       }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      readOnly
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
                     />
+                    <p className="mt-1 text-xs text-amber-400">
+                      🔒 Locked: To change, go back to Step 5
+                    </p>
                     {fieldError("buildingBUA") && (
                       <p className="mt-1 text-sm text-red-400">
                         {fieldError("buildingBUA")}
                       </p>
                     )}
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
-                      Building Rate ({projectInfo.currency}/sqft)
-                      {isBuildingManual && <span className="ml-2 text-xs text-amber-400">(override)</span>}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.buildingRate}
-                      onChange={(e) =>
-                        updateFormData(
-                          "buildingRate",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                        isBuildingManual ? "border-amber-500/70" : "border-slate-700"
-                      }`}
-                    />
-                    {fieldError("buildingRate") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("buildingRate")}
-                      </p>
-                    )}
-                  </div>
+                  <AiInput
+                    label={`Building Rate (${projectInfo.currency}/sqft)`}
+                    value={cashOutflows.buildingRate || benchBuildingRate || 0}
+                    onChange={(v) =>
+                      updateFormData("buildingRate", Number(v) || 0)
+                    }
+                    isAiGenerated={!!aiBuildingRate}
+                    isManualOverride={isBuildingManual}
+                  />
+                  {fieldError("buildingRate") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("buildingRate")}
+                    </p>
+                  )}
                   <p className="text-sm text-slate-300">
                     Building Cost (CC):{" "}
                     <span className="font-semibold text-emerald-400">
@@ -2100,104 +2619,67 @@ function CashOutflowsPageContent() {
                   </p>
                 </div>
 
+                {!isSaleLandedProduct && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-200">
                     Parking & Basements
                   </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Parking BUA (sqft)
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.parkingBUA}
-                        onChange={(e) =>
-                          updateFormData(
-                            "parkingBUA",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                      {fieldError("parkingBUA") && (
-                        <p className="mt-1 text-sm text-red-400">
-                          {fieldError("parkingBUA")}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Parking Rate ({projectInfo.currency}/sqft)
-                        {isParkingManual && <span className="ml-2 text-xs text-amber-400">(override)</span>}
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.parkingRate}
-                        onChange={(e) =>
-                          updateFormData(
-                            "parkingRate",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                          isParkingManual ? "border-amber-500/70" : "border-slate-700"
-                        }`}
-                      />
-                      {fieldError("parkingRate") && (
-                        <p className="mt-1 text-sm text-red-400">
-                          {fieldError("parkingRate")}
-                        </p>
-                      )}
-                    </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Parking / Podium BUA (sqft)
+                    </label>
+                    <input
+                      type="number"
+                      value={projectInfo.salesHighRisePodiumBUA || 0}
+                      readOnly
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                    />
+                    <p className="mt-1 text-xs text-amber-400">
+                      🔒 Locked: To change, go back to Step 5
+                    </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Basement BUA (sqft)
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.basementBUA}
-                        onChange={(e) =>
-                          updateFormData(
-                            "basementBUA",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                      {fieldError("basementBUA") && (
-                        <p className="mt-1 text-sm text-red-400">
-                          {fieldError("basementBUA")}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Basement Rate ({projectInfo.currency}/sqft)
-                        {isBasementManual && <span className="ml-2 text-xs text-amber-400">(override)</span>}
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.basementRate}
-                        onChange={(e) =>
-                          updateFormData(
-                            "basementRate",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                          isBasementManual ? "border-amber-500/70" : "border-slate-700"
-                        }`}
-                      />
-                      {fieldError("basementRate") && (
-                        <p className="mt-1 text-sm text-red-400">
-                          {fieldError("basementRate")}
-                        </p>
-                      )}
-                    </div>
+                  <AiInput
+                    label={`Parking Rate (${projectInfo.currency}/sqft)`}
+                    value={cashOutflows.parkingRate || benchParkingRate || 0}
+                    onChange={(v) =>
+                      updateFormData("parkingRate", Number(v) || 0)
+                    }
+                    isAiGenerated={!!aiParkingRate}
+                    isManualOverride={isParkingManual}
+                  />
+                  {fieldError("parkingRate") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("parkingRate")}
+                    </p>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Basement BUA (sqft)
+                    </label>
+                    <input
+                      type="number"
+                      value={projectInfo.salesHighRiseBasementBUA || 0}
+                      readOnly
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                    />
+                    <p className="mt-1 text-xs text-amber-400">
+                      🔒 Locked: To change, go back to Step 5
+                    </p>
                   </div>
+                  <AiInput
+                    label={`Basement Rate (${projectInfo.currency}/sqft)`}
+                    value={cashOutflows.basementRate || benchBasementRate || 0}
+                    onChange={(v) =>
+                      updateFormData("basementRate", Number(v) || 0)
+                    }
+                    isAiGenerated={!!aiBasementRate}
+                    isManualOverride={isBasementManual}
+                  />
+                  {fieldError("basementRate") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("basementRate")}
+                    </p>
+                  )}
                   <p className="text-sm text-slate-300">
                     Parking & Basement Cost (CC):{" "}
                     <span className="font-semibold text-emerald-400">
@@ -2219,6 +2701,7 @@ function CashOutflowsPageContent() {
                     </p>
                   ) : null}
                 </div>
+                )}
               </div>
 
               {/* Infrastructure Costs - Landed Developments (Sale stream) */}
@@ -2241,48 +2724,33 @@ function CashOutflowsPageContent() {
                   </h4>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm text-slate-400 mb-2">
-                        Infrastructure Rate ({projectInfo.currency}/sqft)
-                        {isInfraManual && <span className="ml-2 text-xs text-amber-400">(override)</span>}
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.infrastructureRate ?? 0}
-                        onChange={(e) =>
-                          updateFormData(
-                            "infrastructureRate",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className={`w-full px-4 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                          isInfraManual ? "border-amber-500/70" : "border-slate-700"
-                        }`}
-                        min={0}
-                        max={1000}
-                        placeholder="e.g., 150"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">
-                        For landed developments only (Hi-Rise: leave as 0)
-                      </p>
-                    </div>
+                    <AiInput
+                      label={`Infrastructure Rate (${projectInfo.currency}/sqft)`}
+                      value={cashOutflows.infrastructureRate ?? benchInfraRate ?? 0}
+                      onChange={(v) =>
+                        updateFormData("infrastructureRate", Number(v) || 0)
+                      }
+                      isAiGenerated={!!aiInfraRate}
+                      isManualOverride={isInfraManual}
+                      helperText="For landed developments only (Hi-Rise: leave as 0)"
+                    />
 
                     <div>
                       <label className="block text-sm text-slate-400 mb-2">
                         Total Land Area (sqft)
                         <span className="text-xs text-slate-500 ml-2">
-                          (from Step 4)
+                          (from Step 5)
                         </span>
                       </label>
                       <input
                         type="number"
-                        value={Math.round(landedTotalLandArea)}
+                        value={salesLandedTotalLandArea}
                         readOnly
                         disabled
                         className="w-full px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-slate-400"
                       />
                       <p className="text-xs text-slate-500 mt-1">
-                        Auto-populated from Step 4 (saleable land ÷ 70%)
+                        Auto-populated from Step 5
                       </p>
                     </div>
 
@@ -2319,7 +2787,7 @@ function CashOutflowsPageContent() {
           )}
 
 
-          {/* Step 3: Contingency */}
+          {/* Step 7: Contingency */}
           {currentStep === 6 && (
             <div>
               {/* BENCHMARK PROFILE BAR */}
@@ -2362,9 +2830,13 @@ function CashOutflowsPageContent() {
                       {fieldError("contingencyPercent")}
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-slate-500">
-                    Typical range: 5–10% depending on asset and design stage.
-                  </p>
+                  <AiHintBox
+                    title="AI Contingency Recommendation"
+                    className="mt-2"
+                  >
+                    {aiData?.hints?.contingency_text ||
+                      `For a ${isSaleLandedProduct ? "landed" : "high-rise"} project in ${projectInfo.city}, a contingency of 5-10% is recommended.`}
+                  </AiHintBox>
                 </div>
                 <div>
                   <p className="text-xs font-medium text-slate-400 mb-1">
@@ -2392,35 +2864,16 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 7: SC, POWC & DC */}
+          {/* Step 8: SC, POWC & DC */}
           {currentStep === 7 && (
             <div>
-              {/* BENCHMARK PROFILE BAR */}
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200 border border-slate-700">
-                  {getPrettySubTypeName()} • {projectInfo.city} •{" "}
-                  {projectInfo.country}
-                </span>
-
-                {isStep8Manual && currentRecommendations && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
-                    Manual overrides
-                  </span>
-                )}
-
-                {currentRecommendations && (
-                  <button
-                    type="button"
-                    onClick={handleResetStep8}
-                    className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
-                  >
-                    Use profile defaults
-                  </button>
-                )}
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride: isStep8Manual,
+                onReset:
+                  benchScPct != null || benchPowcPct != null
+                    ? handleResetStep8
+                    : undefined,
+              })}
 
               <h2 className="text-xl font-semibold text-white mb-4">
                 SC, POWC & DC
@@ -2432,71 +2885,37 @@ function CashOutflowsPageContent() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    <span className="cursor-default">
-                      Soft Costs % of CC incl. contingency (SC%)
-                    </span>
-                    {isSCManual && (
-                      <span className="ml-2 text-xs font-normal text-amber-400">
-                        (override)
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.softCostPercent}
-                    onChange={(e) => {
-                      const v = Number(e.target.value) || 0;
-                      updateFormData("softCostPercent", v);
-                    }}
-                    className={`w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      isSCManual
-                        ? "border-2 border-amber-500/70"
-                        : "border border-slate-700"
-                    }`}
+                  <AiInput
+                    label="Soft Costs % of CC incl. contingency (SC%)"
+                    type="percentage"
+                    value={cashOutflows.softCostPercent || benchScPct || 0}
+                    onChange={(v) => updateFormData("softCostPercent", Number(v) || 0)}
+                    isAiGenerated={!!aiScPct}
+                    isManualOverride={isSCManual}
+                    helperText="SC amount = CC incl. contingency × SC% ÷ 100"
                   />
                   {fieldError("softCostPercent") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("softCostPercent")}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-slate-500">
-                    SC amount = CC incl. contingency × SC% ÷ 100
-                  </p>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    <span className="cursor-default">
-                      POWC % of CC incl. contingency (POWC%)
-                    </span>
-                    {isPOWCManual && (
-                      <span className="ml-2 text-xs font-normal text-amber-400">
-                        (override)
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.powcPercent}
-                    onChange={(e) => {
-                      const v = Number(e.target.value) || 0;
-                      updateFormData("powcPercent", v);
-                    }}
-                    className={`w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      isPOWCManual
-                        ? "border-2 border-amber-500/70"
-                        : "border border-slate-700"
-                    }`}
+                  <AiInput
+                    label="POWC % of CC incl. contingency (POWC%)"
+                    type="percentage"
+                    value={cashOutflows.powcPercent || benchPowcPct || 0}
+                    onChange={(v) => updateFormData("powcPercent", Number(v) || 0)}
+                    isAiGenerated={!!aiPowcPct}
+                    isManualOverride={isPOWCManual}
+                    helperText="POWC = Pre-Operating Expenses & Working Capital"
                   />
                   {fieldError("powcPercent") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("powcPercent")}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-slate-500">
-                    POWC = Pre-Operating Expenses & Working Capital
-                  </p>
                 </div>
               </div>
 
@@ -2532,34 +2951,13 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 9: Land Costs (currentStep 8) */}
+          {/* Step 9: Land Costs */}
           {currentStep === 8 && (
             <div>
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
-                  {getPrettySubTypeName()} • {projectInfo.city} •{" "}
-                  {projectInfo.country}
-                </span>
-
-                {isStep9Manual && currentRecommendations && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
-                    Manual overrides
-                  </span>
-                )}
-
-                {currentRecommendations && (
-                  <button
-                    type="button"
-                    onClick={handleResetStep9}
-                    className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
-                  >
-                    Use profile defaults
-                  </button>
-                )}
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride: isStep9Manual,
+                onReset: benchLandRate != null ? handleResetStep9 : undefined,
+              })}
 
               <h2 className="text-xl font-semibold text-white mb-4">
                 Land Costs (LC)
@@ -2577,58 +2975,41 @@ function CashOutflowsPageContent() {
                   </label>
                   <input
                     type="number"
-                    value={cashOutflows.landArea}
-                    onChange={(e) =>
-                      updateFormData("landArea", Number(e.target.value) || 0)
+                    value={
+                      isSaleLandedProduct
+                        ? salesLandedTotalLandArea || 0
+                        : projectInfo.salesHighRiseLandArea || 0
                     }
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    readOnly
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
                   />
+                  <p className="mt-1 text-xs text-amber-400">
+                    🔒 Locked: To change, go back to Step 5
+                  </p>
                   {fieldError("landArea") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("landArea")}
                     </p>
                   )}
-                  {projectInfo.buildingSubType?.includes("landed") && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Auto-calculated from Step 4 (saleable land ÷ 70%)
-                    </p>
-                  )}
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    Land Rate ({projectInfo.currency}/sqft)
-                    {isLandRateManual && (
-                      <span className="ml-2 text-xs font-normal text-amber-400">
-                        (override)
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.landRate}
-                    onChange={(e) =>
-                      updateFormData("landRate", Number(e.target.value) || 0)
-                    }
-                    className={`w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      isLandRateManual
-                        ? "border-2 border-amber-500/70"
-                        : "border border-slate-700"
-                    }`}
-                  />
-                  {fieldError("landRate") && (
-                    <p className="mt-1 text-sm text-red-400">
-                      {fieldError("landRate")}
-                    </p>
-                  )}
-                  {cityLandRate && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Recommended for {projectInfo.city}:{" "}
-                      {cityLandRate.ratePerSqft.toLocaleString()}{" "}
-                      {projectInfo.currency}/sqft
-                    </p>
-                  )}
-                </div>
+                <AiInput
+                  label={`Land Rate (${projectInfo.currency}/sqft)`}
+                  value={cashOutflows.landRate || benchLandRate || 0}
+                  onChange={(v) => updateFormData("landRate", Number(v) || 0)}
+                  isAiGenerated={!!aiLandRate}
+                  isManualOverride={isLandRateManual}
+                  helperText={
+                    cityLandRate && !aiLandRate
+                      ? `Recommended for ${projectInfo.city}: ${cityLandRate.ratePerSqft.toLocaleString()} ${projectInfo.currency}/sqft`
+                      : undefined
+                  }
+                />
+                {fieldError("landRate") && (
+                  <p className="mt-1 text-sm text-red-400">
+                    {fieldError("landRate")}
+                  </p>
+                )}
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-300">
@@ -2647,20 +3028,23 @@ function CashOutflowsPageContent() {
               </div>
 
               <div className="mt-6 rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-                <p className="text-sm text-slate-400">
-                  <span className="font-semibold text-slate-200">
+                <p className="text-sm text-slate-300">
+                  <span className="font-semibold text-white">
                     Market insight:
                   </span>{" "}
-                  Benchmark land rate for {projectInfo.city} is{" "}
-                  <span className="text-emerald-400">
-                    {cityLandRate
-                      ? `${cityLandRate.ratePerSqft.toLocaleString()} ${projectInfo.currency}/sqft`
-                      : "—"}
+                  Benchmark land rate for{" "}
+                  {projectInfo.subMarket || projectInfo.city} is{" "}
+                  <span className="font-bold text-emerald-400">
+                    {aiLandRate != null
+                      ? `${Number(aiLandRate).toLocaleString()} ${projectInfo.currency}/sqft`
+                      : cityLandRate
+                        ? `${cityLandRate.ratePerSqft.toLocaleString()} ${projectInfo.currency}/sqft`
+                        : "—"}
                   </span>
                   . At these inputs, land is about{" "}
-                  <span className="text-emerald-400">
+                  <span className="font-bold text-emerald-400">
                     {totalDevelopmentCost > 0
-                      ? `${((landCost / totalDevelopmentCost) * 100).toFixed(0)}%`
+                      ? `${landToTdcRatio.toFixed(0)}%`
                       : "—"}
                   </span>{" "}
                   of total development cost (TDC) for{" "}
@@ -2670,7 +3054,7 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 8-9: TDC & Ratio Checks */}
+          {/* Step 10: TDC & Ratio Checks */}
           {currentStep === 9 && (
             <div>
               {/* BENCHMARK PROFILE BAR */}
@@ -2697,9 +3081,7 @@ function CashOutflowsPageContent() {
                     })}{" "}
                     {projectInfo.currency}
                   </p>
-                  <p className="text-sm text-slate-300 mt-4">
-                    Land Cost (LC)
-                  </p>
+                  <p className="mt-4 text-sm text-slate-300">Land Cost (LC)</p>
                   <p className="text-lg font-semibold text-emerald-400">
                     {landCost.toLocaleString(undefined, {
                       maximumFractionDigits: 0,
@@ -2718,46 +3100,73 @@ function CashOutflowsPageContent() {
                     {projectInfo.currency}
                   </p>
                   <div className="mt-4 space-y-2 text-sm text-slate-300">
-                    <p>
-                      Land / TDC:{" "}
-                      <span
-                        className={`font-semibold ${
-                          landToTdcRatio <= 51
-                            ? "text-emerald-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {landToTdcRatio.toFixed(1)}% (target ≤ 51%)
-                      </span>
-                    </p>
-                    <p>
-                      Development (DC) / TDC:{" "}
-                      <span
-                        className={`font-semibold ${
-                          dcToTdcRatio >= 49
-                            ? "text-emerald-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {dcToTdcRatio.toFixed(1)}% (target ≥ 49%)
-                      </span>
-                    </p>
+                    {(() => {
+                      const landTarget = aiData?.guardrails?.land_tdc_target_pct;
+                      const dcTarget = aiData?.guardrails?.dc_tdc_target_pct;
+
+                      const landMin = landTarget?.min ?? 0;
+                      const landMax = landTarget?.max ?? 51;
+                      const dcMin = dcTarget?.min ?? 49;
+                      const dcMax = dcTarget?.max ?? 100;
+
+                      const landInRange =
+                        landToTdcRatio >= landMin && landToTdcRatio <= landMax;
+                      const dcInRange =
+                        dcToTdcRatio >= dcMin && dcToTdcRatio <= dcMax;
+
+                      return (
+                        <>
+                          <p>
+                            Land / TDC:{" "}
+                            <span
+                              className={`font-semibold ${
+                                landInRange
+                                  ? "text-emerald-400"
+                                  : "text-red-400"
+                              }`}
+                            >
+                              {landToTdcRatio.toFixed(1)}% (target {landMin}–
+                              {landMax}%)
+                            </span>
+                          </p>
+                          <p>
+                            Development (DC) / TDC:{" "}
+                            <span
+                              className={`font-semibold ${
+                                dcInRange ? "text-emerald-400" : "text-red-400"
+                              }`}
+                            >
+                              {dcToTdcRatio.toFixed(1)}% (target {dcMin}–{dcMax}
+                              %)
+                            </span>
+                          </p>
+                          {(!landInRange || !dcInRange) && (
+                            <AiGuardrailBox
+                              severity="error"
+                              title="TDC Ratio Outside Institutional Range"
+                              message={`Your Land/TDC ratio (${landToTdcRatio.toFixed(1)}%) or DC/TDC ratio (${dcToTdcRatio.toFixed(1)}%) is outside the target range for this market and asset type. Please adjust your land or development costs.`}
+                              className="mt-2"
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   {(fieldError("landRatio") || fieldError("dcRatio")) && (
                     <p className="text-xs text-red-400">
                       {fieldError("landRatio") || fieldError("dcRatio")}
                     </p>
                   )}
-                  <p className="text-xs text-slate-500 mt-2">
-                    These ratios are simple guardrails. In many GCC projects, land cost
-                    is kept below ~50% of total development cost.
+                  <p className="mt-2 text-xs text-slate-500">
+                    These ratios are simple guardrails. In many GCC projects,
+                    land cost is kept below ~50% of total development cost.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Step 10: Construction Period */}
+          {/* Step 11: Construction Period */}
           {currentStep === 10 && (
             <div>
               {/* BENCHMARK PROFILE BAR */}
@@ -2819,62 +3228,40 @@ function CashOutflowsPageContent() {
                     {fieldError("constructionPeriod")}
                   </p>
                 )}
-                <div className="rounded-lg bg-slate-800 border border-slate-700 p-3 text-xs text-slate-300">
-                  <p className="font-semibold text-emerald-400 mb-1">
-                    AI Recommendation (rule-of-thumb)
-                  </p>
-                  <p>
-                    For a{" "}
-                    <span className="font-semibold">
-                      {projectInfo.buildingType}
-                    </span>{" "}
-                    with{" "}
-                    <span className="font-semibold">
-                      {projectInfo.buildingConfig.towerFloors} tower floors
-                    </span>
-                    , a reasonable range is{" "}
-                    <span className="font-semibold">
-                      {(projectInfo.buildingConfig.towerFloors + 12).toFixed(0)}–{(
-                        projectInfo.buildingConfig.towerFloors + 24
-                      ).toFixed(0)}{" "}
-                      months
-                    </span>
-                    , depending on basement complexity and authority approvals.
-                  </p>
-                </div>
+                <AiHintBox
+                  className="mt-6"
+                  title="AI Construction Period Recommendation"
+                >
+                  {aiData?.hints?.construction_period_text ||
+                    aiC1?.construction_period?.justification ||
+                    `For a ${isSaleLandedProduct ? "landed" : "high-rise"} with ${
+                      isSaleLandedProduct
+                        ? projectInfo.salesLandedUpperFloors ||
+                          projectInfo.buildingConfig.towerFloors
+                        : projectInfo.salesHighRiseUpperFloors ||
+                          projectInfo.buildingConfig.towerFloors
+                    } floors in ${projectInfo.city}, a reasonable range is ${
+                      aiC1?.construction_period?.range || "18-24"
+                    } months.`}
+                </AiHintBox>
               </div>
             </div>
           )}
 
-          {/* Step 11: Construction Stages */}
+          {/* Step 12: Construction Stages */}
           {currentStep === 11 && (
             <div>
-              {/* BENCHMARK PROFILE BAR */}
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200 border border-slate-700">
-                  {getPrettySubTypeName()} • {projectInfo.city} •{" "}
-                  {projectInfo.country}
-                </span>
-
-                {isStep12Manual && currentRecommendations && (
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
-                    Manual overrides
-                  </span>
-                )}
-
-                {currentRecommendations && (
-                  <button
-                    type="button"
-                    onClick={handleResetStep12}
-                    className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
-                  >
-                    Use profile defaults
-                  </button>
-                )}
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride: isStep12Manual,
+                onReset:
+                  isStep12Manual &&
+                  (benchStage1 != null ||
+                    benchStage2 != null ||
+                    benchStage3 != null ||
+                    benchStage4 != null)
+                    ? handleResetStep12
+                    : undefined,
+              })}
 
               <h2 className="text-xl font-semibold text-white mb-4">
                 Construction Stages (M0 to Finishes)
@@ -2929,27 +3316,21 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-3 mb-1">
-                      Stage 1 (% of CC%)
-                      {isStageAllocationManual && (
-                        <span className="ml-2 text-amber-400">(override)</span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage1Percent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "stage1Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                        isStageAllocationManual
-                          ? "border-amber-500/70"
-                          : "border-slate-700"
-                      }`}
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 1 (% of CC%)"
+                        type="percentage"
+                        value={cashOutflows.stageAllocation.stage1Percent}
+                        onChange={(v) =>
+                          updateFormData("stage1Percent", Number(v) || 0)
+                        }
+                        isAiGenerated={!!aiScurve?.stage_1_pct}
+                        isManualOverride={isRateOverride(
+                          cashOutflows.stageAllocation.stage1Percent,
+                          benchStage1
+                        )}
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -2964,27 +3345,21 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-3 mb-1">
-                      Stage 2 (% of CC%)
-                      {isStageAllocationManual && (
-                        <span className="ml-2 text-amber-400">(override)</span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage2Percent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "stage2Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                        isStageAllocationManual
-                          ? "border-amber-500/70"
-                          : "border-slate-700"
-                      }`}
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 2 (% of CC%)"
+                        type="percentage"
+                        value={cashOutflows.stageAllocation.stage2Percent}
+                        onChange={(v) =>
+                          updateFormData("stage2Percent", Number(v) || 0)
+                        }
+                        isAiGenerated={!!aiScurve?.stage_2_pct}
+                        isManualOverride={isRateOverride(
+                          cashOutflows.stageAllocation.stage2Percent,
+                          benchStage2
+                        )}
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -2999,27 +3374,21 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-3 mb-1">
-                      Stage 3 (% of CC%)
-                      {isStageAllocationManual && (
-                        <span className="ml-2 text-amber-400">(override)</span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage3Percent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "stage3Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                        isStageAllocationManual
-                          ? "border-amber-500/70"
-                          : "border-slate-700"
-                      }`}
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 3 (% of CC%)"
+                        type="percentage"
+                        value={cashOutflows.stageAllocation.stage3Percent}
+                        onChange={(v) =>
+                          updateFormData("stage3Percent", Number(v) || 0)
+                        }
+                        isAiGenerated={!!aiScurve?.stage_3_pct}
+                        isManualOverride={isRateOverride(
+                          cashOutflows.stageAllocation.stage3Percent,
+                          benchStage3
+                        )}
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -3034,27 +3403,21 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-3 mb-1">
-                      Stage 4 (% of CC%)
-                      {isStageAllocationManual && (
-                        <span className="ml-2 text-amber-400">(override)</span>
-                      )}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage4Percent ?? 0}
-                      onChange={(e) =>
-                        updateFormData(
-                          "stage4Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                        isStageAllocationManual
-                          ? "border-amber-500/70"
-                          : "border-slate-700"
-                      }`}
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 4 (% of CC%)"
+                        type="percentage"
+                        value={cashOutflows.stageAllocation.stage4Percent ?? 0}
+                        onChange={(v) =>
+                          updateFormData("stage4Percent", Number(v) || 0)
+                        }
+                        isAiGenerated={!!aiScurve?.stage_4_pct}
+                        isManualOverride={isRateOverride(
+                          cashOutflows.stageAllocation.stage4Percent ?? 0,
+                          benchStage4
+                        )}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -3089,19 +3452,16 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 12 & 13: POWC & SC Allocation + Summary */}
+          {/* Step 13: POWC & SC Allocation + Summary */}
           {currentStep === 12 && (
             <div className="space-y-8">
-              {/* BENCHMARK PROFILE BAR */}
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200 border border-slate-700">
-                  {getPrettySubTypeName()} • {projectInfo.city} •{" "}
-                  {projectInfo.country}
-                </span>
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride: isStep13Manual,
+                onReset:
+                  isStep13Manual && (aiPowcBreakdown || aiScBreakdown)
+                    ? resetAllocationsToBenchmark
+                    : undefined,
+              })}
               <div>
                 <h2 className="text-xl font-semibold text-white mb-4">
                   Detailed Allocation & Summary
@@ -3115,7 +3475,7 @@ function CashOutflowsPageContent() {
                     title="POWC Allocation"
                     source={`Based on 2024 ${projectInfo.city || "market"} ${projectInfo.buildingType || "residential"} data`}
                     sourceDetail={`Source: ${getBenchmarkSource(projectInfo.country, projectInfo.city)}`}
-                    explanation={`Step 13 timing: ${POWC_STEP13_TIMING_NOTES}`}
+                    explanation={`Step 12 timing: ${POWC_STEP13_TIMING_NOTES}`}
                   >
                     <div className="space-y-4">
                       {(() => {
@@ -3123,13 +3483,44 @@ function CashOutflowsPageContent() {
                           cashOutflows.powcAllocation ?? {
                             ...DEFAULT_POWC_ALLOCATION,
                           };
-                        const powcTotal = powcAlloc.siteEstablishment + powcAlloc.overhead + powcAlloc.authorityFees;
+                        const powcTotal =
+                          powcAlloc.siteEstablishment +
+                          powcAlloc.overhead +
+                          powcAlloc.authorityFees;
+
+                        const aiSite = aiPowcBreakdown?.site_establishment_pct;
+                        const aiOverhead = aiPowcBreakdown?.overhead_pct;
+                        const aiAuthority = aiPowcBreakdown?.authority_fees_pct;
+
+                        const siteMatchesAi =
+                          aiSite != null &&
+                          !isRateOverride(powcAlloc.siteEstablishment, aiSite);
+                        const overheadMatchesAi =
+                          aiOverhead != null &&
+                          !isRateOverride(powcAlloc.overhead, aiOverhead);
+                        const authorityMatchesAi =
+                          aiAuthority != null &&
+                          !isRateOverride(powcAlloc.authorityFees, aiAuthority);
+
+                        const allocInputClass = (matchesAi: boolean, hasAi: boolean) =>
+                          `w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            matchesAi
+                              ? "border-2 border-blue-500"
+                              : hasAi
+                                ? "border-2 border-amber-500"
+                                : "border border-slate-600"
+                          }`;
+
                         return (
                           <>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Site Establishment</label>
-                                <p className="mt-1 text-xs text-slate-500">Mobilization, temporary facilities, site prep</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Site Establishment
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Mobilization, temporary facilities, site prep
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3138,21 +3529,42 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={powcAlloc.siteEstablishment}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
                                     updateCashOutflowsForStream({
-                                      powcAllocation: { ...powcAlloc, siteEstablishment: newValue },
+                                      powcAllocation: {
+                                        ...powcAlloc,
+                                        siteEstablishment: newValue,
+                                      },
                                     });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    siteMatchesAi,
+                                    aiSite != null
+                                  )}
                                 />
+                                {aiSite != null && (
+                                  <span
+                                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                      siteMatchesAi
+                                        ? "bg-blue-500/20 text-blue-400"
+                                        : "bg-amber-500/20 text-amber-400"
+                                    }`}
+                                  >
+                                    {siteMatchesAi ? "AI" : "Override"}
+                                  </span>
+                                )}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Overhead Costs</label>
-                                <p className="mt-1 text-xs text-slate-500">Admin, HSE, Management, site staff</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Overhead Costs
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Admin, HSE, Management, site staff
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3161,21 +3573,42 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={powcAlloc.overhead}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
                                     updateCashOutflowsForStream({
-                                      powcAllocation: { ...powcAlloc, overhead: newValue },
+                                      powcAllocation: {
+                                        ...powcAlloc,
+                                        overhead: newValue,
+                                      },
                                     });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    overheadMatchesAi,
+                                    aiOverhead != null
+                                  )}
                                 />
+                                {aiOverhead != null && (
+                                  <span
+                                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                      overheadMatchesAi
+                                        ? "bg-blue-500/20 text-blue-400"
+                                        : "bg-amber-500/20 text-amber-400"
+                                    }`}
+                                  >
+                                    {overheadMatchesAi ? "AI" : "Override"}
+                                  </span>
+                                )}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Authority Fees</label>
-                                <p className="mt-1 text-xs text-slate-500">Telco, power, water, drainage, permits</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Authority Fees
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Telco, power, water, drainage, permits
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3184,33 +3617,64 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={powcAlloc.authorityFees}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
                                     updateCashOutflowsForStream({
-                                      powcAllocation: { ...powcAlloc, authorityFees: newValue },
+                                      powcAllocation: {
+                                        ...powcAlloc,
+                                        authorityFees: newValue,
+                                      },
                                     });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    authorityMatchesAi,
+                                    aiAuthority != null
+                                  )}
                                 />
+                                {aiAuthority != null && (
+                                  <span
+                                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                      authorityMatchesAi
+                                        ? "bg-blue-500/20 text-blue-400"
+                                        : "bg-amber-500/20 text-amber-400"
+                                    }`}
+                                  >
+                                    {authorityMatchesAi ? "AI" : "Override"}
+                                  </span>
+                                )}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between border-t border-slate-700 pt-4">
-                              <label className="text-sm font-semibold text-slate-200">Total</label>
+                              <label className="text-sm font-semibold text-slate-200">
+                                Total
+                              </label>
                               <div className="flex items-center gap-2">
-                                <span className={`font-semibold ${powcTotal === 100 ? "text-emerald-400" : "text-amber-400"}`}>
+                                <span
+                                  className={`font-semibold ${
+                                    powcTotal === 100
+                                      ? "text-emerald-400"
+                                      : "text-amber-400"
+                                  }`}
+                                >
                                   {powcTotal.toFixed(1)}%
                                 </span>
                                 <span className="text-slate-400">%</span>
                                 {powcTotal === 100 ? (
-                                  <span className="text-sm text-emerald-400">✅</span>
+                                  <span className="text-sm text-emerald-400">
+                                    ✅
+                                  </span>
                                 ) : (
-                                  <span className="text-sm text-amber-400">⚠️ Must equal 100%</span>
+                                  <span className="text-sm text-amber-400">
+                                    ⚠️ Must equal 100%
+                                  </span>
                                 )}
                               </div>
                             </div>
                             {fieldError("powcAllocation") && (
-                              <p className="text-sm text-red-400">{fieldError("powcAllocation")}</p>
+                              <p className="text-sm text-red-400">
+                                {fieldError("powcAllocation")}
+                              </p>
                             )}
                           </>
                         );
@@ -3222,7 +3686,7 @@ function CashOutflowsPageContent() {
                     title="Soft Costs Allocation"
                     source={`Based on 2024 ${projectInfo.city || "market"} ${projectInfo.buildingType || "residential"} data`}
                     sourceDetail={`Source: ${getBenchmarkSource(projectInfo.country, projectInfo.city)}`}
-                    explanation={`Percentages below are shares of total soft costs (Step 13). Aggregate cash timing: ${SOFT_COSTS_TIMING_NOTES}`}
+                    explanation={`Percentages below are shares of total soft costs (Step 12). Aggregate cash timing: ${SOFT_COSTS_TIMING_NOTES}`}
                   >
                     <div className="space-y-4">
                       {(() => {
@@ -3230,13 +3694,73 @@ function CashOutflowsPageContent() {
                           cashOutflows.softCostAllocation ?? {
                             ...DEFAULT_SOFT_COST_ALLOCATION,
                           };
-                        const softCostsTotal = softAlloc.architect + softAlloc.projectManagement + softAlloc.engineering + softAlloc.geotechnical + softAlloc.otherFees;
+                        const softCostsTotal =
+                          softAlloc.architect +
+                          softAlloc.projectManagement +
+                          softAlloc.engineering +
+                          softAlloc.geotechnical +
+                          softAlloc.otherFees;
+
+                        const aiArchitect = aiScBreakdown?.architect_pct;
+                        const aiPm = aiScBreakdown?.pm_pct;
+                        const aiEngineering = aiScBreakdown?.engineering_pct;
+                        const aiGeotech = aiScBreakdown?.geotech_pct;
+                        const aiOther = aiScBreakdown?.other_pct;
+
+                        const architectMatchesAi =
+                          aiArchitect != null &&
+                          !isRateOverride(softAlloc.architect, aiArchitect);
+                        const pmMatchesAi =
+                          aiPm != null &&
+                          !isRateOverride(softAlloc.projectManagement, aiPm);
+                        const engineeringMatchesAi =
+                          aiEngineering != null &&
+                          !isRateOverride(softAlloc.engineering, aiEngineering);
+                        const geotechMatchesAi =
+                          aiGeotech != null &&
+                          !isRateOverride(softAlloc.geotechnical, aiGeotech);
+                        const otherMatchesAi =
+                          aiOther != null &&
+                          !isRateOverride(softAlloc.otherFees, aiOther);
+
+                        const allocInputClass = (
+                          matchesAi: boolean,
+                          hasAi: boolean
+                        ) =>
+                          `w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                            matchesAi
+                              ? "border-2 border-blue-500"
+                              : hasAi
+                                ? "border-2 border-amber-500"
+                                : "border border-slate-600"
+                          }`;
+
+                        const renderBadge = (
+                          matchesAi: boolean,
+                          hasAi: boolean
+                        ) =>
+                          hasAi ? (
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                matchesAi
+                                  ? "bg-blue-500/20 text-blue-400"
+                                  : "bg-amber-500/20 text-amber-400"
+                              }`}
+                            >
+                              {matchesAi ? "AI" : "Override"}
+                            </span>
+                          ) : null;
+
                         return (
                           <>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Main Architect</label>
-                                <p className="mt-1 text-xs text-slate-500">Design, drawings, site supervision</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Main Architect
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Design, drawings, site supervision
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3245,19 +3769,35 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={softAlloc.architect}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, architect: newValue } });
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        architect: newValue,
+                                      },
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    architectMatchesAi,
+                                    aiArchitect != null
+                                  )}
                                 />
+                                {renderBadge(
+                                  architectMatchesAi,
+                                  aiArchitect != null
+                                )}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Project Management</label>
-                                <p className="mt-1 text-xs text-slate-500">Owner&apos;s rep, coordination, reporting</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Project Management
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Owner&apos;s rep, coordination, reporting
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3266,19 +3806,32 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={softAlloc.projectManagement}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, projectManagement: newValue } });
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        projectManagement: newValue,
+                                      },
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    pmMatchesAi,
+                                    aiPm != null
+                                  )}
                                 />
+                                {renderBadge(pmMatchesAi, aiPm != null)}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Engineering Consultant</label>
-                                <p className="mt-1 text-xs text-slate-500">Structural, MEP, civil engineering</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Engineering Consultant
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Structural, MEP, civil engineering
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3287,19 +3840,35 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={softAlloc.engineering}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, engineering: newValue } });
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        engineering: newValue,
+                                      },
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    engineeringMatchesAi,
+                                    aiEngineering != null
+                                  )}
                                 />
+                                {renderBadge(
+                                  engineeringMatchesAi,
+                                  aiEngineering != null
+                                )}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Geotechnical Consultant</label>
-                                <p className="mt-1 text-xs text-slate-500">Soil investigation, foundation recommendations</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Geotechnical Consultant
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Soil investigation, foundation recommendations
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3308,19 +3877,35 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={softAlloc.geotechnical}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, geotechnical: newValue } });
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        geotechnical: newValue,
+                                      },
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    geotechMatchesAi,
+                                    aiGeotech != null
+                                  )}
                                 />
+                                {renderBadge(
+                                  geotechMatchesAi,
+                                  aiGeotech != null
+                                )}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
                               <div>
-                                <label className="text-sm font-medium text-slate-200">Other Fees</label>
-                                <p className="mt-1 text-xs text-slate-500">Legal, insurance, marketing, miscellaneous</p>
+                                <label className="text-sm font-medium text-slate-200">
+                                  Other Fees
+                                </label>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Legal, insurance, marketing, miscellaneous
+                                </p>
                               </div>
                               <div className="flex items-center gap-2">
                                 <input
@@ -3329,31 +3914,54 @@ function CashOutflowsPageContent() {
                                   max={100}
                                   value={softAlloc.otherFees}
                                   onChange={(e) => {
-                                    const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, otherFees: newValue } });
+                                    const newValue =
+                                      parseFloat(e.target.value) || 0;
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        otherFees: newValue,
+                                      },
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={allocInputClass(
+                                    otherMatchesAi,
+                                    aiOther != null
+                                  )}
                                 />
+                                {renderBadge(otherMatchesAi, aiOther != null)}
                                 <span className="text-slate-400">%</span>
-                                <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between border-t border-slate-700 pt-4">
-                              <label className="text-sm font-semibold text-slate-200">Total</label>
+                              <label className="text-sm font-semibold text-slate-200">
+                                Total
+                              </label>
                               <div className="flex items-center gap-2">
-                                <span className={`font-semibold ${softCostsTotal === 100 ? "text-emerald-400" : "text-amber-400"}`}>
+                                <span
+                                  className={`font-semibold ${
+                                    softCostsTotal === 100
+                                      ? "text-emerald-400"
+                                      : "text-amber-400"
+                                  }`}
+                                >
                                   {softCostsTotal.toFixed(1)}%
                                 </span>
                                 <span className="text-slate-400">%</span>
                                 {softCostsTotal === 100 ? (
-                                  <span className="text-sm text-emerald-400">✅</span>
+                                  <span className="text-sm text-emerald-400">
+                                    ✅
+                                  </span>
                                 ) : (
-                                  <span className="text-sm text-amber-400">⚠️ Must equal 100%</span>
+                                  <span className="text-sm text-amber-400">
+                                    ⚠️ Must equal 100%
+                                  </span>
                                 )}
                               </div>
                             </div>
                             {fieldError("softCostAllocation") && (
-                              <p className="text-sm text-red-400">{fieldError("softCostAllocation")}</p>
+                              <p className="text-sm text-red-400">
+                                {fieldError("softCostAllocation")}
+                              </p>
                             )}
                           </>
                         );
@@ -3451,6 +4059,7 @@ function CashOutflowsPageContent() {
       <PreviewFloatingBar
         showDownload={false}
         previousDisabled={currentStep === 0}
+        nextDisabled={isMapGeocoding}
         onPreviousClick={handleBack}
         onNextClick={handleNext}
         nextLabel={

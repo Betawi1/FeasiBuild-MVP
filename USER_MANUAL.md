@@ -38,7 +38,7 @@ Release excess to Developer (only if Pre-Sale Threshold > 70% and LTV < 60%).
 5. Component 4: Financing Wizard
 Step 1: Project Summary
 Layout: Shows GDV, Land Costs, Construction Costs, Soft Costs, POWC, TDC, and Construction Period.
-Funding Gap Visualization: A bar chart showing TDC vs. Max Debt vs. Min Equity.
+Funding Gap Visualization - Preliminary: A bar chart showing TDC vs. Max Debt vs. Min Equity.
 Step 2: Land Financing
 Q: What does "Land Equity Contribution %" do?
 A: It determines how much of the Land Cost is paid by the developer vs. refinanced by the bank.

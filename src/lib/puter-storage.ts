@@ -61,6 +61,24 @@ export async function writeKvValue(
   throw new Error("Storage is not available in this environment.");
 }
 
+export async function deleteKvValue(key: string): Promise<void> {
+  if (isPuterKvAvailable()) {
+    try {
+      await window.puter!.kv.del(key);
+    } catch (error) {
+      console.warn(`[PuterStorage] Puter KV delete failed for ${key}:`, error);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.warn(`[PuterStorage] localStorage delete failed for ${key}:`, error);
+    }
+  }
+}
+
 function parseStoredIndex(raw: unknown): ProjectIndexEntry[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw as ProjectIndexEntry[];
@@ -112,6 +130,17 @@ export async function upsertProjectIndexEntry(
   }
 
   await writeProjectIndex(userId, existingIndex);
+}
+
+export async function removeProjectIndexEntry(
+  userId: string,
+  projectId: string
+): Promise<void> {
+  const existingIndex = await loadProjectIndex(userId);
+  const updatedIndex = existingIndex.filter(
+    (item) => item.projectId !== projectId
+  );
+  await writeProjectIndex(userId, updatedIndex);
 }
 
 export function projectDataKeysForLookup(

@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
+import { AiInput } from "@/components/ui/AiInput";
 import HotelRevenueStep, {
   getOperationalHotelHoldSnapshot,
   useHotelRoomRevenueFromStore,
@@ -113,7 +114,9 @@ import {
   type RevenueProfile,
 } from "@/config/hotel-revenue-profiles";
 import useFinModelStore from "@/store/useFinModelStore";
-import type { ProjectInfo } from "@/store/useFinModelStore";
+import type { AiResearchData, CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
+import { normalizeAiResearchData, type AiAssetType } from "@/lib/constants/aiPrompts";
+import { useAiResearch } from "@/hooks/useAiResearch";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import { logBenchmarkValues, logResetToBenchmark } from "@/lib/audit-batch";
 import { logAuditChange } from "@/lib/audit-utils";
@@ -122,7 +125,11 @@ import {
   cashInflowAuditRoute,
 } from "@/lib/operational-audit-fields";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
-import type { OperationalHotelHoldSnapshot } from "@/lib/operational-pnl";
+import {
+  defaultOperationalOfficeHoldSnapshot,
+  defaultOperationalResidentialHoldSnapshot,
+  type OperationalHotelHoldSnapshot,
+} from "@/lib/operational-pnl";
 
 const HOTEL_STEP2_TITLE = "Step 2: F&B and Other Sources of Revenues";
 const HOTEL_STEP3_TITLE = "Step 3: Direct costs";
@@ -1556,6 +1563,109 @@ const DEPRECIATION_FIELD_HELP: Record<HotelDepreciationFieldKey, string> = {
   accountsPayableMonths: "Months of total operating expenses (Step 4)",
 };
 
+type AiC2Operational = NonNullable<AiResearchData["c2_operational"]>;
+
+function aiRevenueMixValue(
+  aiC2: AiC2Operational | undefined,
+  k: HotelRevenuePctKey
+): number | undefined {
+  const mix = aiC2?.revenue_mix as Record<string, number> | undefined;
+  if (!mix) return undefined;
+  const keyMap: Record<HotelRevenuePctKey, string[]> = {
+    rooms: ["rooms"],
+    food: ["food"],
+    beverage: ["beverage"],
+    roomService: ["room_service", "roomService"],
+    telecom: ["telecom"],
+    spaHealth: ["spa", "spaHealth"],
+    rentalOther: ["rental", "rentalOther"],
+  };
+  for (const candidate of keyMap[k]) {
+    const v = mix[candidate];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+function aiDirectCostValue(
+  aiC2: AiC2Operational | undefined,
+  k: HotelDirectCostPctKey
+): number | undefined {
+  const costs = aiC2?.direct_costs as Record<string, number> | undefined;
+  if (!costs) return undefined;
+  const keyMap: Record<HotelDirectCostPctKey, string[]> = {
+    roomsPayroll: ["rooms_payroll", "roomsPayroll"],
+    roomsOther: ["rooms_other", "roomsOther"],
+    foodCostOfSale: ["food_cos", "foodCostOfSale"],
+    beverageCostOfSale: ["beverage_cos", "beverageCostOfSale"],
+    fbPayroll: ["fnb_payroll", "fbPayroll"],
+    fbOther: ["fnb_other", "fbOther"],
+    telecomCost: ["telecom", "telecomCost"],
+    healthLeisureCost: ["spa", "healthLeisureCost"],
+    otherDeptsCost: ["rental", "otherDeptsCost"],
+  };
+  for (const candidate of keyMap[k]) {
+    const v = costs[candidate];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+function aiExpenseValue(
+  aiC2: AiC2Operational | undefined,
+  k: HotelExpensePctKey
+): number | undefined {
+  const expenses = aiC2?.undistributed_expenses as
+    | Record<string, number>
+    | undefined;
+  if (!expenses) return undefined;
+  const keyMap: Record<HotelExpensePctKey, string[]> = {
+    gaExpenses: ["g_and_a", "gaExpenses"],
+    marketingSales: ["marketing", "marketingSales"],
+    propertyOpsMaintenance: ["prop_ops", "propertyOpsMaintenance"],
+    utilities: ["utilities"],
+    baseManagementFee: ["base_mgmt_fee_room_rev", "baseManagementFee"],
+    incentiveFee: ["incentive_fee_ebitda", "incentiveFee"],
+    renovationProvisionY1: ["renovation_y1", "renovationProvisionY1"],
+    renovationProvisionY2: ["renovation_y2", "renovationProvisionY2"],
+    renovationProvisionY3to10: ["renovation_y3_10", "renovationProvisionY3to10"],
+  };
+  for (const candidate of keyMap[k]) {
+    const v = expenses[candidate];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
+function aiDepreciationValue(
+  aiC2: AiC2Operational | undefined,
+  k: HotelDepreciationFieldKey
+): number | undefined {
+  const dep = aiC2?.depreciation_wc as Record<string, number> | undefined;
+  if (!dep) return undefined;
+  const keyMap: Record<HotelDepreciationFieldKey, string[]> = {
+    constructionUsefulLife: [
+      "construction_useful_life_years",
+      "constructionUsefulLife",
+    ],
+    ffeUsefulLife: ["ffe_useful_life_years", "ffeUsefulLife"],
+    ffeRenovationRate: ["ffe_renovation_pct_year_6", "ffeRenovationRate"],
+    accountsReceivableMonths: [
+      "accounts_receivable_months_revenue",
+      "accountsReceivableMonths",
+    ],
+    accountsPayableMonths: [
+      "accounts_payable_months_opex",
+      "accountsPayableMonths",
+    ],
+  };
+  for (const candidate of keyMap[k]) {
+    const v = dep[candidate];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return undefined;
+}
+
 function emptyDepreciationFieldOverrides(): Record<
   HotelDepreciationFieldKey,
   boolean
@@ -2019,9 +2129,30 @@ function OperationalCashInflowsPageContent() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
   const updateProjectInfo = useFinModelStore((s) => s.updateProjectInfo);
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
+  const patchUpdateCashOutflows = useFinModelStore((s) => s.updateCashOutflows);
+  const updateCashOutflowsForStream = useCallback(
+    (data: Partial<CashOutflows>) => patchUpdateCashOutflows(data, "operational"),
+    [patchUpdateCashOutflows]
+  );
+  const { performResearch, isLoading: isAiLoading } = useAiResearch();
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows.aiResearchData;
+    if (!raw) return undefined;
+
+    if (raw.c2_operational) {
+      return raw.c2_operational;
+    }
+
+    return (
+      normalizeAiResearchData(raw) as unknown as typeof raw
+    )?.c2_operational;
+  }, [cashOutflows.aiResearchData]);
 
   const isRetail = projectInfo.buildingType === "retail";
   const isResidential = projectInfo.buildingType === "residential";
+  const isOperationalHotel = projectInfo.buildingType === "hotel";
+  const isOperationalOffice = projectInfo.buildingType === "office";
   const TOTAL_STEPS = totalStepsForBuildingType(projectInfo.buildingType);
   const lastStepIndex = TOTAL_STEPS - 1;
   const cashInflows = useFinModelStore((s) => s.operational?.cashInflows);
@@ -2163,6 +2294,115 @@ function OperationalCashInflowsPageContent() {
   const [errors, setErrors] = useState<Errors>({});
   const hotelBenchmarkStepsLogged = useRef<Set<number>>(new Set());
   const step0PersistRef = useRef<(() => void) | null>(null);
+
+  // Sync Hotel Step 4 Total Keys to hotel hold snapshot when entering Component 2 Step 1
+  useEffect(() => {
+    if (isOperationalHotel && currentStep === 0) {
+      if (projectInfo.hotelTotalKeys) {
+        const st = getOperationalHotelHoldSnapshot();
+        useFinModelStore.getState().updateHotelHoldSnapshot(
+          {
+            numberOfRooms: projectInfo.hotelTotalKeys,
+            adrValues: st?.adrValues ?? [],
+            occupancyValues: st?.occupancyValues ?? [],
+            revPcts: st?.revPcts ?? {},
+            directCostPcts: st?.directCostPcts ?? {},
+            expensePcts: st?.expensePcts ?? {},
+            depFieldValues: st?.depFieldValues ?? {},
+          },
+          "operational"
+        );
+        console.log(
+          " Synced Hotel Step 4 Total Keys to Cash Inflows:",
+          projectInfo.hotelTotalKeys
+        );
+      }
+    }
+  }, [isOperationalHotel, currentStep, projectInfo.hotelTotalKeys]);
+
+  // Sync Retail Step 4 GLA to retail hold snapshot when entering Component 2 Step 1
+  useEffect(() => {
+    if (isRetail && currentStep === 0) {
+      if (projectInfo.retailGLA) {
+        const st = getOperationalRetailHoldSnapshot();
+        const occupancyValues = st?.occupancyValues ?? [];
+        useFinModelStore.getState().updateRetailHoldSnapshot(
+          {
+            ...st,
+            glaSqft: projectInfo.retailGLA,
+            rentEscalationPct: st?.rentEscalationPct ?? 0,
+            baseRentPerSqftValues: st?.baseRentPerSqftValues ?? [],
+            occupancyValues,
+            effectiveLeasedValues: occupancyValues.length
+              ? occupancyValues.map((pct) =>
+                  Math.round((projectInfo.retailGLA! * pct) / 100)
+                )
+              : (st?.effectiveLeasedValues ?? []),
+            revenueValues: st?.revenueValues ?? [],
+          },
+          "operational"
+        );
+        console.log(
+          "🔗 Synced Retail Step 4 GLA to Cash Inflows:",
+          projectInfo.retailGLA
+        );
+      }
+    }
+  }, [isRetail, currentStep, projectInfo.retailGLA]);
+
+  // Sync Office Step 4 GLA to office hold snapshot when entering Component 2 Step 1
+  useEffect(() => {
+    if (isOperationalOffice && currentStep === 0) {
+      if (projectInfo.officeGLA) {
+        const st = getOperationalOfficeHoldSnapshot();
+        useFinModelStore.getState().updateOfficeHoldSnapshot(
+          {
+            ...defaultOperationalOfficeHoldSnapshot,
+            ...st,
+            officeGlaSqft: projectInfo.officeGLA,
+          },
+          "operational"
+        );
+        console.log(
+          "🔗 Synced Office Step 4 GLA to Cash Inflows:",
+          projectInfo.officeGLA
+        );
+      }
+    }
+  }, [isOperationalOffice, currentStep, projectInfo.officeGLA]);
+
+  // Sync Residential Step 4 GLA to residential hold snapshot when entering Component 2 Step 1
+  useEffect(() => {
+    if (isResidential && currentStep === 0) {
+      if (projectInfo.residentialGLA) {
+        const st = getOperationalResidentialHoldSnapshot();
+        useFinModelStore.getState().updateResidentialHoldSnapshot(
+          {
+            ...defaultOperationalResidentialHoldSnapshot,
+            ...st,
+            residentialGlaSqft: projectInfo.residentialGLA,
+          },
+          "operational"
+        );
+        console.log(
+          "🔗 Synced Residential Step 4 GLA to Cash Inflows:",
+          projectInfo.residentialGLA
+        );
+      }
+    }
+  }, [isResidential, currentStep, projectInfo.residentialGLA]);
+
+  const retailGlaSqft = useFinModelStore(
+    (s) => s.operational?.retailHoldSnapshot?.glaSqft ?? 0
+  );
+  const officeGlaSqft = useFinModelStore((s) => {
+    const snap = s.operational?.officeHoldSnapshot;
+    return (snap?.officeGlaSqft ?? 0) + (snap?.retailGlaSqft ?? 0);
+  });
+  const residentialGlaSqft = useFinModelStore((s) => {
+    const snap = s.operational?.residentialHoldSnapshot;
+    return (snap?.residentialGlaSqft ?? 0) + (snap?.retailGlaSqft ?? 0);
+  });
 
   const logC2HotelField = useCallback(
     (
@@ -3353,6 +3593,20 @@ function OperationalCashInflowsPageContent() {
           </div>
         </div>
 
+        {isAiLoading && (
+          <div className="mb-6 rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+            <div className="flex items-center gap-3 text-blue-400">
+              <div className="h-5 w-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              <div>
+                <p className="font-medium">AI Research in Progress...</p>
+                <p className="text-sm text-slate-400">
+                  Fetching market benchmarks for your project
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-8 rounded-xl border border-slate-800 bg-slate-900 p-8">
           {currentStep === 0 &&
             (projectInfo.buildingType === "office" ? (
@@ -3524,21 +3778,15 @@ function OperationalCashInflowsPageContent() {
                           {REVENUE_STACK_LABELS[k]}
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.1}
-                            value={revPcts[k] ?? ""}
-                            onChange={(e) => {
+                          <AiInput
+                            label={`${REVENUE_STACK_LABELS[k]} % of total hotel revenue`}
+                            value={revPcts[k] ?? aiRevenueMixValue(aiC2, k) ?? 0}
+                            onChange={(value) => {
                               const v = Math.min(
                                 100,
-                                Math.max(0, Number(e.target.value) || 0)
+                                Math.max(0, Number(value) || 0)
                               );
-                              setRevPctOverrides((o) => ({
-                                ...o,
-                                [k]: true,
-                              }));
+                              setRevPctOverrides((o) => ({ ...o, [k]: true }));
                               setRevPcts((prev) => ({ ...prev, [k]: v }));
                               logC2HotelField(
                                 2,
@@ -3548,7 +3796,13 @@ function OperationalCashInflowsPageContent() {
                                 v
                               );
                             }}
-                            className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(revPctOverrides[k])}`}
+                            type="percentage"
+                            isAiGenerated={
+                              aiRevenueMixValue(aiC2, k) !== undefined &&
+                              !revPctOverrides[k]
+                            }
+                            isManualOverride={!!revPctOverrides[k]}
+                            className="max-w-[200px]"
                           />
                           {errors[`revPct_${k}`] && (
                             <p className="mt-1 text-xs text-red-400">
@@ -3845,16 +4099,16 @@ function OperationalCashInflowsPageContent() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.1}
-                            value={directCostPcts[k] ?? ""}
-                            onChange={(e) => {
+                          <AiInput
+                            label={`${DIRECT_COST_INPUT_LABELS[k]} %`}
+                            helperText={DIRECT_COST_BASE_HELP[k]}
+                            value={
+                              directCostPcts[k] ?? aiDirectCostValue(aiC2, k) ?? 0
+                            }
+                            onChange={(value) => {
                               const v = Math.min(
                                 100,
-                                Math.max(0, Number(e.target.value) || 0)
+                                Math.max(0, Number(value) || 0)
                               );
                               setDirectCostPctOverrides((o) => ({
                                 ...o,
@@ -3872,7 +4126,13 @@ function OperationalCashInflowsPageContent() {
                                 v
                               );
                             }}
-                            className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(directCostPctOverrides[k])}`}
+                            type="percentage"
+                            isAiGenerated={
+                              aiDirectCostValue(aiC2, k) !== undefined &&
+                              !directCostPctOverrides[k]
+                            }
+                            isManualOverride={!!directCostPctOverrides[k]}
+                            className="max-w-[200px]"
                           />
                           {errors[`dcPct_${k}`] && (
                             <p className="mt-1 text-xs text-red-400">
@@ -4067,16 +4327,16 @@ function OperationalCashInflowsPageContent() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.1}
-                            value={expensePcts[k] ?? ""}
-                            onChange={(e) => {
+                          <AiInput
+                            label={`${EXPENSE_INPUT_LABELS[k]} %`}
+                            helperText={EXPENSE_BASE_HELP[k]}
+                            value={
+                              expensePcts[k] ?? aiExpenseValue(aiC2, k) ?? 0
+                            }
+                            onChange={(value) => {
                               const v = Math.min(
                                 100,
-                                Math.max(0, Number(e.target.value) || 0)
+                                Math.max(0, Number(value) || 0)
                               );
                               setExpensePctOverrides((o) => ({
                                 ...o,
@@ -4094,7 +4354,13 @@ function OperationalCashInflowsPageContent() {
                                 v
                               );
                             }}
-                            className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(expensePctOverrides[k])}`}
+                            type="percentage"
+                            isAiGenerated={
+                              aiExpenseValue(aiC2, k) !== undefined &&
+                              !expensePctOverrides[k]
+                            }
+                            isManualOverride={!!expensePctOverrides[k]}
+                            className="max-w-[200px]"
                           />
                           {errors[`exPct_${k}`] && (
                             <p className="mt-1 text-xs text-red-400">
@@ -4350,20 +4616,19 @@ function OperationalCashInflowsPageContent() {
                             </span>
                           </td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                min={min}
-                                max={max}
-                                step={step}
-                                value={depFieldValues[k] ?? ""}
-                                onChange={(e) => {
-                                  const raw = Number(e.target.value);
+                            <div className="flex items-end gap-2">
+                              <AiInput
+                                label={DEPRECIATION_FIELD_LABELS[k]}
+                                helperText={DEPRECIATION_FIELD_HELP[k]}
+                                value={
+                                  depFieldValues[k] ??
+                                  aiDepreciationValue(aiC2, k) ??
+                                  0
+                                }
+                                onChange={(value) => {
+                                  const raw = Number(value);
                                   const v = Number.isFinite(raw)
-                                    ? Math.min(
-                                        max,
-                                        Math.max(min, raw)
-                                      )
+                                    ? Math.min(max, Math.max(min, raw))
                                     : min;
                                   setDepFieldOverrides((o) => ({
                                     ...o,
@@ -4381,9 +4646,18 @@ function OperationalCashInflowsPageContent() {
                                     v
                                   );
                                 }}
-                                className={`w-full min-w-[100px] max-w-[140px] ${overrideFieldClass(depFieldOverrides[k])}`}
+                                type="number"
+                                step={step}
+                                min={min}
+                                max={max}
+                                isAiGenerated={
+                                  aiDepreciationValue(aiC2, k) !== undefined &&
+                                  !depFieldOverrides[k]
+                                }
+                                isManualOverride={!!depFieldOverrides[k]}
+                                className="max-w-[200px] flex-1"
                               />
-                              <span className="text-xs text-slate-500">
+                              <span className="pb-2 text-xs text-slate-500">
                                 {unit}
                               </span>
                             </div>

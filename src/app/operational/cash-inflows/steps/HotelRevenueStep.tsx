@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import useFinModelStore, { type ProjectInfo } from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   buildDefaultAdrSeries,
   compoundAdrForYearIndex,
@@ -346,6 +347,10 @@ type HotelRevenueStepProps = {
 export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
+  const aiC2 = cashOutflows?.aiResearchData?.c2_operational;
+  const aiAdrYear1 = aiC2?.room_revenues?.adr_year_1;
+  const aiAdrInflation = aiC2?.room_revenues?.adr_inflation_pct;
   const currencyCode = projectInfo.currency || "AED";
   const benchmarkLabel = `${projectInfo.hotelOperatingType || "resort"} · ${
     projectInfo.hotelStarRating || "5"
@@ -377,16 +382,32 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
   ]);
 
   const [numberOfRooms, setNumberOfRooms] = useState(
-    () => getOperationalHotelHoldSnapshot()?.numberOfRooms ?? 300
+    () =>
+      projectInfo.hotelTotalKeys ||
+      getOperationalHotelHoldSnapshot()?.numberOfRooms ||
+      300
   );
 
+  useEffect(() => {
+    if (projectInfo.hotelTotalKeys) {
+      setNumberOfRooms(projectInfo.hotelTotalKeys);
+    }
+  }, [projectInfo.hotelTotalKeys]);
+
   const adrYear1ManualRef = useRef(false);
+  const [adrYear1IsManual, setAdrYear1IsManual] = useState(() => {
+    const snap = getOperationalHotelHoldSnapshot();
+    if (snap?.adrValues?.[0] == null || aiAdrYear1 == null) return false;
+    return Math.abs(Number(snap.adrValues[0]) - Number(aiAdrYear1)) > 0.5;
+  });
+  const [adrInflationIsManual, setAdrInflationIsManual] = useState(false);
   const occupancyYear1ManualRef = useRef(false);
   const occupancyIncManualRef = useRef(false);
 
   const [adrYear1, setAdrYear1] = useState(() => {
     const snap = getOperationalHotelHoldSnapshot();
     if (snap?.adrValues?.[0] != null) return snap.adrValues[0];
+    if (aiAdrYear1) return aiAdrYear1;
     const def = findOperationalBenchmark(projectInfo);
     return def?.adrYear1 ?? 1050;
   });
@@ -397,7 +418,7 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
     }
   }, [profileAdrBenchmark, adrYear1]);
 
-  const [adrInflationRate, setAdrInflationRate] = useState(4);
+  const [adrInflationRate, setAdrInflationRate] = useState(aiAdrInflation ?? 4);
   const [adrValues, setAdrValues] = useState<number[]>(() => {
     const snap = getOperationalHotelHoldSnapshot();
     const formula = buildDefaultAdrSeries(adrYear1, adrInflationRate);
@@ -569,7 +590,43 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
   const resetAdrToFormula = useCallback(() => {
     setAdrOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     setAdrValues(buildDefaultAdrSeries(adrYear1, adrInflationRate));
-  }, [adrYear1, adrInflationRate]);
+    if (aiAdrYear1 != null && Math.abs(Number(adrYear1) - Number(aiAdrYear1)) < 0.5) {
+      adrYear1ManualRef.current = false;
+      setAdrYear1IsManual(false);
+    }
+    if (
+      aiAdrInflation != null &&
+      Math.abs(Number(adrInflationRate) - Number(aiAdrInflation)) < 0.05
+    ) {
+      setAdrInflationIsManual(false);
+    }
+  }, [adrYear1, adrInflationRate, aiAdrYear1, aiAdrInflation]);
+
+  const resetAdrToBenchmark = useCallback(() => {
+    const benchmarkDef = findOperationalBenchmark(projectInfo);
+    const newAdrYear1 = aiAdrYear1 ?? benchmarkDef?.adrYear1 ?? 1050;
+    const newAdrInflation = aiAdrInflation ?? 4;
+    setAdrYear1(newAdrYear1);
+    setAdrInflationRate(newAdrInflation);
+    // Clear manual overrides
+    adrYear1ManualRef.current = false;
+    setAdrYear1IsManual(false);
+    setAdrInflationIsManual(false);
+    logResetToBenchmark(
+      CASH_INFLOWS_COMPONENT,
+      HOTEL_STEP1_TITLE,
+      HOTEL_STEP1_ROUTE,
+      "ADR Year 1 (Benchmark)",
+      newAdrYear1
+    );
+    logResetToBenchmark(
+      CASH_INFLOWS_COMPONENT,
+      HOTEL_STEP1_TITLE,
+      HOTEL_STEP1_ROUTE,
+      "ADR Inflation (Benchmark)",
+      newAdrInflation
+    );
+  }, [projectInfo, aiAdrYear1, aiAdrInflation]);
 
   const resetOccupancyToDefaults = useCallback(() => {
     setOccupancyOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
@@ -608,13 +665,6 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
     });
   }, [occupancyIncrementPa, projectInfo]);
 
-  const logNumberOfRooms = useAuditLog(
-    "operational.cashInflows.step1.numberOfRooms",
-    "Number of rooms (keys)",
-    CASH_INFLOWS_COMPONENT,
-    HOTEL_STEP1_TITLE,
-    HOTEL_STEP1_ROUTE
-  );
   const logAdrYear1 = useAuditLog(
     "operational.cashInflows.step1.adrYear1",
     `ADR Year 1 (${currencyCode})`,
@@ -733,21 +783,21 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {/* Total Keys / Rooms */}
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            Number of rooms (keys)
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Total Keys / Rooms
           </label>
           <input
             type="number"
-            min={1}
-            value={numberOfRooms}
-            onChange={(e) => {
-              const v = Math.max(0, Number(e.target.value) || 0);
-              setNumberOfRooms(v);
-              logNumberOfRooms(v);
-            }}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={projectInfo.hotelTotalKeys || 0}
+            readOnly
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+            title="Locked: Defined in Step 4 Building Configuration"
           />
+          <p className="mt-1 text-xs text-amber-400">
+            🔒 Locked: To change, go back to Component 1 Step 4
+          </p>
           {fieldError("numberOfRooms") && (
             <p className="mt-1 text-sm text-red-400">
               {fieldError("numberOfRooms")}
@@ -756,26 +806,21 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            ADR Year 1 ({currencyCode})
-          </label>
-          <input
-            type="number"
-            min={0}
-            step={0.01}
+          <AiInput
+            label={`ADR Year 1 (${currencyCode})`}
             value={adrYear1}
-            onChange={(e) => {
+            onChange={(val) => {
               adrYear1ManualRef.current = true;
-              const v = Math.max(0, Number(e.target.value) || 0);
+              setAdrYear1IsManual(true);
+              const v = Math.max(0, Number(val) || 0);
               setAdrYear1(v);
               logAdrYear1(v);
             }}
-            placeholder={
-              benchmarkDefaults?.adrYear1 != null
-                ? String(benchmarkDefaults.adrYear1)
-                : undefined
-            }
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            type="number"
+            step={0.01}
+            min={0}
+            isAiGenerated={!!aiAdrYear1 && !adrYear1IsManual}
+            isManualOverride={adrYear1IsManual}
           />
           {fieldError("adrYear1") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("adrYear1")}</p>
@@ -783,20 +828,20 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            ADR inflation (annual %)
-          </label>
-          <input
-            type="number"
-            min={0}
-            step={0.1}
+          <AiInput
+            label="ADR inflation (annual %)"
             value={adrInflationRate}
-            onChange={(e) => {
-              const v = Number(e.target.value) || 0;
+            onChange={(val) => {
+              setAdrInflationIsManual(true);
+              const v = Number(val) || 0;
               setAdrInflationRate(v);
               logAdrInflation(v);
             }}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            type="percentage"
+            step={0.1}
+            min={0}
+            isAiGenerated={!!aiAdrInflation && !adrInflationIsManual}
+            isManualOverride={adrInflationIsManual}
           />
           {fieldError("adrInflation") && (
             <p className="mt-1 text-sm text-red-400">
@@ -863,6 +908,13 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
           className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
         >
           Reset ADR to formula
+        </button>
+        <button
+          type="button"
+          onClick={resetAdrToBenchmark}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
+        >
+          Reset ADR to benchmark
         </button>
         <button
           type="button"

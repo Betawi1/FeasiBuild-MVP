@@ -1,10 +1,7 @@
 "use client";
 
 import BenchmarkHeader from "@/components/BenchmarkHeader";
-import {
-  getOperationalFfeHint,
-  isOperationalFfeOutsideRange,
-} from "@/lib/operational-ffe-validation";
+import { getOperationalFfeAssetLabel } from "@/lib/operational-ffe-validation";
 import type { CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
 
 type ResidentialStep8SoftCostsProps = {
@@ -40,11 +37,12 @@ export default function ResidentialStep8SoftCosts({
   const scManual = !!cashOutflows.operationalResidentialScManual;
   const powcManual = !!cashOutflows.operationalResidentialPowcManual;
   const ffeManual = !!cashOutflows.operationalResidentialFfeManual;
-  const ffeValue = Number(cashOutflows.ffePercent) || 0;
-  const showFfeWarning =
-    showFfe &&
-    !fieldError("ffePercent") &&
-    isOperationalFfeOutsideRange(ffeValue, "residential", projectInfo);
+  const aiFfeRange =
+    cashOutflows.aiResearchData?.c1_development?.soft_costs?.ffe_percentage;
+  const aiFfeJustification = aiFfeRange?.justification;
+  const ffeSegmentLabel = (
+    projectInfo.residentialSegment || getOperationalFfeAssetLabel("residential")
+  ).replace(/_/g, " ");
 
   return (
     <>
@@ -125,11 +123,35 @@ export default function ResidentialStep8SoftCosts({
             {fieldError("ffePercent") && (
               <p className="mt-1 text-sm text-red-400">{fieldError("ffePercent")}</p>
             )}
-            {showFfeWarning && (
-              <p className="mt-1 text-xs text-amber-500">
-                {getOperationalFfeHint("residential", projectInfo)}
+            <div className="mt-2">
+              <p className="text-xs text-slate-400">
+                Furniture, fixtures & equipment for residential units and common
+                areas.
               </p>
-            )}
+
+              {aiFfeRange && (
+                <p className="mt-2 text-xs text-amber-400">
+                  FFE % for {ffeSegmentLabel} is typically between
+                  <span className="font-semibold"> {aiFfeRange.min_range}%</span>{" "}
+                  and
+                  <span className="font-semibold"> {aiFfeRange.max_range}%</span>{" "}
+                  of CC incl. contingency
+                </p>
+              )}
+
+              {aiFfeJustification && (
+                <p className="mt-2 text-xs text-slate-400">
+                  {aiFfeJustification}
+                </p>
+              )}
+
+              {!aiFfeRange && (
+                <p className="mt-2 text-xs text-slate-500">
+                  FFE % is typically between 2% and 8% of CC incl. contingency
+                  (varies by asset type).
+                </p>
+              )}
+            </div>
           </div>
         ) : null}
       </div>

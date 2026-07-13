@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import useFinModelStore, { type ProjectInfo } from "@/store/useFinModelStore";
 import {
   buildDefaultBaseRentSeries,
@@ -220,6 +221,36 @@ export default function RetailRevenueStep({
 }: RetailRevenueStepProps) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
+
+  // Extract AI research data for retail
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step1_base_rent ||
+      !!raw.c2_operational?.step2_other_income ||
+      !!raw.c1_development?.construction_rates;
+    if (!hasNested) {
+      return (normalizeAiResearchData(raw) as any)?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  // AI returns flat structure - check both nested and flat keys
+  const aiBaseRent =
+    aiC2?.step1_base_rent?.base_rent_year_1_psf ??
+    aiC2?.baseRent0Rate ??
+    aiC2?.baseRentRate ??
+    aiC2?.base_rent_year_1_psf;
+
+  const aiRentEscalation =
+    aiC2?.step1_base_rent?.rent_escalation_pct ??
+    aiC2?.rentEscalation ??
+    aiC2?.rent_escalation_pct;
+
+  const hasPhase2Ai = !!cashOutflows?.aiResearchData?.c2_operational;
+
   const currencyCode = projectInfo.currency || "AED";
 
   const revenueBenchmark = useMemo(
@@ -269,15 +300,23 @@ export default function RetailRevenueStep({
 
   const [glaSqft, setGlaSqft] = useState(() => {
     const snap = getOperationalRetailHoldSnapshot();
+    if (projectInfo.retailGLA) return projectInfo.retailGLA;
     if (snap?.glaSqft != null && snap.glaSqft > 0) return snap.glaSqft;
     return defaultGlaSqft > 0 ? defaultGlaSqft : 250_000;
   });
 
   useEffect(() => {
+    if (projectInfo.retailGLA) {
+      setGlaSqft(projectInfo.retailGLA);
+    }
+  }, [projectInfo.retailGLA]);
+
+  useEffect(() => {
+    if (projectInfo.retailGLA) return;
     if (defaultGlaSqft > 0 && glaSqft <= 0) {
       setGlaSqft(defaultGlaSqft);
     }
-  }, [defaultGlaSqft, glaSqft]);
+  }, [defaultGlaSqft, glaSqft, projectInfo.retailGLA]);
 
   const rentYear1ManualRef = useRef(false);
   const occupancyYear1ManualRef = useRef(false);
@@ -288,12 +327,14 @@ export default function RetailRevenueStep({
     if (snap?.baseRentPerSqftValues?.[0] != null) {
       return snap.baseRentPerSqftValues[0];
     }
+    if (aiBaseRent) return aiBaseRent;
     return resolvedBenchmark.baseRentPsf;
   });
 
   const [rentEscalationPct, setRentEscalationPct] = useState(() => {
     const snap = getOperationalRetailHoldSnapshot();
     if (snap?.rentEscalationPct != null) return snap.rentEscalationPct;
+    if (aiRentEscalation) return aiRentEscalation;
     return resolvedBenchmark.rentEscalation;
   });
 
@@ -310,6 +351,27 @@ export default function RetailRevenueStep({
       return padOperationalYearSeries(snap?.baseRentPerSqftValues, formula);
     }
   );
+
+  // Update state when AI data arrives (Phase 2 research)
+  useEffect(() => {
+    if (!aiBaseRent || rentYear1ManualRef.current) return;
+    const snap = getOperationalRetailHoldSnapshot();
+    if (snap?.baseRentPerSqftValues?.[0] != null) return;
+    setRentYear1(aiBaseRent);
+    setBaseRentPerSqftValues(
+      buildDefaultBaseRentSeries(aiBaseRent, rentEscalationPct)
+    );
+  }, [aiBaseRent, rentEscalationPct]);
+
+  useEffect(() => {
+    if (!aiRentEscalation || escalationManualRef.current) return;
+    const snap = getOperationalRetailHoldSnapshot();
+    if (snap?.rentEscalationPct != null) return;
+    setRentEscalationPct(aiRentEscalation);
+    setBaseRentPerSqftValues(
+      buildDefaultBaseRentSeries(rentYear1, aiRentEscalation)
+    );
+  }, [aiRentEscalation, rentYear1]);
 
   const [occupancyYear1, setOccupancyYear1] = useState(() => {
     const snap = getOperationalRetailHoldSnapshot();
@@ -513,6 +575,22 @@ export default function RetailRevenueStep({
     [rentOverrides, occupancyOverrides]
   );
 
+  const resetRentToAiBenchmark = useCallback(() => {
+    const newRentYear1 = aiBaseRent ?? resolvedBenchmark.baseRentPsf;
+    const newRentEscalation =
+      aiRentEscalation ?? resolvedBenchmark.rentEscalation;
+
+    rentYear1ManualRef.current = false;
+    escalationManualRef.current = false;
+
+    setRentYear1(newRentYear1);
+    setRentEscalationPct(newRentEscalation);
+    setRentOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
+    setBaseRentPerSqftValues(
+      buildDefaultBaseRentSeries(newRentYear1, newRentEscalation)
+    );
+  }, [aiBaseRent, aiRentEscalation, resolvedBenchmark]);
+
   const resetRentToFormula = useCallback(() => {
     const b = revenueBenchmark ?? resolvedBenchmark;
     rentYear1ManualRef.current = false;
@@ -527,6 +605,7 @@ export default function RetailRevenueStep({
 
   const resetLeaseUpToDefaults = useCallback(() => {
     if (!revenueBenchmark) return;
+    occupancyYear1ManualRef.current = false;
     setOccupancyOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     const b = revenueBenchmark;
     setOccupancyYear1(b.openingOccupancy);
@@ -574,14 +653,45 @@ export default function RetailRevenueStep({
           Step 1 — Base Rent &amp; Lease-Up
         </h2>
         {retailBenchmarkReady ? (
-          <BenchmarkHeader
-            assetType="retail"
-            country={projectInfo.country}
-            segment={projectInfo.retailSegment}
-            positioning={projectInfo.retailPositioning}
-            onUseDefaults={applyProfileDefaults}
-            isManualOverride={hasAnyOverride}
-          />
+          <div className="mb-6 border-b border-slate-700 pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  BENCHMARK
+                </span>
+                <div className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1">
+                  <span className="text-xs text-slate-300">
+                    Retail ·{" "}
+                    {(projectInfo.retailSegment || "—")
+                      .split("_")
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(" ")}{" "}
+                    ·{" "}
+                    {(projectInfo.retailPositioning || "—")
+                      .split("_")
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(" ")}{" "}
+                    ·{" "}
+                    {projectInfo.country === "United Arab Emirates"
+                      ? "UAE"
+                      : projectInfo.country || "—"}
+                  </span>
+                </div>
+                {hasAnyOverride && (
+                  <div className="rounded-full border border-amber-600/50 bg-amber-900/30 px-3 py-1">
+                    <span className="text-xs text-amber-400">Manual overrides</span>
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={resetRentToAiBenchmark}
+                className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
+              >
+                Reset to benchmark
+              </button>
+            </div>
+          </div>
         ) : (
           <p className="text-sm text-amber-400/90">
             Complete Component 1 Step 5 (retail segment &amp; positioning) for
@@ -597,43 +707,37 @@ export default function RetailRevenueStep({
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            GLA (sqft)
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Gross Leasable Area (GLA) (sqft)
           </label>
           <input
             type="number"
-            min={1}
-            value={glaSqft}
-            onChange={(e) =>
-              setGlaSqft(Math.max(0, Number(e.target.value) || 0))
-            }
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={projectInfo.retailGLA || 0}
+            readOnly
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+            title="Locked: Defined in Component 1 Step 4 Building Configuration"
           />
-          {defaultGlaSqft > 0 ? (
-            <p className="mt-1 text-xs text-slate-500">
-              Component 1 building BUA: {defaultGlaSqft.toLocaleString()} sqft
-            </p>
-          ) : null}
+          <p className="mt-1 text-xs text-amber-400">
+            🔒 Locked: To change, go back to Component 1 Step 4
+          </p>
           {fieldError("glaSqft") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("glaSqft")}</p>
           )}
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            Base rent Year 1 ({currencyCode}/sqft p.a.)
-          </label>
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            value={rentYear1}
-            onChange={(e) => {
+          <AiInput
+            label={`Base rent Year 1 (${currencyCode}/sqft p.a.)`}
+            value={rentYear1 || aiBaseRent || resolvedBenchmark.baseRentPsf || 0}
+            onChange={(val) => {
               rentYear1ManualRef.current = true;
-              setRentYear1(Math.max(0, Number(e.target.value) || 0));
+              setRentYear1(Math.max(0, Number(val) || 0));
             }}
-            placeholder={String(resolvedBenchmark.baseRentPsf)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            type="number"
+            step={0.01}
+            min={0}
+            isAiGenerated={hasPhase2Ai && !!aiBaseRent && !rentYear1ManualRef.current}
+            isManualOverride={rentYear1ManualRef.current}
           />
           {fieldError("rentYear1") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("rentYear1")}</p>
@@ -641,19 +745,20 @@ export default function RetailRevenueStep({
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            Rent escalation (annual %)
-          </label>
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={rentEscalationPct}
-            onChange={(e) => {
+          <AiInput
+            label="Rent escalation (annual %)"
+            value={rentEscalationPct || aiRentEscalation || resolvedBenchmark.rentEscalation || 0}
+            onChange={(val) => {
               escalationManualRef.current = true;
-              setRentEscalationPct(Number(e.target.value) || 0);
+              setRentEscalationPct(Number(val) || 0);
             }}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            type="percentage"
+            step={0.1}
+            min={0}
+            isAiGenerated={
+              hasPhase2Ai && !!aiRentEscalation && !escalationManualRef.current
+            }
+            isManualOverride={escalationManualRef.current}
           />
         </div>
 

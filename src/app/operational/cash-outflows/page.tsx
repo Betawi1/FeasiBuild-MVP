@@ -8,8 +8,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
+
+const LocationMapPicker = dynamic(() => import("@/components/LocationMapPicker"), {
+  ssr: false,
+});
+import { getCurrencyForCountry } from "@/lib/constants/countryCurrencies";
 import type { HotelOperatingType } from "@/config/hotel-cost-profiles";
 import {
   formatHotelProfileTooltip,
@@ -18,11 +24,14 @@ import {
   resolveHotelProfile,
 } from "@/config/hotel-cost-profiles";
 import useFinModelStore, {
+  type AiResearchData,
   type CashOutflows,
   type ProjectInfo,
 } from "@/store/useFinModelStore";
 import AIRecommendationBox from "@/components/AIRecommendationBox";
-import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
+import { AiHintBox } from "@/components/ui/AiHintBox";
+import { AiInput } from "@/components/ui/AiInput";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import {
   getRetailBenchmark,
@@ -33,10 +42,7 @@ import {
   getOfficeBenchmarkProfileKey,
 } from "@/lib/benchmarks/office-construction-costs";
 import {
-  getOfficeFfeHint,
-  getOperationalFfeHint,
-  isOperationalFfeOutsideRange,
-  validateOperationalFfePercent,
+  getOperationalFfeAssetLabel,
 } from "@/lib/operational-ffe-validation";
 import ResidentialBenchmarkHeader from "./steps/ResidentialBenchmarkHeader";
 import ResidentialStep6Construction from "./steps/ResidentialStep6Construction";
@@ -68,6 +74,8 @@ import ResidentialSegmentationStep, {
   validateResidentialSegmentation,
 } from "./steps/ResidentialSegmentationStep";
 import { logAuditChange } from "@/lib/audit-utils";
+import { useAiResearch } from "@/hooks/useAiResearch";
+import { normalizeAiResearchData, type AiAssetType } from "@/lib/constants/aiPrompts";
 import {
   CASH_OUTFLOW_AUDIT_FIELDS,
   CASH_OUTFLOW_STAGE_ALLOCATION_FIELDS,
@@ -548,7 +556,12 @@ function CashOutflowsPageContent() {
     ? OPERATIONAL_BUILDING_TYPES
     : SALE_BUILDING_SUBTYPES;
   const projectInfo = useFinModelStore((s) => s.operational?.projectInfo);
+  const hasResearchedForHotelRef = useRef<string | null>(null);
+  const hasResearchedForRetailRef = useRef<string | null>(null);
+  const hasResearchedForOfficeRef = useRef<string | null>(null);
+  const hasResearchedForResidentialRef = useRef<string | null>(null);
   const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
+  const [isMapGeocoding, setIsMapGeocoding] = useState(false);
   const isOperationalHotel =
     isOperationalStream && projectInfo.buildingType === "hotel";
   const isOperationalRetail =
@@ -557,6 +570,53 @@ function CashOutflowsPageContent() {
     isOperationalStream && projectInfo.buildingType === "office";
   const isOperationalResidential =
     isOperationalStream && projectInfo.buildingType === "residential";
+  const isStep4LockedBua =
+    isOperationalHotel ||
+    isOperationalRetail ||
+    isOperationalOffice ||
+    isOperationalResidential;
+  const step4BuildingBua = isOperationalHotel
+    ? projectInfo.hotelTotalBuildingBUA
+    : isOperationalRetail
+      ? projectInfo.retailTotalBuildingBUA
+      : isOperationalOffice
+        ? projectInfo.officeTotalBuildingBUA
+        : isOperationalResidential
+          ? projectInfo.residentialTotalBuildingBUA
+          : undefined;
+  const step4BasementBua = isOperationalHotel
+    ? projectInfo.hotelBasementBUA
+    : isOperationalRetail
+      ? projectInfo.retailBasementBUA
+      : isOperationalOffice
+        ? projectInfo.officeBasementBUA
+        : isOperationalResidential
+          ? projectInfo.residentialBasementBUA
+          : undefined;
+  const step4ParkingBua = isOperationalHotel
+    ? projectInfo.hotelPodiumBUA
+    : isOperationalRetail
+      ? projectInfo.retailPodiumBUA
+      : isOperationalOffice
+        ? projectInfo.officePodiumBUA
+        : isOperationalResidential
+          ? projectInfo.residentialPodiumBUA
+          : undefined;
+  const effectiveParkingBua = isStep4LockedBua
+    ? step4ParkingBua || 0
+    : cashOutflows.parkingBUA || 0;
+  const effectiveBasementBua = isStep4LockedBua
+    ? step4BasementBua || 0
+    : cashOutflows.basementBUA || 0;
+  const step4PlotArea = isOperationalHotel
+    ? projectInfo.hotelPlotArea
+    : isOperationalRetail
+      ? projectInfo.retailPlotArea
+      : isOperationalOffice
+        ? projectInfo.officePlotArea
+        : isOperationalResidential
+          ? projectInfo.residentialPlotArea
+          : undefined;
   const showsOperationalFfe =
     isOperationalHotel ||
     isOperationalRetail ||
@@ -572,6 +632,9 @@ function CashOutflowsPageContent() {
     (data: Partial<CashOutflows>) => patchUpdateCashOutflows(data, "operational"),
     [patchUpdateCashOutflows]
   );
+
+  const { performResearch, isLoading: isAiLoading, error: aiError } =
+    useAiResearch();
 
   useEffect(() => {
     const state = useFinModelStore.getState() as any;
@@ -610,6 +673,68 @@ function CashOutflowsPageContent() {
   const [constructionPeriodDraft, setConstructionPeriodDraft] = useState(() =>
     String(cashOutflows.constructionPeriod)
   );
+
+  const hotelTotalFloors = useMemo(() => {
+    return (
+      (projectInfo.hotelBasements || 0) +
+      (projectInfo.hotelPodiums || 0) +
+      (projectInfo.hotelGroundFloors || 0) +
+      (projectInfo.hotelGuestRoomFloors || 0)
+    );
+  }, [
+    projectInfo.hotelBasements,
+    projectInfo.hotelPodiums,
+    projectInfo.hotelGroundFloors,
+    projectInfo.hotelGuestRoomFloors,
+  ]);
+
+  const hotelAvgRoomSize = useMemo(() => {
+    const keys = projectInfo.hotelTotalKeys || 0;
+    const gla = projectInfo.hotelGuestRoomGLA || 0;
+    return keys > 0 ? Math.round(gla / keys) : 0;
+  }, [projectInfo.hotelTotalKeys, projectInfo.hotelGuestRoomGLA]);
+
+  const retailTotalFloors = useMemo(() => {
+    return (
+      (projectInfo.retailBasements || 0) +
+      (projectInfo.retailPodiums || 0) +
+      (projectInfo.retailGroundFloors || 0) +
+      (projectInfo.retailRetailFloors || 0)
+    );
+  }, [
+    projectInfo.retailBasements,
+    projectInfo.retailPodiums,
+    projectInfo.retailGroundFloors,
+    projectInfo.retailRetailFloors,
+  ]);
+
+  const officeTotalFloors = useMemo(() => {
+    return (
+      (projectInfo.officeBasements || 0) +
+      (projectInfo.officePodiums || 0) +
+      (projectInfo.officeGroundFloors || 0) +
+      (projectInfo.officeOfficeFloors || 0)
+    );
+  }, [
+    projectInfo.officeBasements,
+    projectInfo.officePodiums,
+    projectInfo.officeGroundFloors,
+    projectInfo.officeOfficeFloors,
+  ]);
+
+  const residentialTotalFloors = useMemo(() => {
+    return (
+      (projectInfo.residentialBasements || 0) +
+      (projectInfo.residentialPodiums || 0) +
+      (projectInfo.residentialGroundFloors || 0) +
+      (projectInfo.residentialResidentialFloors || 0)
+    );
+  }, [
+    projectInfo.residentialBasements,
+    projectInfo.residentialPodiums,
+    projectInfo.residentialGroundFloors,
+    projectInfo.residentialResidentialFloors,
+  ]);
 
   const totalSteps = 13; // 0-12
 
@@ -810,6 +935,1251 @@ function CashOutflowsPageContent() {
     projectInfo.retailPositioning,
     projectInfo.retailSegment,
     showsOperationalFfe,
+  ]);
+
+  const aiDataRaw = cashOutflows.aiResearchData;
+  const aiData = useMemo(() => {
+    if (!aiDataRaw) return undefined;
+    // Re-normalize legacy flat AI payloads stored before the nested schema.
+    if (
+      aiDataRaw.c1_development &&
+      !(aiDataRaw.c1_development as { construction_rates?: unknown }).construction_rates
+    ) {
+      return normalizeAiResearchData(aiDataRaw) as unknown as AiResearchData;
+    }
+    return aiDataRaw;
+  }, [aiDataRaw]);
+  const aiC1 = aiData?.c1_development;
+
+  const aiBuildingRate =
+    aiC1?.construction_rates?.building_rate_psf ??
+    (aiC1?.construction_rates as { buildingRate?: number } | undefined)?.buildingRate;
+  const aiParkingRate =
+    aiC1?.construction_rates?.parking_rate_psf ??
+    (aiC1?.construction_rates as { parkingRate?: number } | undefined)?.parkingRate;
+  const aiBasementRate =
+    aiC1?.construction_rates?.basement_rate_psf ??
+    (aiC1?.construction_rates as { basementRate?: number } | undefined)?.basementRate;
+  const aiLandRate = aiC1?.land_rate_psf;
+  const aiScPct = aiC1?.soft_costs?.sc_percentage;
+  const aiPowcPct = aiC1?.soft_costs?.powc_percentage;
+  const aiFfePct = aiC1?.soft_costs?.ffe_percentage?.recommended;
+  const aiFfeMin = aiC1?.soft_costs?.ffe_percentage?.min_range;
+  const aiFfeMax = aiC1?.soft_costs?.ffe_percentage?.max_range;
+  const aiFfeRange = aiC1?.soft_costs?.ffe_percentage;
+  const ffeSegmentLabel = isOperationalRetail
+    ? (projectInfo.retailSegment || "retail").replace(/_/g, " ")
+    : isOperationalHotel
+      ? (projectInfo.hotelOperatingType || "hotel").replace(/_/g, " ")
+      : isOperationalOffice
+        ? (projectInfo.officeSegment || "office").replace(/_/g, " ")
+        : isOperationalResidential
+          ? (projectInfo.residentialSegment || "residential").replace(/_/g, " ")
+          : getOperationalFfeAssetLabel(projectInfo.buildingType);
+  const aiPowcBreakdown = aiC1?.powc_breakdown;
+  const aiScBreakdown = aiC1?.sc_breakdown;
+
+  const hotelHasManualOverride = !!(
+    cashOutflows.operationalHotelScManual ||
+    cashOutflows.operationalHotelPowcManual ||
+    cashOutflows.operationalHotelFfeManual ||
+    cashOutflows.operationalHotelBuildingRateManual ||
+    cashOutflows.operationalHotelParkingRateManual ||
+    cashOutflows.operationalHotelBasementRateManual ||
+    cashOutflows.operationalHotelLandRateManual
+  );
+
+  const resetHotelToAiBenchmark = useCallback(() => {
+    if (!aiC1) return;
+    updateCashOutflowsForStream({
+      buildingRate: aiBuildingRate ?? cashOutflows.buildingRate,
+      parkingRate: aiParkingRate ?? cashOutflows.parkingRate,
+      basementRate: aiBasementRate ?? cashOutflows.basementRate,
+      softCostPercent: aiScPct ?? cashOutflows.softCostPercent,
+      powcPercent: aiPowcPct ?? cashOutflows.powcPercent,
+      ffePercent: aiFfePct ?? cashOutflows.ffePercent,
+      landRate: aiLandRate ?? cashOutflows.landRate,
+      ...(aiC1.construction_period?.months
+        ? { constructionPeriod: aiC1.construction_period.months }
+        : {}),
+      ...(aiC1.s_curve
+        ? {
+            stageAllocation: {
+              stage1Label: cashOutflows.stageAllocation.stage1Label || "Enabling",
+              stage1Percent: aiC1.s_curve.stage_1_pct || 10,
+              stage2Label:
+                cashOutflows.stageAllocation.stage2Label || "Sub-Structure",
+              stage2Percent: aiC1.s_curve.stage_2_pct || 20,
+              stage3Label:
+                cashOutflows.stageAllocation.stage3Label || "Super Structure",
+              stage3Percent: aiC1.s_curve.stage_3_pct || 40,
+              stage4Label: cashOutflows.stageAllocation.stage4Label || "Finishes",
+              stage4Percent: aiC1.s_curve.stage_4_pct || 30,
+            },
+          }
+        : {}),
+      ...(aiC1.powc_breakdown
+        ? {
+            powcAllocation: {
+              siteEstablishment: aiC1.powc_breakdown.site_establishment_pct,
+              overhead: aiC1.powc_breakdown.overhead_pct,
+              authorityFees: aiC1.powc_breakdown.authority_fees_pct,
+            },
+          }
+        : {}),
+      ...(aiC1.sc_breakdown
+        ? {
+            softCostAllocation: {
+              architect: aiC1.sc_breakdown.architect_pct,
+              projectManagement: aiC1.sc_breakdown.pm_pct,
+              engineering: aiC1.sc_breakdown.engineering_pct,
+              geotechnical: aiC1.sc_breakdown.geotech_pct,
+              otherFees: aiC1.sc_breakdown.other_pct,
+            },
+          }
+        : {}),
+      operationalHotelBuildingRateManual: false,
+      operationalHotelParkingRateManual: false,
+      operationalHotelBasementRateManual: false,
+      operationalHotelScManual: false,
+      operationalHotelPowcManual: false,
+      operationalHotelFfeManual: false,
+      operationalHotelLandRateManual: false,
+    });
+  }, [
+    aiBasementRate,
+    aiBuildingRate,
+    aiC1,
+    aiFfePct,
+    aiLandRate,
+    aiParkingRate,
+    aiPowcPct,
+    aiScPct,
+    cashOutflows.basementRate,
+    cashOutflows.buildingRate,
+    cashOutflows.ffePercent,
+    cashOutflows.landRate,
+    cashOutflows.parkingRate,
+    cashOutflows.powcPercent,
+    cashOutflows.softCostPercent,
+    cashOutflows.stageAllocation.stage1Label,
+    cashOutflows.stageAllocation.stage2Label,
+    cashOutflows.stageAllocation.stage3Label,
+    cashOutflows.stageAllocation.stage4Label,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Auto-zero basement rate when basement BUA is 0
+  useEffect(() => {
+    if (effectiveBasementBua === 0 && cashOutflows.basementRate !== 0) {
+      updateCashOutflowsForStream({ basementRate: 0 });
+      console.log("🔧 Auto-zeroed basement rate (BUA is 0)");
+    }
+  }, [
+    effectiveBasementBua,
+    cashOutflows.basementRate,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Temporary: verify FFE AI range persists across step navigation
+  useEffect(() => {
+    console.log("SC/POWC/DC Step - AI Data:", aiData);
+    console.log(
+      "🔍 FFE Percentage Data:",
+      aiData?.c1_development?.soft_costs?.ffe_percentage
+    );
+  }, [aiData]);
+
+  // Auto-zero parking rate when parking BUA is 0
+  useEffect(() => {
+    if (effectiveParkingBua === 0 && cashOutflows.parkingRate !== 0) {
+      updateCashOutflowsForStream({ parkingRate: 0 });
+      console.log("🔧 Auto-zeroed parking rate (BUA is 0)");
+    }
+  }, [
+    effectiveParkingBua,
+    cashOutflows.parkingRate,
+    updateCashOutflowsForStream,
+  ]);
+
+  // --- START: Hotel Step-Specific Resets ---
+  const resetHotelStep5Rates = useCallback(() => {
+    if (!aiC1) return;
+    updateCashOutflowsForStream({
+      buildingRate: aiBuildingRate ?? cashOutflows.buildingRate,
+      parkingRate:
+        effectiveParkingBua === 0
+          ? 0
+          : (aiParkingRate ?? cashOutflows.parkingRate),
+      basementRate:
+        effectiveBasementBua === 0
+          ? 0
+          : (aiBasementRate ?? cashOutflows.basementRate),
+      operationalHotelBuildingRateManual: false,
+      operationalHotelParkingRateManual: false,
+      operationalHotelBasementRateManual: false,
+    });
+  }, [
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
+    cashOutflows.buildingRate,
+    cashOutflows.parkingRate,
+    cashOutflows.basementRate,
+    effectiveParkingBua,
+    effectiveBasementBua,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetHotelStep7Percents = useCallback(() => {
+    if (!aiC1) return;
+    updateCashOutflowsForStream({
+      softCostPercent: aiScPct ?? cashOutflows.softCostPercent,
+      powcPercent: aiPowcPct ?? cashOutflows.powcPercent,
+      ffePercent: aiFfePct ?? cashOutflows.ffePercent,
+      operationalHotelScManual: false,
+      operationalHotelPowcManual: false,
+      operationalHotelFfeManual: false,
+    });
+  }, [aiScPct, aiPowcPct, aiFfePct, cashOutflows.softCostPercent, cashOutflows.powcPercent, cashOutflows.ffePercent, updateCashOutflowsForStream]);
+
+  const resetHotelStep8LandRate = useCallback(() => {
+    if (!aiC1) return;
+    updateCashOutflowsForStream({
+      landRate: aiLandRate ?? cashOutflows.landRate,
+      operationalHotelLandRateManual: false,
+    });
+  }, [aiLandRate, cashOutflows.landRate, updateCashOutflowsForStream]);
+
+  const resetHotelStep11Stages = useCallback(() => {
+    if (!aiC1?.s_curve) return;
+    updateCashOutflowsForStream({
+      stageAllocation: {
+        stage1Label: cashOutflows.stageAllocation.stage1Label || "Enabling",
+        stage1Percent: aiC1.s_curve.stage_1_pct || 10,
+        stage2Label: cashOutflows.stageAllocation.stage2Label || "Sub-Structure",
+        stage2Percent: aiC1.s_curve.stage_2_pct || 20,
+        stage3Label: cashOutflows.stageAllocation.stage3Label || "Super Structure",
+        stage3Percent: aiC1.s_curve.stage_3_pct || 40,
+        stage4Label: cashOutflows.stageAllocation.stage4Label || "Finishes",
+        stage4Percent: aiC1.s_curve.stage_4_pct || 30,
+      },
+    });
+  }, [aiC1, cashOutflows.stageAllocation, updateCashOutflowsForStream]);
+
+  const resetHotelStep12Allocations = useCallback(() => {
+    if (!aiC1) return;
+    updateCashOutflowsForStream({
+      ...(aiC1.powc_breakdown ? {
+        powcAllocation: {
+          siteEstablishment: aiC1.powc_breakdown.site_establishment_pct,
+          overhead: aiC1.powc_breakdown.overhead_pct,
+          authorityFees: aiC1.powc_breakdown.authority_fees_pct,
+        },
+      } : {}),
+      ...(aiC1.sc_breakdown ? {
+        softCostAllocation: {
+          architect: aiC1.sc_breakdown.architect_pct,
+          projectManagement: aiC1.sc_breakdown.pm_pct,
+          engineering: aiC1.sc_breakdown.engineering_pct,
+          geotechnical: aiC1.sc_breakdown.geotech_pct,
+          otherFees: aiC1.sc_breakdown.other_pct,
+        },
+      } : {}),
+      operationalHotelPowcManual: false,
+      operationalHotelScManual: false,
+    });
+  }, [aiC1, updateCashOutflowsForStream]);
+  // --- END: Hotel Step-Specific Resets ---
+
+  const renderHotelBenchmarkBar = (resetFn?: () => void) => {
+    if (!isOperationalHotel || !operationalHotelProfileUi) return null;
+    return (
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Benchmark
+          </span>
+          <HoverTipInline
+            tip={operationalHotelProfileUi.tooltip}
+            className="cursor-default rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200"
+          >
+            {`${projectInfo.hotelOperatingType || "resort"} · ${
+              projectInfo.hotelStarRating || "5"
+            } · ${(projectInfo.city || "dubai").toLowerCase()}`}
+          </HoverTipInline>
+          {hotelHasManualOverride && (
+            <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+              Manual overrides
+            </span>
+          )}
+        </div>
+        {hotelHasManualOverride && resetFn && (
+          <button
+            type="button"
+            onClick={resetFn}
+            className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+          >
+            Reset to benchmark
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderRetailOfficeBenchmarkBar = ({
+    hasManualOverride,
+    onReset,
+  }: {
+    hasManualOverride: boolean;
+    onReset?: () => void;
+  }) => {
+    if (!retailBenchmarkReady && !officeBenchmarkReady) return null;
+    const label = retailBenchmarkReady
+      ? `Retail · ${projectInfo.retailSegment} · ${projectInfo.retailPositioning} · ${projectInfo.country}`
+      : `Office · ${projectInfo.officeSegment} · ${projectInfo.officePositioning} · ${projectInfo.country}`;
+    return (
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Benchmark
+          </span>
+          <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
+            {label}
+          </span>
+          {hasManualOverride && (
+            <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+              Manual overrides
+            </span>
+          )}
+        </div>
+        {hasManualOverride && onReset && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+          >
+            Reset to benchmark
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  // Trigger AI Research after Hotel Segmentation (Step 5 -> Step 6)
+  useEffect(() => {
+    if (!isOperationalHotel || currentStep !== 5) return;
+    if (!projectInfo.hotelOperatingType || !projectInfo.hotelStarRating) return;
+    if (!projectInfo.country || !projectInfo.city) return;
+
+    // SAFEGUARD: Do not trigger AI if map is still geocoding
+    if (projectInfo.coordinates && !projectInfo.subMarket) {
+      console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
+      return;
+    }
+
+    // Create the unique fingerprint for the current parameters
+    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.hotelOperatingType}-${projectInfo.hotelStarRating}-${projectInfo.hotelTotalKeys}-${projectInfo.hotelTotalBuildingBUA}`;
+
+    const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
+
+    // 1. Perfect Match: Skip research
+    if (savedFingerprint === researchKey) {
+      console.log("✅ Hotel AI Research skipped: Parameters match saved fingerprint.");
+      return;
+    }
+
+    // 2. Legacy Project Handler: AI data exists, but no fingerprint saved yet
+    if (cashOutflows?.aiResearchData && !savedFingerprint) {
+      console.log("⚠️ Legacy Hotel project detected. Injecting fingerprint silently...");
+      const dataWithFingerprint = {
+        ...cashOutflows.aiResearchData,
+        _researchKey: researchKey,
+      };
+      updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+      return; // Stop here, do not trigger API
+    }
+
+    const researchParams = {
+      assetType: "hotel" as const,
+      location: {
+        country: projectInfo.country,
+        city: projectInfo.city,
+        currency: projectInfo.currency,
+        subMarket: projectInfo.subMarket,
+        coordinates: projectInfo.coordinates,
+      },
+      buildingConfig: {
+        basements: projectInfo.hotelBasements,
+        podiums: projectInfo.hotelPodiums,
+        groundFloors: projectInfo.hotelGroundFloors,
+        guestRoomFloors: projectInfo.hotelGuestRoomFloors,
+        totalBuildingBUA: projectInfo.hotelTotalBuildingBUA,
+        basementBUA: projectInfo.hotelBasementBUA,
+        podiumBUA: projectInfo.hotelPodiumBUA,
+        guestRoomGLA: projectInfo.hotelGuestRoomGLA,
+        totalKeys: projectInfo.hotelTotalKeys,
+        plotArea: projectInfo.hotelPlotArea,
+        operatingSegment: projectInfo.hotelOperatingType,
+        starRating: projectInfo.hotelStarRating,
+      },
+    };
+
+    const triggerPhase1Research = async () => {
+      try {
+        console.log("🤖 Triggering Phase 1 AI research for Hotel...");
+        console.log("📍 Location & Building Payload:", researchParams);
+        const rawAiData = await performResearch(researchParams);
+
+        if (rawAiData) {
+          const researchData = rawAiData as unknown as AiResearchData;
+          console.log(
+            "🤖 Hotel Phase 1 AI Research Data:",
+            JSON.stringify(researchData, null, 2)
+          );
+          console.log(
+            "🤖 AI C1 Construction Rates:",
+            researchData?.c1_development?.construction_rates
+          );
+
+          const c1 = researchData.c1_development;
+          const rates = c1?.construction_rates;
+          const soft = c1?.soft_costs;
+          const st = useFinModelStore.getState().operational?.cashOutflows;
+
+          const dataWithFingerprint = { ...researchData, _researchKey: researchKey };
+          const patch: Partial<CashOutflows> = {
+            aiResearchData: dataWithFingerprint,
+          };
+
+          // Apply AI benchmarks unless the user already set a hotel manual override.
+          if (!st?.operationalHotelBuildingRateManual && rates?.building_rate_psf) {
+            patch.buildingRate = rates.building_rate_psf;
+          }
+          if (
+            !st?.operationalHotelParkingRateManual &&
+            rates?.parking_rate_psf &&
+            (projectInfo.hotelPodiumBUA || 0) > 0
+          ) {
+            patch.parkingRate = rates.parking_rate_psf;
+          }
+          if (
+            !st?.operationalHotelBasementRateManual &&
+            rates?.basement_rate_psf &&
+            (projectInfo.hotelBasementBUA || 0) > 0
+          ) {
+            patch.basementRate = rates.basement_rate_psf;
+          }
+          if (!st?.operationalHotelScManual && soft?.sc_percentage != null) {
+            patch.softCostPercent = round2(soft.sc_percentage);
+          }
+          if (!st?.operationalHotelPowcManual && soft?.powc_percentage != null) {
+            patch.powcPercent = round2(soft.powc_percentage);
+          }
+          if (
+            !st?.operationalHotelFfeManual &&
+            soft?.ffe_percentage?.recommended != null
+          ) {
+            patch.ffePercent = round2(soft.ffe_percentage.recommended);
+          }
+          if (!st?.operationalHotelLandRateManual && c1?.land_rate_psf) {
+            patch.landRate = c1.land_rate_psf;
+          }
+          if (c1?.construction_period?.months) {
+            patch.constructionPeriod = c1.construction_period.months;
+          }
+          if (c1?.s_curve) {
+            patch.stageAllocation = {
+              stage1Label: st?.stageAllocation?.stage1Label || "Enabling",
+              stage1Percent: c1.s_curve.stage_1_pct || 10,
+              stage2Label: st?.stageAllocation?.stage2Label || "Sub-Structure",
+              stage2Percent: c1.s_curve.stage_2_pct || 20,
+              stage3Label:
+                st?.stageAllocation?.stage3Label || "Super Structure",
+              stage3Percent: c1.s_curve.stage_3_pct || 40,
+              stage4Label: st?.stageAllocation?.stage4Label || "Finishes",
+              stage4Percent: c1.s_curve.stage_4_pct || 30,
+            };
+          }
+          if (!st?.operationalHotelPowcManual && c1?.powc_breakdown) {
+            patch.powcAllocation = {
+              siteEstablishment: c1.powc_breakdown.site_establishment_pct,
+              overhead: c1.powc_breakdown.overhead_pct,
+              authorityFees: c1.powc_breakdown.authority_fees_pct,
+            };
+          }
+          if (!st?.operationalHotelScManual && c1?.sc_breakdown) {
+            patch.softCostAllocation = {
+              architect: c1.sc_breakdown.architect_pct,
+              projectManagement: c1.sc_breakdown.pm_pct,
+              engineering: c1.sc_breakdown.engineering_pct,
+              geotechnical: c1.sc_breakdown.geotech_pct,
+              otherFees: c1.sc_breakdown.other_pct,
+            };
+          }
+
+          updateCashOutflowsForStream(patch);
+          console.log("📊 Auto-populated fields from AI research:", patch);
+
+          const storedData =
+            useFinModelStore.getState().operational?.cashOutflows
+              ?.aiResearchData;
+          console.log("🔍 Stored AI Data:", storedData);
+
+          hasResearchedForHotelRef.current = researchKey;
+        }
+      } catch (error) {
+        console.error("❌ Hotel Phase 1 AI research failed:", error);
+      }
+    };
+
+    void triggerPhase1Research();
+  }, [
+    isOperationalHotel,
+    currentStep,
+    projectInfo.hotelOperatingType,
+    projectInfo.hotelStarRating,
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.subMarket,
+    projectInfo.coordinates,
+    projectInfo.currency,
+    projectInfo.hotelBasements,
+    projectInfo.hotelPodiums,
+    projectInfo.hotelGroundFloors,
+    projectInfo.hotelGuestRoomFloors,
+    projectInfo.hotelTotalBuildingBUA,
+    projectInfo.hotelBasementBUA,
+    projectInfo.hotelPodiumBUA,
+    projectInfo.hotelGuestRoomGLA,
+    projectInfo.hotelTotalKeys,
+    projectInfo.hotelPlotArea,
+    performResearch,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Phase 1 AI Research: Retail (single trigger with Step 4 building data)
+  useEffect(() => {
+    if (!isOperationalRetail || currentStep !== 5) return;
+    if (!projectInfo.retailSegment || !projectInfo.retailPositioning) return;
+    if (!projectInfo.country || !projectInfo.city) return;
+
+    if (projectInfo.coordinates && !projectInfo.subMarket) {
+      console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
+      return;
+    }
+
+    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.retailSegment}-${projectInfo.retailPositioning}-${projectInfo.retailGLA}-${projectInfo.retailTotalBuildingBUA}`;
+
+    const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
+
+    if (savedFingerprint === researchKey) {
+      console.log("✅ Retail AI Research skipped: Parameters match saved fingerprint.");
+      return;
+    }
+
+    if (cashOutflows?.aiResearchData && !savedFingerprint) {
+      console.log("⚠️ Legacy Retail project detected. Injecting fingerprint silently...");
+      const dataWithFingerprint = {
+        ...cashOutflows.aiResearchData,
+        _researchKey: researchKey,
+      };
+      updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+      return;
+    }
+
+    const researchParams = {
+      assetType: "retail" as const,
+      location: {
+        country: projectInfo.country,
+        city: projectInfo.city,
+        currency: projectInfo.currency,
+        subMarket: projectInfo.subMarket,
+        coordinates: projectInfo.coordinates,
+      },
+      buildingConfig: {
+        basements: projectInfo.retailBasements,
+        podiums: projectInfo.retailPodiums,
+        groundFloors: projectInfo.retailGroundFloors,
+        retailFloors: projectInfo.retailRetailFloors,
+        totalBuildingBUA: projectInfo.retailTotalBuildingBUA,
+        basementBUA: projectInfo.retailBasementBUA,
+        podiumBUA: projectInfo.retailPodiumBUA,
+        gla: projectInfo.retailGLA,
+        glaSqft: projectInfo.retailGLA,
+        plotArea: projectInfo.retailPlotArea,
+        operatingSegment: projectInfo.retailSegment,
+        positioning: projectInfo.retailPositioning,
+      },
+    };
+
+    const triggerPhase1Research = async () => {
+      try {
+        console.log("🤖 Triggering Phase 1 AI research for Retail...");
+        console.log("📍 Location & Building Payload:", researchParams);
+        const rawAiData = await performResearch(researchParams);
+
+        if (rawAiData) {
+          const researchData = rawAiData as unknown as AiResearchData;
+          console.log(
+            "🤖 Retail Phase 1 AI Research Data:",
+            JSON.stringify(researchData, null, 2)
+          );
+
+          const c1 = researchData.c1_development;
+          const rates = c1?.construction_rates;
+          const soft = c1?.soft_costs;
+          const st = useFinModelStore.getState().operational?.cashOutflows;
+
+          const dataWithFingerprint = { ...researchData, _researchKey: researchKey };
+          const patch: Partial<CashOutflows> = {
+            aiResearchData: dataWithFingerprint,
+          };
+
+          if (!st?.operationalRetailBuildingRateManual && rates?.building_rate_psf) {
+            patch.buildingRate = rates.building_rate_psf;
+          }
+          if (
+            !st?.operationalRetailParkingRateManual &&
+            rates?.parking_rate_psf &&
+            (projectInfo.retailPodiumBUA || 0) > 0
+          ) {
+            patch.parkingRate = rates.parking_rate_psf;
+          }
+          if (
+            !st?.operationalRetailBasementRateManual &&
+            rates?.basement_rate_psf &&
+            (projectInfo.retailBasementBUA || 0) > 0
+          ) {
+            patch.basementRate = rates.basement_rate_psf;
+          }
+          if (!st?.operationalRetailScManual && soft?.sc_percentage != null) {
+            patch.softCostPercent = round2(soft.sc_percentage);
+          }
+          if (!st?.operationalRetailPowcManual && soft?.powc_percentage != null) {
+            patch.powcPercent = round2(soft.powc_percentage);
+          }
+          if (
+            !st?.operationalRetailFfeManual &&
+            soft?.ffe_percentage?.recommended != null
+          ) {
+            patch.ffePercent = round2(soft.ffe_percentage.recommended);
+          }
+          if (!st?.operationalRetailLandRateManual && c1?.land_rate_psf) {
+            patch.landRate = c1.land_rate_psf;
+          }
+          if (c1?.construction_period?.months) {
+            patch.constructionPeriod = c1.construction_period.months;
+          }
+          if (c1?.s_curve) {
+            patch.stageAllocation = {
+              stage1Label: st?.stageAllocation?.stage1Label || "Enabling",
+              stage1Percent: c1.s_curve.stage_1_pct || 10,
+              stage2Label: st?.stageAllocation?.stage2Label || "Sub-Structure",
+              stage2Percent: c1.s_curve.stage_2_pct || 20,
+              stage3Label:
+                st?.stageAllocation?.stage3Label || "Super Structure",
+              stage3Percent: c1.s_curve.stage_3_pct || 40,
+              stage4Label: st?.stageAllocation?.stage4Label || "Finishes",
+              stage4Percent: c1.s_curve.stage_4_pct || 30,
+            };
+          }
+          if (c1?.powc_breakdown) {
+            patch.powcAllocation = {
+              siteEstablishment: c1.powc_breakdown.site_establishment_pct,
+              overhead: c1.powc_breakdown.overhead_pct,
+              authorityFees: c1.powc_breakdown.authority_fees_pct,
+            };
+          }
+          if (c1?.sc_breakdown) {
+            patch.softCostAllocation = {
+              architect: c1.sc_breakdown.architect_pct,
+              projectManagement: c1.sc_breakdown.pm_pct,
+              engineering: c1.sc_breakdown.engineering_pct,
+              geotechnical: c1.sc_breakdown.geotech_pct,
+              otherFees: c1.sc_breakdown.other_pct,
+            };
+          }
+
+          updateCashOutflowsForStream(patch);
+          console.log("📊 Retail auto-populated fields from AI research:", patch);
+
+          hasResearchedForRetailRef.current = researchKey;
+        }
+      } catch (error) {
+        console.error("❌ Retail Phase 1 AI research failed:", error);
+      }
+    };
+
+    void triggerPhase1Research();
+  }, [
+    isOperationalRetail,
+    currentStep,
+    projectInfo.retailSegment,
+    projectInfo.retailPositioning,
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.subMarket,
+    projectInfo.coordinates,
+    projectInfo.currency,
+    projectInfo.retailBasements,
+    projectInfo.retailPodiums,
+    projectInfo.retailGroundFloors,
+    projectInfo.retailRetailFloors,
+    projectInfo.retailTotalBuildingBUA,
+    projectInfo.retailBasementBUA,
+    projectInfo.retailPodiumBUA,
+    projectInfo.retailGLA,
+    projectInfo.retailPlotArea,
+    performResearch,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Phase 1 AI Research: Office (single trigger with Step 4 building data)
+  useEffect(() => {
+    if (!isOperationalOffice || currentStep !== 5) return;
+    if (!projectInfo.officeSegment || !projectInfo.officePositioning) return;
+    if (!projectInfo.country || !projectInfo.city) return;
+
+    if (projectInfo.coordinates && !projectInfo.subMarket) {
+      console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
+      return;
+    }
+
+    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.officeSegment}-${projectInfo.officePositioning}-${projectInfo.officeGLA}-${projectInfo.officeTotalBuildingBUA}`;
+
+    const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
+
+    if (savedFingerprint === researchKey) {
+      console.log("✅ Office AI Research skipped: Parameters match saved fingerprint.");
+      return;
+    }
+
+    if (cashOutflows?.aiResearchData && !savedFingerprint) {
+      console.log("⚠️ Legacy Office project detected. Injecting fingerprint silently...");
+      const dataWithFingerprint = {
+        ...cashOutflows.aiResearchData,
+        _researchKey: researchKey,
+      };
+      updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+      return;
+    }
+
+    const researchParams = {
+      assetType: "office" as const,
+      location: {
+        country: projectInfo.country,
+        city: projectInfo.city,
+        currency: projectInfo.currency,
+        subMarket: projectInfo.subMarket,
+        coordinates: projectInfo.coordinates,
+      },
+      buildingConfig: {
+        basements: projectInfo.officeBasements,
+        podiums: projectInfo.officePodiums,
+        groundFloors: projectInfo.officeGroundFloors,
+        officeFloors: projectInfo.officeOfficeFloors,
+        totalBuildingBUA: projectInfo.officeTotalBuildingBUA,
+        basementBUA: projectInfo.officeBasementBUA,
+        podiumBUA: projectInfo.officePodiumBUA,
+        gla: projectInfo.officeGLA,
+        glaSqft: projectInfo.officeGLA,
+        plotArea: projectInfo.officePlotArea,
+        operatingSegment: projectInfo.officeSegment,
+        positioning: projectInfo.officePositioning,
+        coworkingDelivery: projectInfo.officeCoworkingDelivery,
+      },
+    };
+
+    const triggerPhase1Research = async () => {
+      try {
+        console.log("🤖 Triggering Phase 1 AI research for Office...");
+        console.log("📍 Location & Building Payload:", researchParams);
+        const rawAiData = await performResearch(researchParams);
+
+        if (rawAiData) {
+          const researchData = rawAiData as unknown as AiResearchData;
+          console.log(
+            "🤖 Office Phase 1 AI Research Data:",
+            JSON.stringify(researchData, null, 2)
+          );
+
+          const c1 = researchData.c1_development;
+          const rates = c1?.construction_rates;
+          const soft = c1?.soft_costs;
+          const st = useFinModelStore.getState().operational?.cashOutflows;
+
+          const dataWithFingerprint = { ...researchData, _researchKey: researchKey };
+          const patch: Partial<CashOutflows> = {
+            aiResearchData: dataWithFingerprint,
+          };
+
+          if (!st?.operationalOfficeBuildingRateManual && rates?.building_rate_psf) {
+            patch.buildingRate = rates.building_rate_psf;
+          }
+          if (
+            !st?.operationalOfficeParkingRateManual &&
+            rates?.parking_rate_psf &&
+            (projectInfo.officePodiumBUA || 0) > 0
+          ) {
+            patch.parkingRate = rates.parking_rate_psf;
+          }
+          if (
+            !st?.operationalOfficeBasementRateManual &&
+            rates?.basement_rate_psf &&
+            (projectInfo.officeBasementBUA || 0) > 0
+          ) {
+            patch.basementRate = rates.basement_rate_psf;
+          }
+          if (!st?.operationalOfficeScManual && soft?.sc_percentage != null) {
+            patch.softCostPercent = round2(soft.sc_percentage);
+          }
+          if (!st?.operationalOfficePowcManual && soft?.powc_percentage != null) {
+            patch.powcPercent = round2(soft.powc_percentage);
+          }
+          if (
+            !st?.operationalOfficeFfeManual &&
+            soft?.ffe_percentage?.recommended != null
+          ) {
+            patch.ffePercent = round2(soft.ffe_percentage.recommended);
+          }
+          if (!st?.operationalOfficeLandRateManual && c1?.land_rate_psf) {
+            patch.landRate = c1.land_rate_psf;
+          }
+          if (c1?.construction_period?.months) {
+            patch.constructionPeriod = c1.construction_period.months;
+          }
+          if (c1?.s_curve) {
+            patch.stageAllocation = {
+              stage1Label: st?.stageAllocation?.stage1Label || "Enabling",
+              stage1Percent: c1.s_curve.stage_1_pct || 10,
+              stage2Label: st?.stageAllocation?.stage2Label || "Sub-Structure",
+              stage2Percent: c1.s_curve.stage_2_pct || 20,
+              stage3Label:
+                st?.stageAllocation?.stage3Label || "Super Structure",
+              stage3Percent: c1.s_curve.stage_3_pct || 40,
+              stage4Label: st?.stageAllocation?.stage4Label || "Finishes",
+              stage4Percent: c1.s_curve.stage_4_pct || 30,
+            };
+          }
+          if (c1?.powc_breakdown) {
+            patch.powcAllocation = {
+              siteEstablishment: c1.powc_breakdown.site_establishment_pct,
+              overhead: c1.powc_breakdown.overhead_pct,
+              authorityFees: c1.powc_breakdown.authority_fees_pct,
+            };
+          }
+          if (c1?.sc_breakdown) {
+            patch.softCostAllocation = {
+              architect: c1.sc_breakdown.architect_pct,
+              projectManagement: c1.sc_breakdown.pm_pct,
+              engineering: c1.sc_breakdown.engineering_pct,
+              geotechnical: c1.sc_breakdown.geotech_pct,
+              otherFees: c1.sc_breakdown.other_pct,
+            };
+          }
+
+          updateCashOutflowsForStream(patch);
+          console.log("📊 Office auto-populated fields from AI research:", patch);
+
+          hasResearchedForOfficeRef.current = researchKey;
+        }
+      } catch (error) {
+        console.error("❌ Office Phase 1 AI research failed:", error);
+      }
+    };
+
+    void triggerPhase1Research();
+  }, [
+    isOperationalOffice,
+    currentStep,
+    projectInfo.officeSegment,
+    projectInfo.officePositioning,
+    projectInfo.officeCoworkingDelivery,
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.subMarket,
+    projectInfo.coordinates,
+    projectInfo.currency,
+    projectInfo.officeBasements,
+    projectInfo.officePodiums,
+    projectInfo.officeGroundFloors,
+    projectInfo.officeOfficeFloors,
+    projectInfo.officeTotalBuildingBUA,
+    projectInfo.officeBasementBUA,
+    projectInfo.officePodiumBUA,
+    projectInfo.officeGLA,
+    projectInfo.officePlotArea,
+    performResearch,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Phase 1 AI Research: Residential BTR (single trigger with Step 4 building data)
+  useEffect(() => {
+    if (!isOperationalResidential || currentStep !== 5) return;
+    if (!projectInfo.residentialSegment || !projectInfo.residentialPositioning) return;
+    if (!projectInfo.country || !projectInfo.city) return;
+
+    if (projectInfo.coordinates && !projectInfo.subMarket) {
+      console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
+      return;
+    }
+
+    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.residentialSegment}-${projectInfo.residentialPositioning}-${projectInfo.residentialGLA}-${projectInfo.residentialTotalBuildingBUA}`;
+
+    const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
+
+    if (savedFingerprint === researchKey) {
+      console.log("✅ Residential AI Research skipped: Parameters match saved fingerprint.");
+      return;
+    }
+
+    if (cashOutflows?.aiResearchData && !savedFingerprint) {
+      console.log("⚠️ Legacy Residential project detected. Injecting fingerprint silently...");
+      const dataWithFingerprint = {
+        ...cashOutflows.aiResearchData,
+        _researchKey: researchKey,
+      };
+      updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+      return;
+    }
+
+    const researchParams = {
+      assetType: "residential-btr" as const,
+      location: {
+        country: projectInfo.country,
+        city: projectInfo.city,
+        currency: projectInfo.currency,
+        subMarket: projectInfo.subMarket,
+        coordinates: projectInfo.coordinates,
+      },
+      buildingConfig: {
+        basements: projectInfo.residentialBasements,
+        podiums: projectInfo.residentialPodiums,
+        groundFloors: projectInfo.residentialGroundFloors,
+        residentialFloors: projectInfo.residentialResidentialFloors,
+        totalBuildingBUA: projectInfo.residentialTotalBuildingBUA,
+        basementBUA: projectInfo.residentialBasementBUA,
+        podiumBUA: projectInfo.residentialPodiumBUA,
+        gla: projectInfo.residentialGLA,
+        glaSqft: projectInfo.residentialGLA,
+        plotArea: projectInfo.residentialPlotArea,
+        operatingSegment: projectInfo.residentialSegment,
+        positioning: projectInfo.residentialPositioning,
+        furnishingLevel: projectInfo.residentialFurnishingLevel,
+        isServiced: projectInfo.residentialIsServicedApartment,
+      },
+    };
+
+    const triggerPhase1Research = async () => {
+      try {
+        console.log("🤖 Triggering Phase 1 AI research for Residential...");
+        console.log("📍 Location & Building Payload:", researchParams);
+        const rawAiData = await performResearch(researchParams);
+
+        if (rawAiData) {
+          const researchData = rawAiData as unknown as AiResearchData;
+          console.log(
+            "🤖 Residential Phase 1 AI Research Data:",
+            JSON.stringify(researchData, null, 2)
+          );
+
+          const c1 = researchData.c1_development;
+          const rates = c1?.construction_rates;
+          const soft = c1?.soft_costs;
+          const st = useFinModelStore.getState().operational?.cashOutflows;
+
+          const dataWithFingerprint = { ...researchData, _researchKey: researchKey };
+          const patch: Partial<CashOutflows> = {
+            aiResearchData: dataWithFingerprint,
+          };
+
+          if (
+            !st?.operationalResidentialBuildingRateManual &&
+            rates?.building_rate_psf
+          ) {
+            patch.buildingRate = rates.building_rate_psf;
+          }
+          if (
+            !st?.operationalResidentialParkingRateManual &&
+            rates?.parking_rate_psf &&
+            (projectInfo.residentialPodiumBUA || 0) > 0
+          ) {
+            patch.parkingRate = rates.parking_rate_psf;
+          }
+          if (
+            !st?.operationalResidentialBasementRateManual &&
+            rates?.basement_rate_psf &&
+            (projectInfo.residentialBasementBUA || 0) > 0
+          ) {
+            patch.basementRate = rates.basement_rate_psf;
+          }
+          if (!st?.operationalResidentialScManual && soft?.sc_percentage != null) {
+            patch.softCostPercent = round2(soft.sc_percentage);
+          }
+          if (!st?.operationalResidentialPowcManual && soft?.powc_percentage != null) {
+            patch.powcPercent = round2(soft.powc_percentage);
+          }
+          if (
+            !st?.operationalResidentialFfeManual &&
+            soft?.ffe_percentage?.recommended != null
+          ) {
+            patch.ffePercent = round2(soft.ffe_percentage.recommended);
+          }
+          if (!st?.operationalResidentialLandRateManual && c1?.land_rate_psf) {
+            patch.landRate = c1.land_rate_psf;
+          }
+          if (c1?.construction_period?.months) {
+            patch.constructionPeriod = c1.construction_period.months;
+          }
+          if (c1?.s_curve) {
+            patch.stageAllocation = {
+              stage1Label: st?.stageAllocation?.stage1Label || "Enabling",
+              stage1Percent: c1.s_curve.stage_1_pct || 10,
+              stage2Label: st?.stageAllocation?.stage2Label || "Sub-Structure",
+              stage2Percent: c1.s_curve.stage_2_pct || 20,
+              stage3Label:
+                st?.stageAllocation?.stage3Label || "Super Structure",
+              stage3Percent: c1.s_curve.stage_3_pct || 40,
+              stage4Label: st?.stageAllocation?.stage4Label || "Finishes",
+              stage4Percent: c1.s_curve.stage_4_pct || 30,
+            };
+          }
+          if (c1?.powc_breakdown) {
+            patch.powcAllocation = {
+              siteEstablishment: c1.powc_breakdown.site_establishment_pct,
+              overhead: c1.powc_breakdown.overhead_pct,
+              authorityFees: c1.powc_breakdown.authority_fees_pct,
+            };
+          }
+          if (c1?.sc_breakdown) {
+            patch.softCostAllocation = {
+              architect: c1.sc_breakdown.architect_pct,
+              projectManagement: c1.sc_breakdown.pm_pct,
+              engineering: c1.sc_breakdown.engineering_pct,
+              geotechnical: c1.sc_breakdown.geotech_pct,
+              otherFees: c1.sc_breakdown.other_pct,
+            };
+          }
+
+          updateCashOutflowsForStream(patch);
+          console.log("📊 Residential auto-populated fields from AI research:", patch);
+
+          hasResearchedForResidentialRef.current = researchKey;
+        }
+      } catch (error) {
+        console.error("❌ Residential Phase 1 AI research failed:", error);
+      }
+    };
+
+    void triggerPhase1Research();
+  }, [
+    isOperationalResidential,
+    currentStep,
+    projectInfo.residentialSegment,
+    projectInfo.residentialPositioning,
+    projectInfo.residentialFurnishingLevel,
+    projectInfo.residentialIsServicedApartment,
+    projectInfo.country,
+    projectInfo.city,
+    projectInfo.subMarket,
+    projectInfo.coordinates,
+    projectInfo.currency,
+    projectInfo.residentialBasements,
+    projectInfo.residentialPodiums,
+    projectInfo.residentialGroundFloors,
+    projectInfo.residentialResidentialFloors,
+    projectInfo.residentialTotalBuildingBUA,
+    projectInfo.residentialBasementBUA,
+    projectInfo.residentialPodiumBUA,
+    projectInfo.residentialGLA,
+    projectInfo.residentialPlotArea,
+    performResearch,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Hotel Step 4 BUA data to Cash Outflows state when entering Step 6
+  useEffect(() => {
+    if (isOperationalHotel && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {};
+      if (projectInfo.hotelTotalBuildingBUA) {
+        updates.buildingBUA = projectInfo.hotelTotalBuildingBUA;
+      }
+      if (projectInfo.hotelBasementBUA) {
+        updates.basementBUA = projectInfo.hotelBasementBUA;
+      }
+      if (projectInfo.hotelPodiumBUA) {
+        updates.parkingBUA = projectInfo.hotelPodiumBUA;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateCashOutflowsForStream(updates);
+        console.log(" Synced Hotel Step 4 BUA to Cash Outflows:", updates);
+      }
+    }
+  }, [
+    isOperationalHotel,
+    currentStep,
+    projectInfo.hotelTotalBuildingBUA,
+    projectInfo.hotelBasementBUA,
+    projectInfo.hotelPodiumBUA,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Retail Step 4 BUA data to Cash Outflows state when entering Step 6
+  useEffect(() => {
+    if (isOperationalRetail && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {};
+      if (projectInfo.retailTotalBuildingBUA) {
+        updates.buildingBUA = projectInfo.retailTotalBuildingBUA;
+      }
+      if (projectInfo.retailBasementBUA) {
+        updates.basementBUA = projectInfo.retailBasementBUA;
+      }
+      if (projectInfo.retailPodiumBUA) {
+        updates.parkingBUA = projectInfo.retailPodiumBUA;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateCashOutflowsForStream(updates);
+        console.log("🔗 Synced Retail Step 4 BUA to Cash Outflows:", updates);
+      }
+    }
+  }, [
+    isOperationalRetail,
+    currentStep,
+    projectInfo.retailTotalBuildingBUA,
+    projectInfo.retailBasementBUA,
+    projectInfo.retailPodiumBUA,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Hotel Step 4 Plot Area to Cash Outflows state when entering Step 9 (Land Costs)
+  useEffect(() => {
+    if (isOperationalHotel && currentStep === 8) {
+      if (projectInfo.hotelPlotArea) {
+        updateCashOutflowsForStream({ landArea: projectInfo.hotelPlotArea });
+        console.log(
+          "🔗 Synced Hotel Step 4 Plot Area to Cash Outflows:",
+          projectInfo.hotelPlotArea
+        );
+      }
+    }
+  }, [
+    isOperationalHotel,
+    currentStep,
+    projectInfo.hotelPlotArea,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Retail Step 4 Plot Area to Cash Outflows state when entering Step 9
+  useEffect(() => {
+    if (isOperationalRetail && currentStep === 8) {
+      if (projectInfo.retailPlotArea) {
+        updateCashOutflowsForStream({ landArea: projectInfo.retailPlotArea });
+        console.log(
+          "🔗 Synced Retail Step 4 Plot Area to Cash Outflows:",
+          projectInfo.retailPlotArea
+        );
+      }
+    }
+  }, [
+    isOperationalRetail,
+    currentStep,
+    projectInfo.retailPlotArea,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Office Step 4 BUA data to Cash Outflows state when entering Step 6
+  useEffect(() => {
+    if (isOperationalOffice && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {};
+      if (projectInfo.officeTotalBuildingBUA) {
+        updates.buildingBUA = projectInfo.officeTotalBuildingBUA;
+      }
+      if (projectInfo.officeBasementBUA) {
+        updates.basementBUA = projectInfo.officeBasementBUA;
+      }
+      if (projectInfo.officePodiumBUA) {
+        updates.parkingBUA = projectInfo.officePodiumBUA;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateCashOutflowsForStream(updates);
+        console.log(" Synced Office Step 4 BUA to Cash Outflows:", updates);
+      }
+    }
+  }, [
+    isOperationalOffice,
+    currentStep,
+    projectInfo.officeTotalBuildingBUA,
+    projectInfo.officeBasementBUA,
+    projectInfo.officePodiumBUA,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Office Step 4 Plot Area to Cash Outflows state when entering Step 9
+  useEffect(() => {
+    if (isOperationalOffice && currentStep === 8) {
+      if (projectInfo.officePlotArea) {
+        updateCashOutflowsForStream({ landArea: projectInfo.officePlotArea });
+        console.log(
+          "🔗 Synced Office Step 4 Plot Area to Cash Outflows:",
+          projectInfo.officePlotArea
+        );
+      }
+    }
+  }, [
+    isOperationalOffice,
+    currentStep,
+    projectInfo.officePlotArea,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Residential Step 4 BUA data to Cash Outflows state when entering Step 6
+  useEffect(() => {
+    if (isOperationalResidential && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {};
+      if (projectInfo.residentialTotalBuildingBUA) {
+        updates.buildingBUA = projectInfo.residentialTotalBuildingBUA;
+      }
+      if (projectInfo.residentialBasementBUA) {
+        updates.basementBUA = projectInfo.residentialBasementBUA;
+      }
+      if (projectInfo.residentialPodiumBUA) {
+        updates.parkingBUA = projectInfo.residentialPodiumBUA;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateCashOutflowsForStream(updates);
+        console.log("🔗 Synced Residential Step 4 BUA to Cash Outflows:", updates);
+      }
+    }
+  }, [
+    isOperationalResidential,
+    currentStep,
+    projectInfo.residentialTotalBuildingBUA,
+    projectInfo.residentialBasementBUA,
+    projectInfo.residentialPodiumBUA,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Sync Residential Step 4 Plot Area to Cash Outflows state when entering Step 9
+  useEffect(() => {
+    if (isOperationalResidential && currentStep === 8) {
+      if (projectInfo.residentialPlotArea) {
+        updateCashOutflowsForStream({ landArea: projectInfo.residentialPlotArea });
+        console.log(
+          "🔗 Synced Residential Step 4 Plot Area to Cash Outflows:",
+          projectInfo.residentialPlotArea
+        );
+      }
+    }
+  }, [
+    isOperationalResidential,
+    currentStep,
+    projectInfo.residentialPlotArea,
+    updateCashOutflowsForStream,
   ]);
 
   const updateFormData = (field: string, value: unknown) => {
@@ -1233,6 +2603,250 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
+  // --- START: Retail AI-Based Reset Functions ---
+  const resetRetailToAiBenchmark = useCallback(() => {
+    if (!aiC1) return;
+    const rates = aiC1.construction_rates;
+    const soft = aiC1.soft_costs;
+    updateCashOutflowsForStream({
+      buildingRate:
+        rates?.building_rate_psf ??
+        (rates as { buildingRate?: number } | undefined)?.buildingRate ??
+        cashOutflows.buildingRate,
+      parkingRate:
+        rates?.parking_rate_psf ??
+        (rates as { parkingRate?: number } | undefined)?.parkingRate ??
+        cashOutflows.parkingRate,
+      basementRate:
+        rates?.basement_rate_psf ??
+        (rates as { basementRate?: number } | undefined)?.basementRate ??
+        cashOutflows.basementRate,
+      softCostPercent:
+        soft?.sc_percentage != null
+          ? round2(soft.sc_percentage)
+          : cashOutflows.softCostPercent,
+      powcPercent:
+        soft?.powc_percentage != null
+          ? round2(soft.powc_percentage)
+          : cashOutflows.powcPercent,
+      ffePercent:
+        soft?.ffe_percentage?.recommended != null
+          ? round2(soft.ffe_percentage.recommended)
+          : cashOutflows.ffePercent,
+      landRate: aiC1.land_rate_psf ?? cashOutflows.landRate,
+      operationalRetailBuildingRateManual: false,
+      operationalRetailParkingRateManual: false,
+      operationalRetailBasementRateManual: false,
+      operationalRetailScManual: false,
+      operationalRetailPowcManual: false,
+      operationalRetailFfeManual: false,
+      operationalRetailLandRateManual: false,
+    });
+  }, [
+    aiC1,
+    cashOutflows.buildingRate,
+    cashOutflows.parkingRate,
+    cashOutflows.basementRate,
+    cashOutflows.softCostPercent,
+    cashOutflows.powcPercent,
+    cashOutflows.ffePercent,
+    cashOutflows.landRate,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetRetailStep5RatesToAi = useCallback(() => {
+    if (!aiC1?.construction_rates) return;
+    const rates = aiC1.construction_rates;
+    updateCashOutflowsForStream({
+      buildingRate:
+        rates.building_rate_psf ??
+        (rates as { buildingRate?: number }).buildingRate ??
+        cashOutflows.buildingRate,
+      parkingRate:
+        rates.parking_rate_psf ??
+        (rates as { parkingRate?: number }).parkingRate ??
+        cashOutflows.parkingRate,
+      basementRate:
+        rates.basement_rate_psf ??
+        (rates as { basementRate?: number }).basementRate ??
+        cashOutflows.basementRate,
+      operationalRetailBuildingRateManual: false,
+      operationalRetailParkingRateManual: false,
+      operationalRetailBasementRateManual: false,
+    });
+  }, [
+    aiC1,
+    cashOutflows.buildingRate,
+    cashOutflows.parkingRate,
+    cashOutflows.basementRate,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetRetailStep7PercentsToAi = useCallback(() => {
+    if (!aiC1?.soft_costs) return;
+    const soft = aiC1.soft_costs;
+    updateCashOutflowsForStream({
+      softCostPercent:
+        soft.sc_percentage != null
+          ? round2(soft.sc_percentage)
+          : cashOutflows.softCostPercent,
+      powcPercent:
+        soft.powc_percentage != null
+          ? round2(soft.powc_percentage)
+          : cashOutflows.powcPercent,
+      ffePercent:
+        soft.ffe_percentage?.recommended != null
+          ? round2(soft.ffe_percentage.recommended)
+          : cashOutflows.ffePercent,
+      operationalRetailScManual: false,
+      operationalRetailPowcManual: false,
+      operationalRetailFfeManual: false,
+    });
+  }, [
+    aiC1,
+    cashOutflows.softCostPercent,
+    cashOutflows.powcPercent,
+    cashOutflows.ffePercent,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetRetailStep8LandRateToAi = useCallback(() => {
+    if (aiC1?.land_rate_psf == null) return;
+    updateCashOutflowsForStream({
+      landRate: aiC1.land_rate_psf,
+      operationalRetailLandRateManual: false,
+    });
+  }, [aiC1, updateCashOutflowsForStream]);
+
+  const resetRetailStep11StagesToAi = useCallback(() => {
+    if (!aiC1?.s_curve) return;
+    updateCashOutflowsForStream({
+      stageAllocation: {
+        stage1Label: "Enabling",
+        stage1Percent: aiC1.s_curve.stage_1_pct ?? 10,
+        stage2Label: "Sub-Structure",
+        stage2Percent: aiC1.s_curve.stage_2_pct ?? 20,
+        stage3Label: "Super Structure",
+        stage3Percent: aiC1.s_curve.stage_3_pct ?? 40,
+        stage4Label: "Finishes",
+        stage4Percent: aiC1.s_curve.stage_4_pct ?? 30,
+      },
+    });
+  }, [aiC1, updateCashOutflowsForStream]);
+
+  const resetRetailStep12AllocationsToAi = useCallback(() => {
+    if (!aiC1) return;
+    const patch: Partial<CashOutflows> = {};
+    if (aiC1.powc_breakdown) {
+      patch.powcAllocation = {
+        siteEstablishment: aiC1.powc_breakdown.site_establishment_pct,
+        overhead: aiC1.powc_breakdown.overhead_pct,
+        authorityFees: aiC1.powc_breakdown.authority_fees_pct,
+      };
+    }
+    if (aiC1.sc_breakdown) {
+      patch.softCostAllocation = {
+        architect: aiC1.sc_breakdown.architect_pct,
+        projectManagement: aiC1.sc_breakdown.pm_pct,
+        engineering: aiC1.sc_breakdown.engineering_pct,
+        geotechnical: aiC1.sc_breakdown.geotech_pct,
+        otherFees: aiC1.sc_breakdown.other_pct,
+      };
+    }
+    updateCashOutflowsForStream(patch);
+  }, [aiC1, updateCashOutflowsForStream]);
+  // --- END: Retail AI-Based Reset Functions ---
+
+  // --- START: Retail Step-Specific Resets ---
+  const resetRetailStep5Rates = useCallback(() => {
+    if (!retailBenchmark || !retailProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalRetailBuildingRateManual: false,
+      operationalRetailParkingRateManual: false,
+      operationalRetailBasementRateManual: false,
+      buildingRate: aiBuildingRate ?? retailBenchmark.buildingRate,
+      parkingRate: aiParkingRate ?? retailBenchmark.parkingRate,
+      basementRate: aiBasementRate ?? retailBenchmark.basementRate,
+    });
+  }, [
+    aiBasementRate,
+    aiBuildingRate,
+    aiParkingRate,
+    retailBenchmark,
+    retailProfileKey,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetRetailStep7Percents = useCallback(() => {
+    if (!retailBenchmark || !retailProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalRetailScManual: false,
+      operationalRetailPowcManual: false,
+      operationalRetailFfeManual: false,
+      softCostPercent: aiScPct ?? round2(retailBenchmark.softCostsPercent),
+      powcPercent: aiPowcPct ?? round2(retailBenchmark.powcPercent),
+      ffePercent: aiFfePct ?? round2(retailBenchmark.ffePercent),
+    });
+  }, [
+    aiFfePct,
+    aiPowcPct,
+    aiScPct,
+    retailBenchmark,
+    retailProfileKey,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetRetailStep8LandRate = useCallback(() => {
+    if (!retailBenchmark || !retailProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalRetailLandRateManual: false,
+      landRate: aiLandRate ?? retailBenchmark.landRate,
+    });
+  }, [
+    aiLandRate,
+    retailBenchmark,
+    retailProfileKey,
+    updateCashOutflowsForStream,
+  ]);
+
+  const resetRetailStep11Stages = useCallback(() => {
+    const aiScurve = cashOutflows.aiResearchData?.c1_development?.s_curve;
+    updateCashOutflowsForStream({
+      stageAllocation: {
+        stage1Label: "Enabling",
+        stage1Percent: aiScurve?.stage_1_pct ?? 10,
+        stage2Label: "Sub-Structure",
+        stage2Percent: aiScurve?.stage_2_pct ?? 20,
+        stage3Label: "Super Structure",
+        stage3Percent: aiScurve?.stage_3_pct ?? 40,
+        stage4Label: "Finishes",
+        stage4Percent: aiScurve?.stage_4_pct ?? 30,
+      },
+    });
+  }, [cashOutflows.aiResearchData, updateCashOutflowsForStream]);
+
+  const resetRetailStep12Allocations = useCallback(() => {
+    updateCashOutflowsForStream({
+      powcAllocation: aiPowcBreakdown
+        ? {
+            siteEstablishment: aiPowcBreakdown.site_establishment_pct,
+            overhead: aiPowcBreakdown.overhead_pct,
+            authorityFees: aiPowcBreakdown.authority_fees_pct,
+          }
+        : { ...DEFAULT_POWC_ALLOCATION },
+      softCostAllocation: aiScBreakdown
+        ? {
+            architect: aiScBreakdown.architect_pct,
+            projectManagement: aiScBreakdown.pm_pct,
+            engineering: aiScBreakdown.engineering_pct,
+            geotechnical: aiScBreakdown.geotech_pct,
+            otherFees: aiScBreakdown.other_pct,
+          }
+        : { ...DEFAULT_SOFT_COST_ALLOCATION },
+    });
+  }, [aiPowcBreakdown, aiScBreakdown, updateCashOutflowsForStream]);
+  // --- END: Retail Step-Specific Resets ---
+
   const retailRateFieldClass = (manual?: boolean) =>
     `w-full px-3 py-2 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
       manual
@@ -1260,39 +2874,45 @@ function CashOutflowsPageContent() {
       operationalRetailProfileKey: retailProfileKey,
     };
 
-    if (keyChanged) {
-      patch.operationalRetailBuildingRateManual = false;
-      patch.operationalRetailParkingRateManual = false;
-      patch.operationalRetailBasementRateManual = false;
-      patch.operationalRetailScManual = false;
-      patch.operationalRetailPowcManual = false;
-      patch.operationalRetailFfeManual = false;
-      patch.operationalRetailLandRateManual = false;
-      patch.buildingRate = retailBenchmark.buildingRate;
-      patch.parkingRate = retailBenchmark.parkingRate;
-      patch.basementRate = retailBenchmark.basementRate;
-      patch.softCostPercent = round2(retailBenchmark.softCostsPercent);
-      patch.powcPercent = round2(retailBenchmark.powcPercent);
-      patch.ffePercent = round2(retailBenchmark.ffePercent);
-      patch.landRate = retailBenchmark.landRate;
-      updateCashOutflowsForStream(patch);
-      return;
+    if (currentStep === 5) {
+      if (keyChanged) {
+        patch.operationalRetailBuildingRateManual = false;
+        patch.operationalRetailParkingRateManual = false;
+        patch.operationalRetailBasementRateManual = false;
+        patch.buildingRate = aiBuildingRate ?? retailBenchmark.buildingRate;
+        patch.parkingRate = aiParkingRate ?? retailBenchmark.parkingRate;
+        patch.basementRate = aiBasementRate ?? retailBenchmark.basementRate;
+      }
+      if (!st?.operationalRetailBuildingRateManual)
+        patch.buildingRate = aiBuildingRate ?? retailBenchmark.buildingRate;
+      if (!st?.operationalRetailParkingRateManual)
+        patch.parkingRate = aiParkingRate ?? retailBenchmark.parkingRate;
+      if (!st?.operationalRetailBasementRateManual)
+        patch.basementRate = aiBasementRate ?? retailBenchmark.basementRate;
     }
 
-    if (!st?.operationalRetailBuildingRateManual)
-      patch.buildingRate = retailBenchmark.buildingRate;
-    if (!st?.operationalRetailParkingRateManual)
-      patch.parkingRate = retailBenchmark.parkingRate;
-    if (!st?.operationalRetailBasementRateManual)
-      patch.basementRate = retailBenchmark.basementRate;
-    if (!st?.operationalRetailScManual)
-      patch.softCostPercent = round2(retailBenchmark.softCostsPercent);
-    if (!st?.operationalRetailPowcManual)
-      patch.powcPercent = round2(retailBenchmark.powcPercent);
-    if (!st?.operationalRetailFfeManual)
-      patch.ffePercent = round2(retailBenchmark.ffePercent);
-    if (!st?.operationalRetailLandRateManual)
-      patch.landRate = retailBenchmark.landRate;
+    if (currentStep === 7) {
+      if (keyChanged) {
+        patch.operationalRetailScManual = false;
+        patch.operationalRetailPowcManual = false;
+        patch.operationalRetailFfeManual = false;
+      }
+      if (!st?.operationalRetailScManual)
+        patch.softCostPercent =
+          aiScPct ?? round2(retailBenchmark.softCostsPercent);
+      if (!st?.operationalRetailPowcManual)
+        patch.powcPercent = aiPowcPct ?? round2(retailBenchmark.powcPercent);
+      if (!st?.operationalRetailFfeManual)
+        patch.ffePercent = aiFfePct ?? round2(retailBenchmark.ffePercent);
+    }
+
+    if (currentStep === 8) {
+      if (keyChanged) {
+        patch.operationalRetailLandRateManual = false;
+      }
+      if (!st?.operationalRetailLandRateManual)
+        patch.landRate = aiLandRate ?? retailBenchmark.landRate;
+    }
 
     const numDiff = (next: number | undefined, cur: number) =>
       next !== undefined && Math.abs(next - cur) > 0.004;
@@ -1311,11 +2931,19 @@ function CashOutflowsPageContent() {
     }
   }, [
     isOperationalRetail,
+    currentStep,
     retailBenchmark,
     retailProfileKey,
     projectInfo.country,
     projectInfo.retailSegment,
     projectInfo.retailPositioning,
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
+    aiLandRate,
     updateCashOutflowsForStream,
   ]);
 
@@ -1456,6 +3084,63 @@ function CashOutflowsPageContent() {
     operationalOfficeProfilePrevKeyRef.current = officeProfileKey;
   }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
 
+  // --- START: Office Step-Specific Resets ---
+  const resetOfficeStep5Rates = useCallback(() => {
+    if (!officeBenchmark || !officeProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalOfficeBuildingRateManual: false,
+      operationalOfficeParkingRateManual: false,
+      operationalOfficeBasementRateManual: false,
+      buildingRate: officeBenchmark.buildingRate,
+      parkingRate: officeBenchmark.parkingRate,
+      basementRate: officeBenchmark.basementRate,
+    });
+  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+
+  const resetOfficeStep7Percents = useCallback(() => {
+    if (!officeBenchmark || !officeProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalOfficeScManual: false,
+      operationalOfficePowcManual: false,
+      operationalOfficeFfeManual: false,
+      softCostPercent: round2(officeBenchmark.softCostsPercent),
+      powcPercent: round2(officeBenchmark.powcPercent),
+      ffePercent: round2(officeBenchmark.ffePercent),
+    });
+  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+
+  const resetOfficeStep8LandRate = useCallback(() => {
+    if (!officeBenchmark || !officeProfileKey) return;
+    updateCashOutflowsForStream({
+      operationalOfficeLandRateManual: false,
+      landRate: officeBenchmark.landRate,
+    });
+  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+
+  const resetOfficeStep11Stages = useCallback(() => {
+    const aiScurve = cashOutflows.aiResearchData?.c1_development?.s_curve;
+    updateCashOutflowsForStream({
+      stageAllocation: {
+        stage1Label: "Enabling",
+        stage1Percent: aiScurve?.stage_1_pct ?? 10,
+        stage2Label: "Sub-Structure",
+        stage2Percent: aiScurve?.stage_2_pct ?? 20,
+        stage3Label: "Super Structure",
+        stage3Percent: aiScurve?.stage_3_pct ?? 40,
+        stage4Label: "Finishes",
+        stage4Percent: aiScurve?.stage_4_pct ?? 30,
+      },
+    });
+  }, [cashOutflows.aiResearchData, updateCashOutflowsForStream]);
+
+  const resetOfficeStep12Allocations = useCallback(() => {
+    updateCashOutflowsForStream({
+      powcAllocation: { ...DEFAULT_POWC_ALLOCATION },
+      softCostAllocation: { ...DEFAULT_SOFT_COST_ALLOCATION },
+    });
+  }, [updateCashOutflowsForStream]);
+  // --- END: Office Step-Specific Resets ---
+
   const officeRateFieldClass = retailRateFieldClass;
   const officePercentFieldClass = retailPercentFieldClass;
 
@@ -1488,39 +3173,44 @@ function CashOutflowsPageContent() {
       operationalOfficeProfileKey: officeProfileKey,
     };
 
-    if (keyChanged) {
-      patch.operationalOfficeBuildingRateManual = false;
-      patch.operationalOfficeParkingRateManual = false;
-      patch.operationalOfficeBasementRateManual = false;
-      patch.operationalOfficeScManual = false;
-      patch.operationalOfficePowcManual = false;
-      patch.operationalOfficeFfeManual = false;
-      patch.operationalOfficeLandRateManual = false;
-      patch.buildingRate = officeBenchmark.buildingRate;
-      patch.parkingRate = officeBenchmark.parkingRate;
-      patch.basementRate = officeBenchmark.basementRate;
-      patch.softCostPercent = round2(officeBenchmark.softCostsPercent);
-      patch.powcPercent = round2(officeBenchmark.powcPercent);
-      patch.ffePercent = round2(officeBenchmark.ffePercent);
-      patch.landRate = officeBenchmark.landRate;
-      updateCashOutflowsForStream(patch);
-      return;
+    if (currentStep === 5) {
+      if (keyChanged) {
+        patch.operationalOfficeBuildingRateManual = false;
+        patch.operationalOfficeParkingRateManual = false;
+        patch.operationalOfficeBasementRateManual = false;
+        patch.buildingRate = officeBenchmark.buildingRate;
+        patch.parkingRate = officeBenchmark.parkingRate;
+        patch.basementRate = officeBenchmark.basementRate;
+      }
+      if (!st?.operationalOfficeBuildingRateManual)
+        patch.buildingRate = officeBenchmark.buildingRate;
+      if (!st?.operationalOfficeParkingRateManual)
+        patch.parkingRate = officeBenchmark.parkingRate;
+      if (!st?.operationalOfficeBasementRateManual)
+        patch.basementRate = officeBenchmark.basementRate;
     }
 
-    if (!st?.operationalOfficeBuildingRateManual)
-      patch.buildingRate = officeBenchmark.buildingRate;
-    if (!st?.operationalOfficeParkingRateManual)
-      patch.parkingRate = officeBenchmark.parkingRate;
-    if (!st?.operationalOfficeBasementRateManual)
-      patch.basementRate = officeBenchmark.basementRate;
-    if (!st?.operationalOfficeScManual)
-      patch.softCostPercent = round2(officeBenchmark.softCostsPercent);
-    if (!st?.operationalOfficePowcManual)
-      patch.powcPercent = round2(officeBenchmark.powcPercent);
-    if (!st?.operationalOfficeFfeManual)
-      patch.ffePercent = round2(officeBenchmark.ffePercent);
-    if (!st?.operationalOfficeLandRateManual)
-      patch.landRate = officeBenchmark.landRate;
+    if (currentStep === 7) {
+      if (keyChanged) {
+        patch.operationalOfficeScManual = false;
+        patch.operationalOfficePowcManual = false;
+        patch.operationalOfficeFfeManual = false;
+      }
+      if (!st?.operationalOfficeScManual)
+        patch.softCostPercent = round2(officeBenchmark.softCostsPercent);
+      if (!st?.operationalOfficePowcManual)
+        patch.powcPercent = round2(officeBenchmark.powcPercent);
+      if (!st?.operationalOfficeFfeManual)
+        patch.ffePercent = round2(officeBenchmark.ffePercent);
+    }
+
+    if (currentStep === 8) {
+      if (keyChanged) {
+        patch.operationalOfficeLandRateManual = false;
+      }
+      if (!st?.operationalOfficeLandRateManual)
+        patch.landRate = officeBenchmark.landRate;
+    }
 
     const numDiff = (next: number | undefined, cur: number) =>
       next !== undefined && Math.abs(next - cur) > 0.004;
@@ -1539,6 +3229,7 @@ function CashOutflowsPageContent() {
     }
   }, [
     isOperationalOffice,
+    currentStep,
     officeBenchmark,
     officeProfileKey,
     projectInfo.country,
@@ -1639,13 +3330,14 @@ function CashOutflowsPageContent() {
           "POWC % should be between 0% and 20% of CC incl. contingency.";
       }
       if (showsOperationalFfe) {
-        const ffeError = validateOperationalFfePercent(
-          cashOutflows.ffePercent,
-          projectInfo.buildingType,
-          projectInfo
-        );
-        if (ffeError) {
-          newErrors.ffePercent = ffeError;
+        // Prefer AI-researched range; do not fall back to hardcoded 5–15% retail (etc.)
+        if (
+          aiFfeMin !== undefined &&
+          aiFfeMax !== undefined &&
+          (cashOutflows.ffePercent < aiFfeMin ||
+            cashOutflows.ffePercent > aiFfeMax)
+        ) {
+          newErrors.ffePercent = `FFE % must be between ${aiFfeMin}% and ${aiFfeMax}% for ${ffeSegmentLabel}.`;
         }
       }
     }
@@ -1658,13 +3350,17 @@ function CashOutflowsPageContent() {
     }
 
     if (step === 9) {
-      if (landToTdcRatio > 51) {
-        newErrors.landRatio =
-          "Land/TDC should be ≤ 51%. Adjust land or development costs.";
+      const landTarget = aiData?.guardrails?.land_tdc_target_pct;
+      const dcTarget = aiData?.guardrails?.dc_tdc_target_pct;
+
+      const landMax = landTarget?.max ?? 51;
+      const dcMin = dcTarget?.min ?? 49;
+
+      if (landToTdcRatio > landMax) {
+        newErrors.landRatio = `Land/TDC should be ≤ ${landMax}%. Adjust land or development costs.`;
       }
-      if (dcToTdcRatio < 49) {
-        newErrors.dcRatio =
-          "Development/TDC should be ≥ 49%. Current balance is land-heavy.";
+      if (dcToTdcRatio < dcMin) {
+        newErrors.dcRatio = `Development/TDC should be ≥ ${dcMin}%. Current balance is land-heavy.`;
       }
     }
 
@@ -1820,6 +3516,48 @@ function CashOutflowsPageContent() {
           </div>
         </div>
 
+        {isAiLoading && (
+          <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <div className="flex items-center gap-3 text-blue-400">
+              <div className="h-5 w-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              <div>
+                <p className="font-medium">AI Research in Progress...</p>
+                <p className="text-sm text-slate-400">
+                  Fetching market benchmarks for your project
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {aiError && (
+          <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <div className="flex items-center gap-3">
+              <svg
+                className="h-5 w-5 text-amber-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-amber-400">
+                  AI Research Unavailable
+                </p>
+                <p className="text-xs text-amber-300">
+                  Using manual benchmarks. You can continue with manual inputs.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Step Content */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 space-y-8">
           {/* Step 0: Location */}
@@ -1833,29 +3571,25 @@ function CashOutflowsPageContent() {
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     Country
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={projectInfo.country}
                     onChange={(e) => {
-                      const name = e.target.value;
-                      const country = COUNTRIES.find((c) => c.name === name);
-                      const defaultCurrency =
-                        (country?.currency?.[0] ?? projectInfo.currency) as any;
+                      const countryName = e.target.value;
+                      const detectedCurrency = getCurrencyForCountry(countryName);
+
                       updateProjectInfoForStream({
-                        country: name,
-                        city: "",
-                        ...(country && { currency: defaultCurrency }),
+                        country: countryName,
+                        city: "", // Reset city when country changes
+                        currency: detectedCurrency as ProjectInfo["currency"],
+                        coordinates: null,
+                        subMarket: undefined,
                       });
-                      if (name) logCashOutflowAudit("country", name, 1);
+                      if (countryName) logCashOutflowAudit("country", countryName, 1);
                     }}
+                    placeholder="Enter any country (e.g., United States, Japan, Germany)"
                     className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">Select country</option>
-                    {COUNTRIES.map((c) => (
-                      <option key={c.code} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                   {fieldError("country") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("country")}
@@ -1866,32 +3600,38 @@ function CashOutflowsPageContent() {
                   <label className="block text-sm font-medium text-slate-300 mb-2">
                     City
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={projectInfo.city}
                     onChange={(e) => updateFormData("city", e.target.value)}
-                    disabled={!projectInfo.country}
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value="">Select city</option>
-                    {(COUNTRIES.find((c) => c.name === projectInfo.country)?.cities ?? []).map((city) => (
-                      <option key={city} value={city}>
-                        {city}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Enter any city (e.g., New York, Tokyo, London)"
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
                   {fieldError("city") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("city")}
                     </p>
                   )}
                 </div>
+                {projectInfo.country && projectInfo.city && (
+                  <LocationMapPicker
+                    country={projectInfo.country}
+                    city={projectInfo.city}
+                    savedPin={projectInfo.coordinates}
+                    onGeocodingChange={setIsMapGeocoding}
+                    onPinDrop={async (lat, lng, subMarket) => {
+                      updateProjectInfoForStream({
+                        coordinates: { lat, lng },
+                        subMarket: subMarket || undefined,
+                      });
+                    }}
+                  />
+                )}
                 {projectInfo.country && (
                   <p className="text-xs text-slate-500">
                     Currency auto-set to{" "}
                     <span className="text-emerald-400 font-medium">
-                      {(COUNTRIES.find((c) => c.name === projectInfo.country)
-                        ?.currency?.[0] ??
-                        projectInfo.currency) as any}
+                      {projectInfo.currency || "USD"}
                     </span>{" "}
                     for {projectInfo.country}. You can change it in the next step if needed.
                   </p>
@@ -1908,27 +3648,30 @@ function CashOutflowsPageContent() {
               </h2>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Project Currency
+                  Currency
                 </label>
                 <select
                   value={projectInfo.currency}
                   onChange={(e) =>
-                    updateFormData(
-                      "currency",
-                      e.target.value as any
-                    )
+                    updateProjectInfoForStream({
+                      currency: e.target.value as ProjectInfo["currency"],
+                    })
                   }
                   className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  {(
-                    COUNTRIES.find((c) => c.name === projectInfo.country)
-                      ?.currency ?? ["USD"]
-                  ).map((ccy) => (
-                    <option key={ccy} value={ccy}>
-                      {CURRENCY_LABELS[ccy] ?? ccy}
-                    </option>
-                  ))}
+                  <option value={getCurrencyForCountry(projectInfo.country)}>
+                    {getCurrencyForCountry(projectInfo.country)}{" "}
+                    {projectInfo.country
+                      ? `(${projectInfo.country} Local)`
+                      : "(Default)"}
+                  </option>
+                  {getCurrencyForCountry(projectInfo.country) !== "USD" && (
+                    <option value="USD">USD (US Dollar)</option>
+                  )}
                 </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Auto-detected based on country. You can change this if needed.
+                </p>
                 {fieldError("currency") && (
                   <p className="mt-1 text-sm text-red-400">
                     {fieldError("currency")}
@@ -2054,297 +3797,739 @@ function CashOutflowsPageContent() {
 
           {/* Building Configuration */}
           {currentStep === 3 && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-6">
-                Building Configuration
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold text-white capitalize border-b border-slate-700 pb-4">
+                {projectInfo.buildingType === "retail"
+                  ? "Shopping Mall"
+                  : projectInfo.buildingType}{" "}
+                Configuration
               </h2>
-              {false ? (() => {
-                const sub = projectInfo.buildingSubType ?? "residential_landed";
-                const activeTab =
-                  sub === "residential_high_rise" || sub === "commercial_strata_office"
-                    ? "highrise"
-                    : "landed";
 
-                const landedUnits = projectInfo.buildingConfig.landedUnits ?? 0;
-                const landedLandAreaPerUnit =
-                  projectInfo.buildingConfig.landedLandAreaPerUnit ?? 0;
-                const landedBUAPerUnit = projectInfo.buildingConfig.landedBUAPerUnit ?? 0;
+              {projectInfo.buildingType === "hotel" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold text-slate-200">
+                    Hotel Configuration
+                  </h3>
 
-                const totalBUA = landedUnits * landedBUAPerUnit;
-                const totalSaleableLand = landedUnits * landedLandAreaPerUnit;
-                const totalLandArea = totalSaleableLand > 0 ? totalSaleableLand / 0.7 : 0;
-
-                return (
-                  <>
-                    <div className="flex border-b border-slate-700 mb-6">
-                      <div
-                        className={`px-6 py-3 text-sm font-medium transition-colors ${
-                          activeTab === "highrise"
-                            ? "text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/5"
-                            : "text-slate-500"
-                        }`}
-                      >
-                        High-Rise Config
-                      </div>
-                      <div
-                        className={`px-6 py-3 text-sm font-medium transition-colors ${
-                          activeTab === "landed"
-                            ? "text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/5"
-                            : "text-slate-500"
-                        }`}
-                      >
-                        Landed Config
-                      </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basements (B)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={5}
+                        value={projectInfo.hotelBasements || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelBasements: val });
+                          console.log("🛒 Store Update - Hotel Basements:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
                     </div>
-
-                    <div className="mb-6 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
-                      <p className="text-sm text-slate-400">
-                        ℹ️ Configuration form auto-selected based on Building Type from Step 3.
-                        To change, go back to Step 3 and select a different building type.
-                      </p>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking (P)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={8}
+                        value={projectInfo.hotelPodiums || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelPodiums: val });
+                          console.log("🛒 Store Update - Hotel Podiums:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
                     </div>
-
-                    {activeTab === "highrise" ? (
-                      <div className="space-y-6">
-                        <h3 className="text-lg font-semibold text-white">
-                          Hi-Rise Residential & Strata Office Development Configuration
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Basements (No. of levels)
-                            </label>
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.basements}
-                              min={0}
-                              onChange={(e) =>
-                                updateFormData("basements", Number(e.target.value) || 0)
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            {fieldError("basements") && (
-                              <p className="mt-1 text-sm text-red-400">
-                                {fieldError("basements")}
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Podium / Parking Floors
-                            </label>
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.podiumFloors}
-                              min={0}
-                              onChange={(e) =>
-                                updateFormData("podiumFloors", Number(e.target.value) || 0)
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            {fieldError("podiumFloors") && (
-                              <p className="mt-1 text-sm text-red-400">
-                                {fieldError("podiumFloors")}
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Building Floors
-                            </label>
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.towerFloors}
-                              min={1}
-                              onChange={(e) =>
-                                updateFormData("towerFloors", Number(e.target.value) || 0)
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            {fieldError("towerFloors") && (
-                              <p className="mt-1 text-sm text-red-400">
-                                {fieldError("towerFloors")}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        <h3 className="text-lg font-semibold text-white">
-                          Landed Residential & Commercial Development Configuration
-                        </h3>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Number of Units
-                            </label>
-                            <input
-                              type="number"
-                              value={landedUnits}
-                              min={1}
-                              onChange={(e) =>
-                                updateProjectInfoForStream({
-                                  buildingConfig: {
-                                    ...projectInfo.buildingConfig,
-                                    landedUnits: Number(e.target.value) || 0,
-                                  },
-                                })
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              placeholder="e.g., 50"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              Land Area per Unit (sqft)
-                            </label>
-                            <input
-                              type="number"
-                              value={landedLandAreaPerUnit}
-                              min={1}
-                              onChange={(e) =>
-                                updateProjectInfoForStream({
-                                  buildingConfig: {
-                                    ...projectInfo.buildingConfig,
-                                    landedLandAreaPerUnit: Number(e.target.value) || 0,
-                                  },
-                                })
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              placeholder="e.g., 4000"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-2">
-                              BUA per Unit (sqft)
-                            </label>
-                            <input
-                              type="number"
-                              value={landedBUAPerUnit}
-                              min={1}
-                              onChange={(e) =>
-                                updateProjectInfoForStream({
-                                  buildingConfig: {
-                                    ...projectInfo.buildingConfig,
-                                    landedBUAPerUnit: Number(e.target.value) || 0,
-                                  },
-                                })
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                              placeholder="e.g., 2500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                          <h4 className="text-sm font-semibold text-white mb-3">
-                            Summary
-                          </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                              <p className="text-xs text-slate-400 mb-1">
-                                Total BUA (sqft)
-                              </p>
-                              <p className="text-lg font-semibold text-emerald-400">
-                                {totalBUA.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Units × BUA per Unit
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-400 mb-1">
-                                Total Saleable Land Area (sqft)
-                              </p>
-                              <p className="text-lg font-semibold text-emerald-400">
-                                {totalSaleableLand.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Units × Land Area per Unit
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-400 mb-1">
-                                Total Land Area (sqft)
-                              </p>
-                              <p className="text-lg font-semibold text-emerald-400">
-                                {totalLandArea.toLocaleString(undefined, {
-                                  maximumFractionDigits: 0,
-                                })}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                Saleable Land ÷ 70%
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })() : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Basements (No. of levels)
-                    </label>
-                    <input
-                      type="number"
-                      value={projectInfo.buildingConfig.basements}
-                      min={0}
-                      onChange={(e) =>
-                        updateFormData("basements", Number(e.target.value) || 0)
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("basements") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("basements")}
-                      </p>
-                    )}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Ground Floor (G)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        value={projectInfo.hotelGroundFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelGroundFloors: val });
+                          console.log("🛒 Store Update - Hotel Ground:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Guest Room Floors (Storeys)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={projectInfo.hotelGuestRoomFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelGuestRoomFloors: val });
+                          console.log("🛒 Store Update - Hotel Floors:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Podium / Parking Floors
-                    </label>
-                    <input
-                      type="number"
-                      value={projectInfo.buildingConfig.podiumFloors}
-                      min={0}
-                      onChange={(e) =>
-                        updateFormData(
-                          "podiumFloors",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("podiumFloors") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("podiumFloors")}
-                      </p>
-                    )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Floors (Auto)
+                      </label>
+                      <input
+                        type="number"
+                        value={hotelTotalFloors}
+                        readOnly
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Building Floors
-                    </label>
-                    <input
-                      type="number"
-                      value={projectInfo.buildingConfig.towerFloors}
-                      min={1}
-                      onChange={(e) =>
-                        updateFormData("towerFloors", Number(e.target.value) || 0)
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("towerFloors") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("towerFloors")}
-                      </p>
-                    )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Building BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.hotelTotalBuildingBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelTotalBuildingBUA: val });
+                          console.log(" Store Update - Hotel BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basement BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.hotelBasementBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelBasementBUA: val });
+                          console.log("🛒 Store Update - Hotel Basement BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.hotelPodiumBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelPodiumBUA: val });
+                          console.log("🛒 Store Update - Hotel Podium BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Guest Room Area (GLA) (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.hotelGuestRoomGLA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelGuestRoomGLA: val });
+                          console.log("🛒 Store Update - Hotel GLA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Keys / Rooms
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.hotelTotalKeys || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelTotalKeys: val });
+                          console.log("🛒 Store Update - Hotel Keys:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Average Room Size (sqft) (Auto)
+                      </label>
+                      <input
+                        type="number"
+                        value={hotelAvgRoomSize}
+                        readOnly
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Plot / Land Area (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.hotelPlotArea || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ hotelPlotArea: val });
+                          console.log("🛒 Store Update - Hotel Plot Area:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {projectInfo.buildingType === "retail" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold text-slate-200">
+                    Shopping Mall Configuration
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basements (B)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={4}
+                        value={projectInfo.retailBasements || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailBasements: val });
+                          console.log(" Store Update - Retail Basements:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking (P)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={8}
+                        value={projectInfo.retailPodiums || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailPodiums: val });
+                          console.log("🛒 Store Update - Retail Podiums:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Ground Floor (G)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        value={projectInfo.retailGroundFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailGroundFloors: val });
+                          console.log("🛒 Store Update - Retail Ground:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Retail Floors (Storeys)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={6}
+                        value={projectInfo.retailRetailFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailRetailFloors: val });
+                          console.log("🛒 Store Update - Retail Floors:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Floors (Auto)
+                      </label>
+                      <input
+                        type="number"
+                        value={retailTotalFloors}
+                        readOnly
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Building BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.retailTotalBuildingBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailTotalBuildingBUA: val });
+                          console.log("🛒 Store Update - Retail BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basement BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.retailBasementBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailBasementBUA: val });
+                          console.log("🛒 Store Update - Retail Basement BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.retailPodiumBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailPodiumBUA: val });
+                          console.log("🛒 Store Update - Retail Podium BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Gross Leasable Area (GLA) (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.retailGLA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailGLA: val });
+                          console.log("🛒 Store Update - Retail GLA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Plot / Land Area (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.retailPlotArea || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ retailPlotArea: val });
+                          console.log("🛒 Store Update - Retail Plot Area:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {projectInfo.buildingType === "office" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold text-slate-200">
+                    Office Configuration
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basements (B)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={5}
+                        value={projectInfo.officeBasements || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officeBasements: val });
+                          console.log("🛒 Store Update - Office Basements:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking (P)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={projectInfo.officePodiums || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officePodiums: val });
+                          console.log("🛒 Store Update - Office Podiums:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Ground Floor (G)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        value={projectInfo.officeGroundFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officeGroundFloors: val });
+                          console.log("🛒 Store Update - Office Ground:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Office Floors (Storeys)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={80}
+                        value={projectInfo.officeOfficeFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officeOfficeFloors: val });
+                          console.log(" Store Update - Office Floors:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Floors (Auto)
+                      </label>
+                      <input
+                        type="number"
+                        value={officeTotalFloors}
+                        readOnly
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Building BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.officeTotalBuildingBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officeTotalBuildingBUA: val });
+                          console.log("🛒 Store Update - Office BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basement BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.officeBasementBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officeBasementBUA: val });
+                          console.log("🛒 Store Update - Office Basement BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.officePodiumBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officePodiumBUA: val });
+                          console.log(" Store Update - Office Podium BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Gross Leasable Area (GLA) (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.officeGLA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officeGLA: val });
+                          console.log("🛒 Store Update - Office GLA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Plot / Land Area (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.officePlotArea || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ officePlotArea: val });
+                          console.log("🛒 Store Update - Office Plot Area:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {projectInfo.buildingType === "residential" && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold text-slate-200">
+                    Residential BTR Configuration
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basements (B)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={4}
+                        value={projectInfo.residentialBasements || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialBasements: val });
+                          console.log("🛒 Store Update - Res Basements:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking (P)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={6}
+                        value={projectInfo.residentialPodiums || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialPodiums: val });
+                          console.log("🛒 Store Update - Res Podiums:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Ground Floor (G)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        value={projectInfo.residentialGroundFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialGroundFloors: val });
+                          console.log("🛒 Store Update - Res Ground:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Residential Floors (Storeys)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={projectInfo.residentialResidentialFloors || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({
+                            residentialResidentialFloors: val,
+                          });
+                          console.log("🛒 Store Update - Res Floors:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Floors (Auto)
+                      </label>
+                      <input
+                        type="number"
+                        value={residentialTotalFloors}
+                        readOnly
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Total Building BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.residentialTotalBuildingBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({
+                            residentialTotalBuildingBUA: val,
+                          });
+                          console.log("🛒 Store Update - Res BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Basement BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.residentialBasementBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialBasementBUA: val });
+                          console.log("🛒 Store Update - Res Basement BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Podium / Parking BUA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.residentialPodiumBUA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialPodiumBUA: val });
+                          console.log("🛒 Store Update - Res Podium BUA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Residential GLA (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.residentialGLA || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialGLA: val });
+                          console.log("🛒 Store Update - Res GLA:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Plot / Land Area (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={projectInfo.residentialPlotArea || 0}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          updateProjectInfoForStream({ residentialPlotArea: val });
+                          console.log("🛒 Store Update - Res Plot Area:", val);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -2474,6 +4659,7 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-6">
                 Construction Costs (CC)
               </h2>
+              {renderHotelBenchmarkBar(resetHotelStep5Rates)}
               {residentialBenchmark.benchmarkReady ? (
                 <ResidentialStep6Construction
                   projectInfo={projectInfo}
@@ -2482,26 +4668,26 @@ function CashOutflowsPageContent() {
                   hasManualOverride={residentialBenchmark.hasManualOverride}
                   onReset={residentialBenchmark.resetProfileDefaults}
                 />
-              ) : retailBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="retail"
-                  country={projectInfo.country}
-                  segment={projectInfo.retailSegment}
-                  positioning={projectInfo.retailPositioning}
-                  onUseDefaults={resetRetailProfileDefaults}
-                  isManualOverride={retailCcRateOverrides.any}
-                />
-              ) : officeBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="office"
-                  country={projectInfo.country}
-                  segment={projectInfo.officeSegment}
-                  positioning={projectInfo.officePositioning}
-                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                  onUseDefaults={resetOfficeProfileDefaults}
-                  isManualOverride={officeCcRateOverrides.any}
-                />
-              ) : null}
+              ) : (
+                renderRetailOfficeBenchmarkBar({
+                  hasManualOverride:
+                    retailCcRateOverrides.any || officeCcRateOverrides.any,
+                  onReset: () => {
+                    if (isOperationalRetail) {
+                      resetRetailStep5RatesToAi();
+                    } else if (isOperationalOffice) {
+                      updateCashOutflowsForStream({
+                        buildingRate: aiBuildingRate || 0,
+                        parkingRate: aiParkingRate || 0,
+                        basementRate: aiBasementRate || 0,
+                        operationalOfficeBuildingRateManual: false,
+                        operationalOfficeParkingRateManual: false,
+                        operationalOfficeBasementRateManual: false,
+                      });
+                    }
+                  },
+                })
+              )}
               {!residentialBenchmark.benchmarkReady ? (
                 <p className="mb-4 text-sm text-slate-400">
                   {retailBenchmarkReady
@@ -2517,44 +4703,52 @@ function CashOutflowsPageContent() {
                     Superstructure / Main Building
                   </h3>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
-                      Building BUA (sqft)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.buildingBUA}
-                      onChange={(e) =>
-                        updateFormData(
-                          "buildingBUA",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("buildingBUA") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("buildingBUA")}
-                      </p>
+                    {isStep4LockedBua ? (
+                      <>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                          Building BUA (sqft)
+                        </label>
+                        <input
+                          type="number"
+                          value={step4BuildingBua || 0}
+                          readOnly
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                          title="Locked: Defined in Step 4 Building Configuration"
+                        />
+                        <p className="mt-1 text-xs text-amber-400">
+                          🔒 Locked: To change, go back to Step 4
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">
+                          Building BUA (sqft)
+                        </label>
+                        <input
+                          type="number"
+                          value={cashOutflows.buildingBUA}
+                          onChange={(e) =>
+                            updateFormData(
+                              "buildingBUA",
+                              Number(e.target.value) || 0
+                            )
+                          }
+                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        {fieldError("buildingBUA") && (
+                          <p className="mt-1 text-sm text-red-400">
+                            {fieldError("buildingBUA")}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                   <div>
-                    <label className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
-                      <span>
-                        Building Rate ({projectInfo.currency}/sqft)
-                      </span>
-                      {retailCcRateOverrides.building ||
-                      officeCcRateOverrides.building ||
-                      residentialBenchmark.ccRateOverrides.building ? (
-                        <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-                          Override
-                        </span>
-                      ) : null}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.buildingRate}
-                      onChange={(e) => {
-                        const v = Number(e.target.value) || 0;
+                    <AiInput
+                      label={`Building Rate (${projectInfo.currency}/sqft)`}
+                      value={cashOutflows.buildingRate || aiBuildingRate || 0}
+                      onChange={(value) => {
+                        const v = Number(value) || 0;
                         if (
                           isOperationalResidential &&
                           residentialBenchmark.benchmark
@@ -2579,20 +4773,31 @@ function CashOutflowsPageContent() {
                             v,
                             officeBenchmark.buildingRate
                           );
+                        } else if (isOperationalHotel) {
+                          updateCashOutflowsForStream({
+                            buildingRate: v,
+                            operationalHotelBuildingRateManual: true,
+                          });
+                          logOperationalCashOutflow("buildingRate", v, 6);
                         } else {
                           updateFormData("buildingRate", v);
                         }
                       }}
-                      className={
-                        isOperationalResidential
-                          ? residentialBenchmark.rateFieldClass(
-                              residentialBenchmark.ccRateOverrides.building
-                            )
-                          : isOperationalRetail
-                            ? retailRateFieldClass(retailCcRateOverrides.building)
-                            : isOperationalOffice
-                              ? officeRateFieldClass(officeCcRateOverrides.building)
-                              : "w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      type="number"
+                      isAiGenerated={
+                        !!aiBuildingRate &&
+                        !cashOutflows.operationalHotelBuildingRateManual &&
+                        !cashOutflows.operationalRetailBuildingRateManual &&
+                        !cashOutflows.operationalOfficeBuildingRateManual &&
+                        !cashOutflows.operationalResidentialBuildingRateManual
+                      }
+                      isManualOverride={
+                        !!(
+                          cashOutflows.operationalHotelBuildingRateManual ||
+                          cashOutflows.operationalRetailBuildingRateManual ||
+                          cashOutflows.operationalOfficeBuildingRateManual ||
+                          cashOutflows.operationalResidentialBuildingRateManual
+                        )
                       }
                     />
                     {fieldError("buildingRate") && (
@@ -2618,44 +4823,59 @@ function CashOutflowsPageContent() {
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Parking BUA (sqft)
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.parkingBUA}
-                        onChange={(e) =>
-                          updateFormData(
-                            "parkingBUA",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                      {fieldError("parkingBUA") && (
-                        <p className="mt-1 text-sm text-red-400">
-                          {fieldError("parkingBUA")}
-                        </p>
+                      {isStep4LockedBua ? (
+                        <>
+                          <label className="block text-sm font-medium text-slate-300 mb-2">
+                            {isOperationalHotel
+                              ? "Parking BUA (sqft)"
+                              : "Parking / Podium BUA (sqft)"}
+                          </label>
+                          <input
+                            type="number"
+                            value={step4ParkingBua || 0}
+                            readOnly
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                            title="Locked: Defined in Step 4 Building Configuration"
+                          />
+                          <p className="mt-1 text-xs text-amber-400">
+                            🔒 Locked: To change, go back to Step 4
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Parking BUA (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={cashOutflows.parkingBUA}
+                            onChange={(e) =>
+                              updateFormData(
+                                "parkingBUA",
+                                Number(e.target.value) || 0
+                              )
+                            }
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          {fieldError("parkingBUA") && (
+                            <p className="mt-1 text-sm text-red-400">
+                              {fieldError("parkingBUA")}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                     <div>
-                      <label className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
-                        <span>
-                          Parking Rate ({projectInfo.currency}/sqft)
-                        </span>
-                        {retailCcRateOverrides.parking ||
-                        officeCcRateOverrides.parking ||
-                        residentialBenchmark.ccRateOverrides.parking ? (
-                          <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-                            Override
-                          </span>
-                        ) : null}
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.parkingRate}
-                        onChange={(e) => {
-                          const v = Number(e.target.value) || 0;
+                      <AiInput
+                        label={`Parking Rate (${projectInfo.currency}/sqft)`}
+                        value={
+                          effectiveParkingBua === 0
+                            ? 0
+                            : cashOutflows.parkingRate || aiParkingRate || 0
+                        }
+                        onChange={(value) => {
+                          if (effectiveParkingBua === 0) return;
+                          const v = Number(value) || 0;
                           if (
                             isOperationalResidential &&
                             residentialBenchmark.benchmark
@@ -2680,20 +4900,39 @@ function CashOutflowsPageContent() {
                               v,
                               officeBenchmark.parkingRate
                             );
+                          } else if (isOperationalHotel) {
+                            updateCashOutflowsForStream({
+                              parkingRate: v,
+                              operationalHotelParkingRateManual: true,
+                            });
+                            logOperationalCashOutflow("parkingRate", v, 6);
                           } else {
                             updateFormData("parkingRate", v);
                           }
                         }}
-                        className={
-                          isOperationalResidential
-                            ? residentialBenchmark.rateFieldClass(
-                                residentialBenchmark.ccRateOverrides.parking
-                              )
-                            : isOperationalRetail
-                              ? retailRateFieldClass(retailCcRateOverrides.parking)
-                              : isOperationalOffice
-                                ? officeRateFieldClass(officeCcRateOverrides.parking)
-                                : "w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        type="number"
+                        disabled={effectiveParkingBua === 0}
+                        helperText={
+                          effectiveParkingBua === 0
+                            ? "Rate is 0 because Parking BUA is 0"
+                            : undefined
+                        }
+                        isAiGenerated={
+                          effectiveParkingBua > 0 &&
+                          !!aiParkingRate &&
+                          !cashOutflows.operationalHotelParkingRateManual &&
+                          !cashOutflows.operationalRetailParkingRateManual &&
+                          !cashOutflows.operationalOfficeParkingRateManual &&
+                          !cashOutflows.operationalResidentialParkingRateManual
+                        }
+                        isManualOverride={
+                          effectiveParkingBua > 0 &&
+                          !!(
+                            cashOutflows.operationalHotelParkingRateManual ||
+                            cashOutflows.operationalRetailParkingRateManual ||
+                            cashOutflows.operationalOfficeParkingRateManual ||
+                            cashOutflows.operationalResidentialParkingRateManual
+                          )
                         }
                       />
                       {fieldError("parkingRate") && (
@@ -2705,44 +4944,57 @@ function CashOutflowsPageContent() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Basement BUA (sqft)
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.basementBUA}
-                        onChange={(e) =>
-                          updateFormData(
-                            "basementBUA",
-                            Number(e.target.value) || 0
-                          )
-                        }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                      {fieldError("basementBUA") && (
-                        <p className="mt-1 text-sm text-red-400">
-                          {fieldError("basementBUA")}
-                        </p>
+                      {isStep4LockedBua ? (
+                        <>
+                          <label className="block text-sm font-medium text-slate-300 mb-2">
+                            Basement BUA (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={step4BasementBua || 0}
+                            readOnly
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                            title="Locked: Defined in Step 4 Building Configuration"
+                          />
+                          <p className="mt-1 text-xs text-amber-400">
+                            🔒 Locked: To change, go back to Step 4
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Basement BUA (sqft)
+                          </label>
+                          <input
+                            type="number"
+                            value={cashOutflows.basementBUA}
+                            onChange={(e) =>
+                              updateFormData(
+                                "basementBUA",
+                                Number(e.target.value) || 0
+                              )
+                            }
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          {fieldError("basementBUA") && (
+                            <p className="mt-1 text-sm text-red-400">
+                              {fieldError("basementBUA")}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                     <div>
-                      <label className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
-                        <span>
-                          Basement Rate ({projectInfo.currency}/sqft)
-                        </span>
-                        {retailCcRateOverrides.basement ||
-                        officeCcRateOverrides.basement ||
-                        residentialBenchmark.ccRateOverrides.basement ? (
-                          <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-                            Override
-                          </span>
-                        ) : null}
-                      </label>
-                      <input
-                        type="number"
-                        value={cashOutflows.basementRate}
-                        onChange={(e) => {
-                          const v = Number(e.target.value) || 0;
+                      <AiInput
+                        label={`Basement Rate (${projectInfo.currency}/sqft)`}
+                        value={
+                          effectiveBasementBua === 0
+                            ? 0
+                            : cashOutflows.basementRate || aiBasementRate || 0
+                        }
+                        onChange={(value) => {
+                          if (effectiveBasementBua === 0) return;
+                          const v = Number(value) || 0;
                           if (
                             isOperationalResidential &&
                             residentialBenchmark.benchmark
@@ -2767,20 +5019,39 @@ function CashOutflowsPageContent() {
                               v,
                               officeBenchmark.basementRate
                             );
+                          } else if (isOperationalHotel) {
+                            updateCashOutflowsForStream({
+                              basementRate: v,
+                              operationalHotelBasementRateManual: true,
+                            });
+                            logOperationalCashOutflow("basementRate", v, 6);
                           } else {
                             updateFormData("basementRate", v);
                           }
                         }}
-                        className={
-                          isOperationalResidential
-                            ? residentialBenchmark.rateFieldClass(
-                                residentialBenchmark.ccRateOverrides.basement
-                              )
-                            : isOperationalRetail
-                              ? retailRateFieldClass(retailCcRateOverrides.basement)
-                              : isOperationalOffice
-                                ? officeRateFieldClass(officeCcRateOverrides.basement)
-                                : "w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        type="number"
+                        disabled={effectiveBasementBua === 0}
+                        helperText={
+                          effectiveBasementBua === 0
+                            ? "Rate is 0 because Basement BUA is 0"
+                            : undefined
+                        }
+                        isAiGenerated={
+                          effectiveBasementBua > 0 &&
+                          !!aiBasementRate &&
+                          !cashOutflows.operationalHotelBasementRateManual &&
+                          !cashOutflows.operationalRetailBasementRateManual &&
+                          !cashOutflows.operationalOfficeBasementRateManual &&
+                          !cashOutflows.operationalResidentialBasementRateManual
+                        }
+                        isManualOverride={
+                          effectiveBasementBua > 0 &&
+                          !!(
+                            cashOutflows.operationalHotelBasementRateManual ||
+                            cashOutflows.operationalRetailBasementRateManual ||
+                            cashOutflows.operationalOfficeBasementRateManual ||
+                            cashOutflows.operationalResidentialBasementRateManual
+                          )
                         }
                       />
                       {fieldError("basementRate") && (
@@ -2913,32 +5184,7 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Contingency on CC
               </h2>
-              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
-                <ResidentialBenchmarkHeader
-                  projectInfo={projectInfo}
-                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
-                  isManualOverride={residentialBenchmark.hasManualOverride}
-                />
-              ) : officeBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="office"
-                  country={projectInfo.country}
-                  segment={projectInfo.officeSegment}
-                  positioning={projectInfo.officePositioning}
-                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                  onUseDefaults={resetOfficeProfileDefaults}
-                  isManualOverride={officeHasManualOverride}
-                />
-              ) : retailBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="retail"
-                  country={projectInfo.country}
-                  segment={projectInfo.retailSegment}
-                  positioning={projectInfo.retailPositioning}
-                  onUseDefaults={resetRetailProfileDefaults}
-                  isManualOverride={retailHasManualOverride}
-                />
-              ) : null}
+              {renderHotelBenchmarkBar()}
               <p className="text-sm text-slate-400 mb-4">
                 Apply a contingency allowance on construction costs to cover unknowns
                 and escalation.
@@ -2966,9 +5212,18 @@ function CashOutflowsPageContent() {
                       {fieldError("contingencyPercent")}
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-slate-500">
-                    Typical range: 5–10% depending on asset and design stage.
-                  </p>
+                  {aiData?.hints?.contingency_text ? (
+                    <AiHintBox
+                      title="AI Contingency Recommendation"
+                      className="mt-2"
+                    >
+                      {aiData.hints.contingency_text}
+                    </AiHintBox>
+                  ) : (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Typical range: 5–10% depending on asset and design stage.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs font-medium text-slate-400 mb-1">
@@ -3002,6 +5257,7 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 SC, POWC & DC
               </h2>
+              {renderHotelBenchmarkBar(resetHotelStep7Percents)}
               {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                 <ResidentialStep8SoftCosts
                   projectInfo={projectInfo}
@@ -3034,38 +5290,36 @@ function CashOutflowsPageContent() {
                   fieldError={fieldError}
                   showFfe={showsOperationalFfe}
                 />
-              ) : retailBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="retail"
-                  country={projectInfo.country}
-                  segment={projectInfo.retailSegment}
-                  positioning={projectInfo.retailPositioning}
-                  onUseDefaults={resetRetailProfileDefaults}
-                  isManualOverride={
+              ) : (
+                renderRetailOfficeBenchmarkBar({
+                  hasManualOverride:
                     !!(
                       cashOutflows.operationalRetailScManual ||
                       cashOutflows.operationalRetailPowcManual ||
                       cashOutflows.operationalRetailFfeManual
-                    )
-                  }
-                />
-              ) : officeBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="office"
-                  country={projectInfo.country}
-                  segment={projectInfo.officeSegment}
-                  positioning={projectInfo.officePositioning}
-                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                  onUseDefaults={resetOfficeProfileDefaults}
-                  isManualOverride={
+                    ) ||
                     !!(
                       cashOutflows.operationalOfficeScManual ||
                       cashOutflows.operationalOfficePowcManual ||
                       cashOutflows.operationalOfficeFfeManual
-                    )
-                  }
-                />
-              ) : null}
+                    ),
+                  onReset: () => {
+                    if (isOperationalRetail) {
+                      resetRetailStep7PercentsToAi();
+                    } else if (isOperationalOffice) {
+                      updateCashOutflowsForStream({
+                        softCostPercent:
+                          aiScPct ?? cashOutflows.softCostPercent,
+                        powcPercent: aiPowcPct ?? cashOutflows.powcPercent,
+                        ffePercent: aiFfePct ?? cashOutflows.ffePercent,
+                        operationalOfficeScManual: false,
+                        operationalOfficePowcManual: false,
+                        operationalOfficeFfeManual: false,
+                      });
+                    }
+                  },
+                })
+              )}
               {isOperationalHotel && operationalHotelProfileUi ? (
                 <p className="text-sm text-slate-400 mb-4">
                   SC, POWC, and FFE are suggested from your segment and location.
@@ -3100,124 +5354,14 @@ function CashOutflowsPageContent() {
                 </p>
               )}
 
-              {isOperationalHotel && operationalHotelProfileUi ? (
-                <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Benchmark
-                  </span>
-                  <HoverTipInline
-                    tip={operationalHotelProfileUi.tooltip}
-                    className="cursor-default border-b border-dotted border-slate-500 text-sm text-slate-200"
-                  >
-                    {cashOutflows.operationalHotelProfileKey?.startsWith("mvp:")
-                      ? `${projectInfo.hotelOperatingType || "resort"} · ${
-                          projectInfo.hotelStarRating || "5"
-                        } · ${(projectInfo.city || "dubai").toLowerCase()}`
-                      : operationalHotelProfileUi.key.replace(/-/g, " · ")}
-                  </HoverTipInline>
-                  {(cashOutflows.operationalHotelScManual ||
-                    cashOutflows.operationalHotelPowcManual ||
-                    cashOutflows.operationalHotelFfeManual) && (
-                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
-                      Manual overrides
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const profileKey = getProfileKey(
-                        projectInfo.country || "United Arab Emirates",
-                        projectInfo.city || "Dubai",
-                        projectInfo.hotelOperatingType || "Business",
-                        projectInfo.hotelStarRating || "5"
-                      );
-
-                      const defaults = getProfileDefaults(profileKey);
-                      if (defaults) {
-                        updateCashOutflowsForStream({
-                          operationalHotelProfileKey: `mvp:${profileKey}`,
-                          operationalHotelScManual: false,
-                          operationalHotelPowcManual: false,
-                          operationalHotelFfeManual: false,
-                          softCostPercent: round2(defaults.softCostPercent),
-                          powcPercent: round2(defaults.powcPercent),
-                          ffePercent: round2(defaults.ffePercent),
-                        });
-                        operationalHotelProfilePrevKeyRef.current = `mvp:${profileKey}`;
-                        // eslint-disable-next-line no-console
-                        console.log("🔄 Reset to profile defaults:", profileKey);
-                        // eslint-disable-next-line no-console
-                        console.log("  SC%:", defaults.softCostPercent);
-                        // eslint-disable-next-line no-console
-                        console.log("  POWC%:", defaults.powcPercent);
-                        // eslint-disable-next-line no-console
-                        console.log("  FFE%:", defaults.ffePercent);
-                        return;
-                      }
-
-                      // Fallback: legacy benchmark-derived percentages.
-                      const op = projectInfo.hotelOperatingType as HotelOperatingType;
-                      const star = Number(projectInfo.hotelStarRating);
-                      if (!isValidHotelCombo(op, star).valid) return;
-                      const { key, profile } = resolveHotelProfile(
-                        op,
-                        star,
-                        projectInfo.country,
-                        projectInfo.city
-                      );
-                      if (baseCC <= 0 || ccWithContingency <= 0) return;
-                      const dcModel = ccWithContingency / profile.cc;
-                      updateCashOutflowsForStream({
-                        operationalHotelProfileKey: key,
-                        operationalHotelScManual: false,
-                        operationalHotelPowcManual: false,
-                        operationalHotelFfeManual: false,
-                        softCostPercent: round2(
-                          ((profile.sc * dcModel) / ccWithContingency) * 100
-                        ),
-                        powcPercent: round2(
-                          ((profile.powc * dcModel) / ccWithContingency) * 100
-                        ),
-                        ffePercent: round2(
-                          ((profile.ffe * dcModel) / ccWithContingency) * 100
-                        ),
-                      });
-                      operationalHotelProfilePrevKeyRef.current = key;
-                    }}
-                    className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
-                  >
-                    Use profile defaults
-                  </button>
-                </div>
-              ) : null}
-
               {!isOperationalResidential || !residentialBenchmark.benchmarkReady ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    <HoverTipInline
-                      tip={
-                        isOperationalHotel && operationalHotelProfileUi
-                          ? operationalHotelProfileUi.tooltip
-                          : ""
-                      }
-                    >
-                      <span className="cursor-default">
-                        Soft Costs % of CC incl. contingency (SC%)
-                      </span>
-                    </HoverTipInline>
-                    {isOperationalHotel &&
-                    cashOutflows.operationalHotelScManual ? (
-                      <span className="ml-2 text-xs font-normal text-amber-400">
-                        (override)
-                      </span>
-                    ) : null}
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.softCostPercent}
-                    onChange={(e) => {
-                      const v = Number(e.target.value) || 0;
+                  <AiInput
+                    label="Soft Costs % of CC incl. contingency (SC%)"
+                    value={cashOutflows.softCostPercent || aiScPct || 0}
+                    onChange={(value) => {
+                      const v = Number(value) || 0;
                       if (isOperationalHotel) {
                         updateCashOutflowsForStream({
                           softCostPercent: v,
@@ -3240,58 +5384,34 @@ function CashOutflowsPageContent() {
                         updateFormData("softCostPercent", v);
                       }
                     }}
-                    className={
-                      isOperationalHotel
-                        ? `w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                            cashOutflows.operationalHotelScManual
-                              ? "border-2 border-amber-500/70"
-                              : "border border-slate-700"
-                          }`
-                        : isOperationalRetail
-                          ? retailPercentFieldClass(
-                              cashOutflows.operationalRetailScManual
-                            )
-                          : isOperationalOffice
-                            ? officePercentFieldClass(
-                                cashOutflows.operationalOfficeScManual
-                              )
-                            : "w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    type="percentage"
+                    isAiGenerated={
+                      !!aiScPct &&
+                      !cashOutflows.operationalHotelScManual &&
+                      !cashOutflows.operationalRetailScManual &&
+                      !cashOutflows.operationalOfficeScManual
                     }
+                    isManualOverride={
+                      !!(
+                        cashOutflows.operationalHotelScManual ||
+                        cashOutflows.operationalRetailScManual ||
+                        cashOutflows.operationalOfficeScManual
+                      )
+                    }
+                    helperText="SC amount = CC incl. contingency × SC% ÷ 100"
                   />
                   {fieldError("softCostPercent") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("softCostPercent")}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-slate-500">
-                    SC amount = CC incl. contingency × SC% ÷ 100
-                  </p>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    <HoverTipInline
-                      tip={
-                        isOperationalHotel && operationalHotelProfileUi
-                          ? operationalHotelProfileUi.tooltip
-                          : ""
-                      }
-                    >
-                      <span className="cursor-default">
-                        POWC % of CC incl. contingency (POWC%)
-                      </span>
-                    </HoverTipInline>
-                    {isOperationalHotel &&
-                    cashOutflows.operationalHotelPowcManual ? (
-                      <span className="ml-2 text-xs font-normal text-amber-400">
-                        (override)
-                      </span>
-                    ) : null}
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.powcPercent}
-                    onChange={(e) => {
-                      const v = Number(e.target.value) || 0;
+                  <AiInput
+                    label="POWC % of CC incl. contingency (POWC%)"
+                    value={cashOutflows.powcPercent || aiPowcPct || 0}
+                    onChange={(value) => {
+                      const v = Number(value) || 0;
                       if (isOperationalHotel) {
                         updateCashOutflowsForStream({
                           powcPercent: v,
@@ -3314,76 +5434,45 @@ function CashOutflowsPageContent() {
                         updateFormData("powcPercent", v);
                       }
                     }}
-                    className={
-                      isOperationalHotel
-                        ? `w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                            cashOutflows.operationalHotelPowcManual
-                              ? "border-2 border-amber-500/70"
-                              : "border border-slate-700"
-                          }`
-                        : isOperationalRetail
-                          ? retailPercentFieldClass(
-                              cashOutflows.operationalRetailPowcManual
-                            )
-                          : isOperationalOffice
-                            ? officePercentFieldClass(
-                                cashOutflows.operationalOfficePowcManual
-                              )
-                            : "w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    type="percentage"
+                    isAiGenerated={
+                      !!aiPowcPct &&
+                      !cashOutflows.operationalHotelPowcManual &&
+                      !cashOutflows.operationalRetailPowcManual &&
+                      !cashOutflows.operationalOfficePowcManual
                     }
+                    isManualOverride={
+                      !!(
+                        cashOutflows.operationalHotelPowcManual ||
+                        cashOutflows.operationalRetailPowcManual ||
+                        cashOutflows.operationalOfficePowcManual
+                      )
+                    }
+                    helperText="POWC amount = CC incl. contingency × POWC% ÷ 100. POWC = Pre-Operating Expenses & Working Capital (Site Establishment, Overhead, Authority Fees)"
                   />
                   {fieldError("powcPercent") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("powcPercent")}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-slate-500">
-                    POWC amount = CC incl. contingency × POWC% ÷ 100
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    POWC = Pre-Operating Expenses & Working Capital (Site Establishment,
-                    Overhead, Authority Fees)
-                  </p>
                 </div>
                 {showsOperationalFfe && (
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">
-                      <HoverTipInline
-                        tip={
-                          isOperationalHotel && operationalHotelProfileUi
-                            ? operationalHotelProfileUi.tooltip
-                            : ""
-                        }
-                      >
-                        <span className="cursor-default">
-                          {isOperationalOffice
-                            ? officeFfeFieldLabel
-                            : `FFE % of CC incl. contingency (${
-                                isOperationalRetail
-                                  ? "Retail"
-                                  : isOperationalResidential
-                                    ? "Residential"
-                                    : "Hotel"
-                              })`}
-                        </span>
-                      </HoverTipInline>
-                      {isOperationalHotel &&
-                      cashOutflows.operationalHotelFfeManual ? (
-                        <span className="ml-2 text-xs font-normal text-amber-400">
-                          (override)
-                        </span>
-                      ) : isOperationalOffice &&
-                        cashOutflows.operationalOfficeFfeManual ? (
-                        <span className="ml-2 text-xs font-normal text-amber-400">
-                          (override)
-                        </span>
-                      ) : null}
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.ffePercent}
-                      onChange={(e) => {
-                        const v = Number(e.target.value) || 0;
+                    <AiInput
+                      label={
+                        isOperationalOffice
+                          ? officeFfeFieldLabel
+                          : `FFE % of CC incl. contingency (${
+                              isOperationalRetail
+                                ? "Retail"
+                                : isOperationalResidential
+                                  ? "Residential"
+                                  : "Hotel"
+                            })`
+                      }
+                      value={cashOutflows.ffePercent || aiFfePct || 0}
+                      onChange={(value) => {
+                        const v = Number(value) || 0;
                         if (isOperationalHotel) {
                           updateCashOutflowsForStream({
                             ffePercent: v,
@@ -3406,53 +5495,58 @@ function CashOutflowsPageContent() {
                           updateFormData("ffePercent", v);
                         }
                       }}
-                      className={
-                        isOperationalHotel
-                          ? `w-full rounded-lg bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                              cashOutflows.operationalHotelFfeManual
-                                ? "border-2 border-amber-500/70"
-                                : "border border-slate-700"
-                            }`
-                          : isOperationalRetail
-                            ? retailPercentFieldClass(
-                                cashOutflows.operationalRetailFfeManual
-                              )
-                            : isOperationalOffice
-                              ? officePercentFieldClass(
-                                  cashOutflows.operationalOfficeFfeManual
-                                )
-                              : "w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      type="percentage"
+                      isAiGenerated={
+                        !!aiFfePct &&
+                        !cashOutflows.operationalHotelFfeManual &&
+                        !cashOutflows.operationalRetailFfeManual &&
+                        !cashOutflows.operationalOfficeFfeManual
+                      }
+                      isManualOverride={
+                        !!(
+                          cashOutflows.operationalHotelFfeManual ||
+                          cashOutflows.operationalRetailFfeManual ||
+                          cashOutflows.operationalOfficeFfeManual
+                        )
                       }
                     />
-                    {fieldError("ffePercent") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("ffePercent")}
+                    <div className="mt-2">
+                      <p className="text-xs text-slate-400">
+                        {isOperationalRetail
+                          ? "Fit-out, fixtures & equipment for mall common areas and tenants."
+                          : isOperationalOffice
+                            ? "Furniture, fixtures & equipment for office common areas and fit-out."
+                            : isOperationalResidential
+                              ? "Furniture, fixtures & equipment for residential units and common areas."
+                              : "Furniture, fixtures & equipment for hotel rooms and public areas."}
                       </p>
-                    )}
-                    <p className="mt-2 text-xs text-slate-500">
-                      {isOperationalRetail
-                        ? "Fit-out, fixtures & equipment for mall common areas and tenants."
-                        : isOperationalOffice
-                          ? getOfficeFfeHint(
-                              projectInfo.officeSegment,
-                              projectInfo.officeCoworkingDelivery
-                            )
-                          : isOperationalResidential
-                            ? "Furniture, fixtures & equipment for residential units and common areas."
-                            : "Furniture, fixtures & equipment for hotel rooms and public areas."}
-                    </p>
-                    {!fieldError("ffePercent") &&
-                      isOperationalFfeOutsideRange(
-                        cashOutflows.ffePercent,
-                        projectInfo.buildingType,
-                        projectInfo
-                      ) && (
-                        <p className="mt-1 text-xs text-amber-500">
-                          {getOperationalFfeHint(
-                            projectInfo.buildingType,
-                            projectInfo
-                          )}
+
+                      {aiFfeRange && (
+                        <p className="mt-2 text-xs text-slate-400">
+                          FFE % for {ffeSegmentLabel} is typically between
+                          <span className="font-semibold">
+                            {" "}
+                            {aiFfeRange.min_range}%
+                          </span>{" "}
+                          and
+                          <span className="font-semibold">
+                            {" "}
+                            {aiFfeRange.max_range}%
+                          </span>{" "}
+                          of CC incl. contingency
                         </p>
+                      )}
+                    </div>
+                    {aiFfeMin !== undefined &&
+                      aiFfeMax !== undefined &&
+                      ((cashOutflows.ffePercent || 0) < aiFfeMin ||
+                        (cashOutflows.ffePercent || 0) > aiFfeMax) && (
+                        <AiGuardrailBox
+                          severity="error"
+                          title="FFE% Outside Recommended Range"
+                          message={`Your FFE value (${cashOutflows.ffePercent || 0}%) is outside the target range for this market and asset type. Please adjust your FFE percentage. Recommended range: ${aiFfeMin}% - ${aiFfeMax}% of CC incl. contingency for ${ffeSegmentLabel}.`}
+                          className="mt-4"
+                        />
                       )}
                   </div>
                 )}
@@ -3509,6 +5603,7 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Land Costs (LC)
               </h2>
+              {renderHotelBenchmarkBar(resetHotelStep8LandRate)}
               {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                 <ResidentialStep9LandCosts
                   projectInfo={projectInfo}
@@ -3527,35 +5622,27 @@ function CashOutflowsPageContent() {
                   percentFieldClass={residentialBenchmark.percentFieldClass}
                   fieldError={fieldError}
                 />
-              ) : retailBenchmarkReady ? (
+              ) : retailBenchmarkReady || officeBenchmarkReady ? (
                 <>
-                  <BenchmarkHeader
-                    assetType="retail"
-                    country={projectInfo.country}
-                    segment={projectInfo.retailSegment}
-                    positioning={projectInfo.retailPositioning}
-                    onUseDefaults={resetRetailProfileDefaults}
-                    isManualOverride={!!cashOutflows.operationalRetailLandRateManual}
-                  />
+                  {renderRetailOfficeBenchmarkBar({
+                    hasManualOverride:
+                      !!cashOutflows.operationalRetailLandRateManual ||
+                      !!cashOutflows.operationalOfficeLandRateManual,
+                    onReset: () => {
+                      if (isOperationalRetail) {
+                        resetRetailStep8LandRateToAi();
+                      } else if (isOperationalOffice) {
+                        updateCashOutflowsForStream({
+                          landRate: aiLandRate ?? cashOutflows.landRate,
+                          operationalOfficeLandRateManual: false,
+                        });
+                      }
+                    },
+                  })}
                   <p className="mb-4 text-sm text-slate-400">
-                    Land rate is suggested from your segment, positioning, and country.
-                    Land area is entered manually.
-                  </p>
-                </>
-              ) : officeBenchmarkReady ? (
-                <>
-                  <BenchmarkHeader
-                    assetType="office"
-                    country={projectInfo.country}
-                    segment={projectInfo.officeSegment}
-                    positioning={projectInfo.officePositioning}
-                    coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                    onUseDefaults={resetOfficeProfileDefaults}
-                    isManualOverride={!!cashOutflows.operationalOfficeLandRateManual}
-                  />
-                  <p className="mb-4 text-sm text-slate-400">
-                    Land rate is suggested from your office segment, positioning, and
-                    country. Land area is entered manually.
+                    {retailBenchmarkReady
+                      ? "Land rate is suggested from your segment, positioning, and country. Land area is entered manually."
+                      : "Land rate is suggested from your office segment, positioning, and country. Land area is entered manually."}
                   </p>
                 </>
               ) : isOperationalResidential ? (
@@ -3565,34 +5652,52 @@ function CashOutflowsPageContent() {
                 </p>
               ) : null}
               {!isOperationalResidential || !residentialBenchmark.benchmarkReady ? (
+              <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Land Area (sqft)
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.landArea}
-                    onChange={(e) =>
-                      updateFormData("landArea", Number(e.target.value) || 0)
-                    }
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  {fieldError("landArea") && (
-                    <p className="mt-1 text-sm text-red-400">
-                      {fieldError("landArea")}
-                    </p>
+                  {isStep4LockedBua ? (
+                    <>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Plot / Land Area (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={step4PlotArea || 0}
+                        readOnly
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                        title="Locked: Defined in Step 4 Building Configuration"
+                      />
+                      <p className="mt-1 text-xs text-amber-400">
+                        🔒 Locked: To change, go back to Step 4
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">
+                        Land Area (sqft)
+                      </label>
+                      <input
+                        type="number"
+                        value={cashOutflows.landArea}
+                        onChange={(e) =>
+                          updateFormData("landArea", Number(e.target.value) || 0)
+                        }
+                        className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      {fieldError("landArea") && (
+                        <p className="mt-1 text-sm text-red-400">
+                          {fieldError("landArea")}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Land Rate ({projectInfo.currency}/sqft)
-                  </label>
-                  <input
-                    type="number"
-                    value={cashOutflows.landRate}
-                    onChange={(e) => {
-                      const v = Number(e.target.value) || 0;
+                  <AiInput
+                    label={`Land Rate (${projectInfo.currency}/sqft)`}
+                    value={cashOutflows.landRate || aiLandRate || 0}
+                    onChange={(value) => {
+                      const v = Number(value) || 0;
                       if (isOperationalRetail) {
                         updateCashOutflowsForStream({
                           landRate: v,
@@ -3605,21 +5710,30 @@ function CashOutflowsPageContent() {
                           operationalOfficeLandRateManual: true,
                         });
                         logOperationalCashOutflow("landRate", v, 9);
+                      } else if (isOperationalHotel) {
+                        updateCashOutflowsForStream({
+                          landRate: v,
+                          operationalHotelLandRateManual: true,
+                        });
+                        logOperationalCashOutflow("landRate", v, 9);
                       } else {
                         updateCashOutflowsForStream({ landRate: v });
                         logOperationalCashOutflow("landRate", v, 9);
                       }
                     }}
-                    className={
-                      isOperationalRetail
-                        ? retailPercentFieldClass(
-                            cashOutflows.operationalRetailLandRateManual
-                          )
-                        : isOperationalOffice
-                          ? officePercentFieldClass(
-                              cashOutflows.operationalOfficeLandRateManual
-                            )
-                          : "w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    type="number"
+                    isAiGenerated={
+                      !!aiLandRate &&
+                      !cashOutflows.operationalHotelLandRateManual &&
+                      !cashOutflows.operationalRetailLandRateManual &&
+                      !cashOutflows.operationalOfficeLandRateManual
+                    }
+                    isManualOverride={
+                      !!(
+                        cashOutflows.operationalHotelLandRateManual ||
+                        cashOutflows.operationalRetailLandRateManual ||
+                        cashOutflows.operationalOfficeLandRateManual
+                      )
                     }
                   />
                   {fieldError("landRate") && (
@@ -3640,6 +5754,7 @@ function CashOutflowsPageContent() {
                   </p>
                 </div>
               </div>
+              </>
               ) : null}
             </div>
           )}
@@ -3650,35 +5765,7 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 TDC & Ratio Checks
               </h2>
-              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
-                <ResidentialBenchmarkHeader
-                  projectInfo={projectInfo}
-                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
-                  isManualOverride={residentialBenchmark.hasManualOverride}
-                  showResetButton
-                />
-              ) : retailBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="retail"
-                  country={projectInfo.country}
-                  segment={projectInfo.retailSegment}
-                  positioning={projectInfo.retailPositioning}
-                  onUseDefaults={resetRetailProfileDefaults}
-                  isManualOverride={retailHasManualOverride}
-                  showResetButton
-                />
-              ) : officeBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="office"
-                  country={projectInfo.country}
-                  segment={projectInfo.officeSegment}
-                  positioning={projectInfo.officePositioning}
-                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                  onUseDefaults={resetOfficeProfileDefaults}
-                  isManualOverride={officeHasManualOverride}
-                  showResetButton
-                />
-              ) : null}
+              {renderHotelBenchmarkBar()}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-sm text-slate-300">
@@ -3711,30 +5798,55 @@ function CashOutflowsPageContent() {
                     {projectInfo.currency}
                   </p>
                   <div className="mt-4 space-y-2 text-sm text-slate-300">
-                    <p>
-                      Land / TDC:{" "}
-                      <span
-                        className={`font-semibold ${
-                          landToTdcRatio <= 51
-                            ? "text-emerald-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {landToTdcRatio.toFixed(1)}% (target ≤ 51%)
-                      </span>
-                    </p>
-                    <p>
-                      Development (DC) / TDC:{" "}
-                      <span
-                        className={`font-semibold ${
-                          dcToTdcRatio >= 49
-                            ? "text-emerald-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {dcToTdcRatio.toFixed(1)}% (target ≥ 49%)
-                      </span>
-                    </p>
+                    {(() => {
+                      const landTarget = aiData?.guardrails?.land_tdc_target_pct;
+                      const dcTarget = aiData?.guardrails?.dc_tdc_target_pct;
+
+                      const landMin = landTarget?.min ?? 0;
+                      const landMax = landTarget?.max ?? 51;
+                      const dcMin = dcTarget?.min ?? 49;
+                      const dcMax = dcTarget?.max ?? 100;
+
+                      const landInRange =
+                        landToTdcRatio >= landMin && landToTdcRatio <= landMax;
+                      const dcInRange =
+                        dcToTdcRatio >= dcMin && dcToTdcRatio <= dcMax;
+
+                      return (
+                        <>
+                          <p>
+                            Land / TDC:{" "}
+                            <span
+                              className={`font-semibold ${
+                                landInRange ? "text-emerald-400" : "text-red-400"
+                              }`}
+                            >
+                              {landToTdcRatio.toFixed(1)}% (target {landMin}–
+                              {landMax}%)
+                            </span>
+                          </p>
+                          <p>
+                            Development (DC) / TDC:{" "}
+                            <span
+                              className={`font-semibold ${
+                                dcInRange ? "text-emerald-400" : "text-red-400"
+                              }`}
+                            >
+                              {dcToTdcRatio.toFixed(1)}% (target {dcMin}–{dcMax}
+                              %)
+                            </span>
+                          </p>
+                          {(!landInRange || !dcInRange) && (
+                            <AiGuardrailBox
+                              severity="error"
+                              title="TDC Ratio Outside Institutional Range"
+                              message={`Your Land/TDC ratio (${landToTdcRatio.toFixed(1)}%) or DC/TDC ratio (${dcToTdcRatio.toFixed(1)}%) is outside the target range for this market and asset type. Please adjust your land or development costs.`}
+                              className="mt-2"
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   {(fieldError("landRatio") || fieldError("dcRatio")) && (
                     <p className="text-xs text-red-400">
@@ -3756,32 +5868,7 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Construction Period (with AI Hint)
               </h2>
-              {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
-                <ResidentialBenchmarkHeader
-                  projectInfo={projectInfo}
-                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
-                  isManualOverride={residentialBenchmark.hasManualOverride}
-                />
-              ) : officeBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="office"
-                  country={projectInfo.country}
-                  segment={projectInfo.officeSegment}
-                  positioning={projectInfo.officePositioning}
-                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                  onUseDefaults={resetOfficeProfileDefaults}
-                  isManualOverride={officeHasManualOverride}
-                />
-              ) : retailBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="retail"
-                  country={projectInfo.country}
-                  segment={projectInfo.retailSegment}
-                  positioning={projectInfo.retailPositioning}
-                  onUseDefaults={resetRetailProfileDefaults}
-                  isManualOverride={retailHasManualOverride}
-                />
-              ) : null}
+              {renderHotelBenchmarkBar()}
               <p className="text-sm text-slate-400 mb-4">
                 Set the overall construction duration in months. This will drive the
                 monthly phasing for CC, SC and POWC.
@@ -3828,29 +5915,34 @@ function CashOutflowsPageContent() {
                     {fieldError("constructionPeriod")}
                   </p>
                 )}
-                <div className="rounded-lg bg-slate-800 border border-slate-700 p-3 text-xs text-slate-300">
-                  <p className="font-semibold text-emerald-400 mb-1">
-                    AI Recommendation (rule-of-thumb)
-                  </p>
-                  <p>
-                    For a{" "}
-                    <span className="font-semibold">
-                      {projectInfo.buildingType}
-                    </span>{" "}
-                    with{" "}
-                    <span className="font-semibold">
-                      {projectInfo.buildingConfig.towerFloors} building floors
-                    </span>
-                    , a reasonable range is{" "}
-                    <span className="font-semibold">
-                      {(projectInfo.buildingConfig.towerFloors + 12).toFixed(0)}–{(
-                        projectInfo.buildingConfig.towerFloors + 24
-                      ).toFixed(0)}{" "}
-                      months
-                    </span>
-                    , depending on basement complexity and authority approvals.
-                  </p>
-                </div>
+                {aiData?.hints?.construction_period_text ? (
+                  <AiHintBox title="AI Construction Period Recommendation">
+                    {aiData.hints.construction_period_text}
+                  </AiHintBox>
+                ) : (
+                  <div className="rounded-lg bg-slate-800 border border-slate-700 p-3 text-xs text-slate-300">
+                    <p className="font-semibold text-emerald-400 mb-1">
+                      AI Recommendation (rule-of-thumb)
+                    </p>
+                    <p>
+                      For a{" "}
+                      <span className="font-semibold">
+                        {projectInfo.buildingType}
+                      </span>{" "}
+                      with{" "}
+                      <span className="font-semibold">
+                        {projectInfo.buildingConfig.towerFloors} building floors
+                      </span>
+                      , a reasonable range is{" "}
+                      <span className="font-semibold">
+                        {(projectInfo.buildingConfig.towerFloors + 12).toFixed(0)}–
+                        {(projectInfo.buildingConfig.towerFloors + 24).toFixed(0)}{" "}
+                        months
+                      </span>
+                      , depending on basement complexity and authority approvals.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3861,32 +5953,26 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Construction Stages (M0 to Finishes)
               </h2>
+              {renderHotelBenchmarkBar(resetHotelStep11Stages)}
               {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                 <ResidentialBenchmarkHeader
                   projectInfo={projectInfo}
                   onUseDefaults={residentialBenchmark.resetProfileDefaults}
                   isManualOverride={residentialBenchmark.hasManualOverride}
                 />
-              ) : retailBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="retail"
-                  country={projectInfo.country}
-                  segment={projectInfo.retailSegment}
-                  positioning={projectInfo.retailPositioning}
-                  onUseDefaults={resetRetailProfileDefaults}
-                  isManualOverride={retailHasManualOverride}
-                />
-              ) : officeBenchmarkReady ? (
-                <BenchmarkHeader
-                  assetType="office"
-                  country={projectInfo.country}
-                  segment={projectInfo.officeSegment}
-                  positioning={projectInfo.officePositioning}
-                  coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                  onUseDefaults={resetOfficeProfileDefaults}
-                  isManualOverride={officeHasManualOverride}
-                />
-              ) : null}
+              ) : (
+                renderRetailOfficeBenchmarkBar({
+                  hasManualOverride:
+                    retailHasManualOverride || officeHasManualOverride,
+                  onReset: () => {
+                    if (isOperationalRetail) {
+                      resetRetailStep11StagesToAi();
+                    } else if (isOperationalOffice) {
+                      resetOfficeStep11Stages();
+                    }
+                  },
+                })
+              )}
               <p className="text-sm text-slate-400 mb-4">
                 Break down CC% (construction cost including contingency) into stages.
                 Percentages must sum to 100%.
@@ -3928,20 +6014,24 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-2 mb-1">
-                      Stage 1 (% of CC%)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage1Percent}
-                      onChange={(e) =>
-                        updateStageAllocationField(
-                          "stage1Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 1 (% of CC%)"
+                        value={
+                          cashOutflows.stageAllocation.stage1Percent ||
+                          aiC1?.s_curve?.stage_1_pct ||
+                          0
+                        }
+                        onChange={(value) =>
+                          updateStageAllocationField(
+                            "stage1Percent",
+                            Number(value) || 0
+                          )
+                        }
+                        type="percentage"
+                        isAiGenerated={!!aiC1?.s_curve?.stage_1_pct}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1">
@@ -3955,20 +6045,24 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-2 mb-1">
-                      Stage 2 (% of CC%)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage2Percent}
-                      onChange={(e) =>
-                        updateStageAllocationField(
-                          "stage2Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 2 (% of CC%)"
+                        value={
+                          cashOutflows.stageAllocation.stage2Percent ||
+                          aiC1?.s_curve?.stage_2_pct ||
+                          0
+                        }
+                        onChange={(value) =>
+                          updateStageAllocationField(
+                            "stage2Percent",
+                            Number(value) || 0
+                          )
+                        }
+                        type="percentage"
+                        isAiGenerated={!!aiC1?.s_curve?.stage_2_pct}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1">
@@ -3982,20 +6076,24 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-2 mb-1">
-                      Stage 3 (% of CC%)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage3Percent}
-                      onChange={(e) =>
-                        updateStageAllocationField(
-                          "stage3Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 3 (% of CC%)"
+                        value={
+                          cashOutflows.stageAllocation.stage3Percent ||
+                          aiC1?.s_curve?.stage_3_pct ||
+                          0
+                        }
+                        onChange={(value) =>
+                          updateStageAllocationField(
+                            "stage3Percent",
+                            Number(value) || 0
+                          )
+                        }
+                        type="percentage"
+                        isAiGenerated={!!aiC1?.s_curve?.stage_3_pct}
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -4010,30 +6108,42 @@ function CashOutflowsPageContent() {
                       }
                       className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
-                    <label className="block text-xs font-medium text-slate-400 mt-2 mb-1">
-                      Stage 4 (% of CC%)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashOutflows.stageAllocation.stage4Percent}
-                      onChange={(e) =>
-                        updateStageAllocationField(
-                          "stage4Percent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+                    <div className="mt-2">
+                      <AiInput
+                        label="Stage 4 (% of CC%)"
+                        value={
+                          cashOutflows.stageAllocation.stage4Percent ||
+                          aiC1?.s_curve?.stage_4_pct ||
+                          0
+                        }
+                        onChange={(value) =>
+                          updateStageAllocationField(
+                            "stage4Percent",
+                            Number(value) || 0
+                          )
+                        }
+                        type="percentage"
+                        isAiGenerated={!!aiC1?.s_curve?.stage_4_pct}
+                      />
+                    </div>
                   </div>
                 </div>
                 <p className="text-sm text-slate-300">
                   Total Allocation:{" "}
                   <span className="font-semibold text-emerald-400">
                     {(
-                      cashOutflows.stageAllocation.stage1Percent +
-                      cashOutflows.stageAllocation.stage2Percent +
-                      cashOutflows.stageAllocation.stage3Percent +
-                      cashOutflows.stageAllocation.stage4Percent
+                      (cashOutflows.stageAllocation.stage1Percent ||
+                        aiC1?.s_curve?.stage_1_pct ||
+                        0) +
+                      (cashOutflows.stageAllocation.stage2Percent ||
+                        aiC1?.s_curve?.stage_2_pct ||
+                        0) +
+                      (cashOutflows.stageAllocation.stage3Percent ||
+                        aiC1?.s_curve?.stage_3_pct ||
+                        0) +
+                      (cashOutflows.stageAllocation.stage4Percent ||
+                        aiC1?.s_curve?.stage_4_pct ||
+                        0)
                     ).toFixed(1)}
                     %
                   </span>
@@ -4054,32 +6164,26 @@ function CashOutflowsPageContent() {
                 <h2 className="text-xl font-semibold text-white mb-4">
                   Detailed Allocation & Summary
                 </h2>
+                {renderHotelBenchmarkBar(resetHotelStep12Allocations)}
                 {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                   <ResidentialBenchmarkHeader
                     projectInfo={projectInfo}
                     onUseDefaults={residentialBenchmark.resetProfileDefaults}
                     isManualOverride={residentialBenchmark.hasManualOverride}
                   />
-                ) : retailBenchmarkReady ? (
-                  <BenchmarkHeader
-                    assetType="retail"
-                    country={projectInfo.country}
-                    segment={projectInfo.retailSegment}
-                    positioning={projectInfo.retailPositioning}
-                    onUseDefaults={resetRetailProfileDefaults}
-                    isManualOverride={retailHasManualOverride}
-                  />
-                ) : officeBenchmarkReady ? (
-                  <BenchmarkHeader
-                    assetType="office"
-                    country={projectInfo.country}
-                    segment={projectInfo.officeSegment}
-                    positioning={projectInfo.officePositioning}
-                    coworkingDelivery={officeCoworkingDeliveryForBenchmark}
-                    onUseDefaults={resetOfficeProfileDefaults}
-                    isManualOverride={officeHasManualOverride}
-                  />
-                ) : null}
+                ) : (
+                  renderRetailOfficeBenchmarkBar({
+                    hasManualOverride:
+                      retailHasManualOverride || officeHasManualOverride,
+                    onReset: () => {
+                      if (isOperationalRetail) {
+                        resetRetailStep12AllocationsToAi();
+                      } else if (isOperationalOffice) {
+                        resetOfficeStep12Allocations();
+                      }
+                    },
+                  })
+                )}
                 <p className="text-sm text-slate-400 mb-4">
                   Define how POWC is distributed over the programme, review standard SC
                   allocation, then confirm all inputs before generating the model.
@@ -4114,11 +6218,28 @@ function CashOutflowsPageContent() {
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
                                     updateCashOutflowsForStream({
-                                      powcAllocation: { ...powcAlloc, siteEstablishment: newValue },
+                                      powcAllocation: {
+                                        ...powcAlloc,
+                                        siteEstablishment: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelPowcManual: true }
+                                        : {}),
                                     });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiPowcBreakdown &&
+                                    !cashOutflows.operationalHotelPowcManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiPowcBreakdown &&
+                                  !cashOutflows.operationalHotelPowcManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4137,11 +6258,28 @@ function CashOutflowsPageContent() {
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
                                     updateCashOutflowsForStream({
-                                      powcAllocation: { ...powcAlloc, overhead: newValue },
+                                      powcAllocation: {
+                                        ...powcAlloc,
+                                        overhead: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelPowcManual: true }
+                                        : {}),
                                     });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiPowcBreakdown &&
+                                    !cashOutflows.operationalHotelPowcManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiPowcBreakdown &&
+                                  !cashOutflows.operationalHotelPowcManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4160,11 +6298,28 @@ function CashOutflowsPageContent() {
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
                                     updateCashOutflowsForStream({
-                                      powcAllocation: { ...powcAlloc, authorityFees: newValue },
+                                      powcAllocation: {
+                                        ...powcAlloc,
+                                        authorityFees: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelPowcManual: true }
+                                        : {}),
                                     });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiPowcBreakdown &&
+                                    !cashOutflows.operationalHotelPowcManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiPowcBreakdown &&
+                                  !cashOutflows.operationalHotelPowcManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4220,10 +6375,29 @@ function CashOutflowsPageContent() {
                                   value={softAlloc.architect}
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, architect: newValue } });
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        architect: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelScManual: true }
+                                        : {}),
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiScBreakdown &&
+                                    !cashOutflows.operationalHotelScManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiScBreakdown &&
+                                  !cashOutflows.operationalHotelScManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4241,10 +6415,29 @@ function CashOutflowsPageContent() {
                                   value={softAlloc.projectManagement}
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, projectManagement: newValue } });
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        projectManagement: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelScManual: true }
+                                        : {}),
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiScBreakdown &&
+                                    !cashOutflows.operationalHotelScManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiScBreakdown &&
+                                  !cashOutflows.operationalHotelScManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4262,10 +6455,29 @@ function CashOutflowsPageContent() {
                                   value={softAlloc.engineering}
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, engineering: newValue } });
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        engineering: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelScManual: true }
+                                        : {}),
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiScBreakdown &&
+                                    !cashOutflows.operationalHotelScManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiScBreakdown &&
+                                  !cashOutflows.operationalHotelScManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4283,10 +6495,29 @@ function CashOutflowsPageContent() {
                                   value={softAlloc.geotechnical}
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, geotechnical: newValue } });
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        geotechnical: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelScManual: true }
+                                        : {}),
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiScBreakdown &&
+                                    !cashOutflows.operationalHotelScManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiScBreakdown &&
+                                  !cashOutflows.operationalHotelScManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4304,10 +6535,29 @@ function CashOutflowsPageContent() {
                                   value={softAlloc.otherFees}
                                   onChange={(e) => {
                                     const newValue = parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({ softCostAllocation: { ...softAlloc, otherFees: newValue } });
+                                    updateCashOutflowsForStream({
+                                      softCostAllocation: {
+                                        ...softAlloc,
+                                        otherFees: newValue,
+                                      },
+                                      ...(isOperationalHotel
+                                        ? { operationalHotelScManual: true }
+                                        : {}),
+                                    });
                                   }}
-                                  className="w-20 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-right text-white focus:ring-2 focus:ring-emerald-500"
+                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                    aiScBreakdown &&
+                                    !cashOutflows.operationalHotelScManual
+                                      ? "border-2 border-blue-500"
+                                      : "border border-slate-600"
+                                  }`}
                                 />
+                                {aiScBreakdown &&
+                                  !cashOutflows.operationalHotelScManual && (
+                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                                      AI
+                                    </span>
+                                  )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -4434,6 +6684,7 @@ function CashOutflowsPageContent() {
       <PreviewFloatingBar
         showDownload={false}
         previousDisabled={currentStep === 0}
+        nextDisabled={isMapGeocoding}
         onPreviousClick={handleBack}
         onNextClick={handleNext}
         nextLabel={

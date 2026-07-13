@@ -22,7 +22,7 @@ export default function ResidentialStep9LandCosts({
   benchmarkReady,
   landCost,
   onReset,
-  onLandAreaChange,
+  onLandAreaChange: _onLandAreaChange,
   onLandRateChange,
   percentFieldClass,
   fieldError,
@@ -45,20 +45,24 @@ export default function ResidentialStep9LandCosts({
       />
       <p className="mb-4 text-sm text-slate-400">
         Land rate is suggested from your residential segment, positioning, and
-        country. Land area is entered manually.
+        country. Plot area is defined in Step 4 Building Configuration.
       </p>
 
       <div className="mb-6 grid grid-cols-1 items-end gap-4 md:grid-cols-3">
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-300">
-            Land area (sqft)
+            Plot / Land Area (sqft)
           </label>
           <input
             type="number"
-            value={cashOutflows.landArea}
-            onChange={(e) => onLandAreaChange(Number(e.target.value) || 0)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={projectInfo.residentialPlotArea || 0}
+            readOnly
+            className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-slate-400"
+            title="Locked: Defined in Step 4 Building Configuration"
           />
+          <p className="mt-1 text-xs text-amber-400">
+            🔒 Locked: To change, go back to Step 4
+          </p>
           {fieldError("landArea") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("landArea")}</p>
           )}

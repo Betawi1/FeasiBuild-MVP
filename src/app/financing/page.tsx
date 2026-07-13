@@ -2412,10 +2412,10 @@ function FinancingPageContent() {
                     </div>
                   </div>
 
-                  {/* Funding Gap Visualization (Full Width - 1 Column) */}
+                  {/* Funding Gap Visualization - Preliminary (Full Width - 1 Column) */}
                   <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                     <h3 className="text-sm font-semibold text-white mb-3">
-                      📊 Funding Gap Visualization
+                      📊 Funding Gap Visualization - Preliminary
                     </h3>
 
                     {(() => {

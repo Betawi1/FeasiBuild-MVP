@@ -324,9 +324,10 @@ export default function OfficeRevenueStep({
   const profileKeyPrevRef = useRef<string | null>(null);
   const snap = getOperationalOfficeHoldSnapshot();
 
-  const [officeGla, setOfficeGla] = useState(
-    () => snapPositive(snap?.officeGlaSqft, defaultOfficeGlaSqft)
-  );
+  const [officeGla, setOfficeGla] = useState(() => {
+    if (projectInfo.officeGLA) return projectInfo.officeGLA;
+    return snapPositive(snap?.officeGlaSqft, defaultOfficeGlaSqft);
+  });
   const [retailGla, setRetailGla] = useState(
     () => snapPositive(snap?.retailGlaSqft, defaultRetailGlaSqft)
   );
@@ -409,10 +410,17 @@ export default function OfficeRevenueStep({
   >(() => snap?.manualYearValues ?? {});
 
   useEffect(() => {
+    if (projectInfo.officeGLA) {
+      setOfficeGla(projectInfo.officeGLA);
+    }
+  }, [projectInfo.officeGLA]);
+
+  useEffect(() => {
+    if (projectInfo.officeGLA) return;
     if (defaultOfficeGlaSqft > 0 && officeGla <= 0) {
       setOfficeGla(defaultOfficeGlaSqft);
     }
-  }, [defaultOfficeGlaSqft, officeGla]);
+  }, [defaultOfficeGlaSqft, officeGla, projectInfo.officeGLA]);
 
   useEffect(() => {
     if (defaultRetailGlaSqft > 0 && retailGla <= 0) {
@@ -683,17 +691,19 @@ export default function OfficeRevenueStep({
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="col-span-2">
-            <label className="mb-1 block text-xs text-slate-400">
-              Office GLA (sq ft)
+            <label className="mb-2 block text-sm font-medium text-slate-300">
+              Gross Leasable Area (GLA) (sqft)
             </label>
             <input
               type="number"
-              value={officeGla}
-              onChange={(e) =>
-                handleFieldChange("officeGla", Number(e.target.value) || 0)
-              }
-              className={overrideFieldClass(false)}
+              value={projectInfo.officeGLA || 0}
+              readOnly
+              className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+              title="Locked: Defined in Component 1 Step 4 Building Configuration"
             />
+            <p className="mt-1 text-xs text-amber-400">
+              🔒 Locked: To change, go back to Component 1 Step 4
+            </p>
             {fieldError("officeGla") && (
               <p className="mt-1 text-sm text-red-400">{fieldError("officeGla")}</p>
             )}

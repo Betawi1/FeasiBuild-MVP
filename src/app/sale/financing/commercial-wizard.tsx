@@ -1184,7 +1184,7 @@ function CommercialFinancingWizardContent() {
 
               <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
                 <h3 className="mb-3 text-sm font-semibold text-white">
-                  📊 Funding Gap Visualization
+                  📊 Funding Gap Visualization - Preliminary
                 </h3>
                 {(() => {
                   const tdcSafe = tdc || 0;

@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { getRetailOpexBenchmark } from "@/lib/benchmarks/retail-opex";
 import useFinModelStore from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import type { RetailOpexConfig } from "@/store/useFinModelStore";
 import type { OperationalRetailHoldSnapshot } from "@/lib/operational-pnl";
 import { totalOperationalBua } from "@/lib/operational-pnl";
@@ -141,8 +142,12 @@ function effectiveLeasedPctForYear(
 
 export default function RetailOpexStep() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
-  const step1Data = useFinModelStore((s) => s.operational.retailHoldSnapshot);
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
+  const aiC2 = cashOutflows?.aiResearchData?.c2_operational;
+  const aiOpex = aiC2?.step3_operating_expenses;
+  const aiPropertyTaxPct = aiOpex?.property_tax_pct_of_revenue;
+  const aiInsurancePct = aiOpex?.insurance_pct_of_revenue;
+  const step1Data = useFinModelStore((s) => s.operational.retailHoldSnapshot);
   const currencyCode = projectInfo.currency || "AED";
 
   const totalBua = totalOperationalBua(cashOutflows);
@@ -183,6 +188,7 @@ export default function RetailOpexStep() {
     ) {
       return roundPct2(step1Data.propertyTaxPctOfGrossRent);
     }
+    if (aiPropertyTaxPct != null) return roundPct2(aiPropertyTaxPct);
     const grossY1 = minRentValues[0] ?? 0;
     if (step1Data?.propertyTaxAnnual != null && grossY1 > 0) {
       return roundPct2((step1Data.propertyTaxAnnual / grossY1) * 100);
@@ -197,6 +203,7 @@ export default function RetailOpexStep() {
     ) {
       return roundPct2(step1Data.insurancePctOfGrossRent);
     }
+    if (aiInsurancePct != null) return roundPct2(aiInsurancePct);
     const grossY1 = minRentValues[0] ?? 0;
     if (step1Data?.insuranceAnnual != null && grossY1 > 0) {
       return roundPct2((step1Data.insuranceAnnual / grossY1) * 100);
@@ -246,6 +253,16 @@ export default function RetailOpexStep() {
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
   >({});
+
+  useEffect(() => {
+    if (!aiPropertyTaxPct || overrides.propertyTaxPct) return;
+    setPropertyTaxPct(roundPct2(aiPropertyTaxPct));
+  }, [aiPropertyTaxPct, overrides.propertyTaxPct]);
+
+  useEffect(() => {
+    if (!aiInsurancePct || overrides.insurancePct) return;
+    setInsurancePct(roundPct2(aiInsurancePct));
+  }, [aiInsurancePct, overrides.insurancePct]);
 
   const recoveryRate = step1Data?.recoveryRate ?? 95;
 
@@ -438,29 +455,88 @@ export default function RetailOpexStep() {
     }
     setCamFixedBaseRate(benchmark.camFixedBaseRate);
     setCamVariableRate(benchmark.camVariableRate);
-    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
-    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
+    if (aiPropertyTaxPct == null) {
+      setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
+    }
+    if (aiInsurancePct == null) {
+      setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
+    }
     setMarketingPct(benchmark.marketingPctOfRevenue);
     setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
     setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
     setRenovationYear1(benchmark.renovationYear1);
     setRenovationYear2(benchmark.renovationYear2);
     setRenovationYears3to10(benchmark.renovationYears3to10);
-  }, [benchmark, overrides, step1Data?.camFixedBaseRate, step1Data?.camFixedBase]);
+  }, [
+    benchmark,
+    overrides,
+    step1Data?.camFixedBaseRate,
+    step1Data?.camFixedBase,
+    aiPropertyTaxPct,
+    aiInsurancePct,
+  ]);
+
+  const OPEX_RESET_FIELDS = [
+    "camFixedBaseRate",
+    "camVariableRate",
+    "propertyTaxPct",
+    "insurancePct",
+    "marketingPct",
+    "gAndAPct",
+    "mgmtFeePct",
+    "renovationYear1",
+    "renovationYear2",
+    "renovationYears3to10",
+  ] as const;
 
   const handleResetAll = () => {
-    if (!benchmark) return;
-    setCamFixedBaseRate(benchmark.camFixedBaseRate);
-    setCamVariableRate(benchmark.camVariableRate);
-    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
-    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
-    setMarketingPct(benchmark.marketingPctOfRevenue);
-    setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
-    setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
-    setRenovationYear1(benchmark.renovationYear1);
-    setRenovationYear2(benchmark.renovationYear2);
-    setRenovationYears3to10(benchmark.renovationYears3to10);
-    setOverrides({});
+    if (aiOpex) {
+      setCamFixedBaseRate(aiOpex.cam_fixed_base_annual ?? benchmark?.camFixedBaseRate ?? 2);
+      setCamVariableRate(aiOpex.cam_variable_rate_psf ?? benchmark?.camVariableRate ?? 12);
+      setPropertyTaxPct(
+        roundPct2(
+          aiOpex.property_tax_pct_of_revenue ??
+            benchmark?.propertyTaxPctOfGrossRent ??
+            0.8
+        )
+      );
+      setInsurancePct(
+        roundPct2(
+          aiOpex.insurance_pct_of_revenue ??
+            benchmark?.insurancePctOfGrossRent ??
+            0.16
+        )
+      );
+      setMarketingPct(aiOpex.marketing_pct_revenue ?? benchmark?.marketingPctOfRevenue ?? 1.8);
+      setGAndAPct(roundPct2(aiOpex.g_and_a_pct_revenue ?? benchmark?.gAndAPctOfRevenue ?? 0.43));
+      setMgmtFeePct(aiOpex.management_fee_pct_revenue ?? benchmark?.mgmtFeePctOfRevenue ?? 2.8);
+      setRenovationYear1(aiOpex.renovation_provision?.year_1_pct ?? benchmark?.renovationYear1 ?? 1.2);
+      setRenovationYear2(aiOpex.renovation_provision?.year_2_pct ?? benchmark?.renovationYear2 ?? 2.0);
+      setRenovationYears3to10(
+        aiOpex.renovation_provision?.years_3_10_pct ?? benchmark?.renovationYears3to10 ?? 3.0
+      );
+    } else if (benchmark) {
+      setCamFixedBaseRate(benchmark.camFixedBaseRate);
+      setCamVariableRate(benchmark.camVariableRate);
+      setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
+      setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
+      setMarketingPct(benchmark.marketingPctOfRevenue);
+      setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
+      setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
+      setRenovationYear1(benchmark.renovationYear1);
+      setRenovationYear2(benchmark.renovationYear2);
+      setRenovationYears3to10(benchmark.renovationYears3to10);
+    } else {
+      return;
+    }
+
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const field of OPEX_RESET_FIELDS) {
+        delete next[field];
+      }
+      return next;
+    });
     setManualYearValues({});
   };
 
@@ -547,7 +623,7 @@ export default function RetailOpexStep() {
               onClick={handleResetAll}
               className="text-xs text-emerald-400 transition hover:text-emerald-300"
             >
-              Use profile defaults
+              Reset to benchmark
             </button>
           </div>
         </div>
@@ -559,38 +635,35 @@ export default function RetailOpexStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              CAM – Fixed Base Rate ({currencyCode}/psf of BUA/year)
-            </label>
-            <input
+            <AiInput
+              label={`CAM – Fixed Base Rate (${currencyCode}/psf of BUA/year)`}
+              value={camFixedBaseRate || aiOpex?.cam_fixed_base_annual || 0}
+              onChange={(val) =>
+                handleFieldChange("camFixedBaseRate", Number(val))
+              }
               type="number"
               step={0.01}
-              value={camFixedBaseRate}
-              onChange={(e) =>
-                handleFieldChange("camFixedBaseRate", Number(e.target.value))
+              isAiGenerated={
+                !!aiOpex?.cam_fixed_base_annual && !overrides.camFixedBaseRate
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.camFixedBaseRate ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.camFixedBaseRate}
+              helperText={`Annual fixed CAM = rate × total BUA (${totalBua.toLocaleString()} sqft from Component 1)`}
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Annual fixed CAM = rate × total BUA (
-              {totalBua.toLocaleString()} sqft from Component 1)
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              CAM – Variable Rate ({currencyCode}/psf of leased GLA)
-            </label>
-            <input
-              type="number"
-              value={camVariableRate}
-              onChange={(e) =>
-                handleFieldChange("camVariableRate", Number(e.target.value))
+            <AiInput
+              label={`CAM – Variable Rate (${currencyCode}/psf of leased GLA)`}
+              value={camVariableRate || aiOpex?.cam_variable_rate_psf || 0}
+              onChange={(val) =>
+                handleFieldChange("camVariableRate", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.camVariableRate ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="number"
+              isAiGenerated={
+                !!aiOpex?.cam_variable_rate_psf && !overrides.camVariableRate
+              }
+              isManualOverride={!!overrides.camVariableRate}
+              helperText="Multiplied by leased GLA (from Step 1)"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Multiplied by leased GLA (from Step 1)
-            </p>
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-500">
@@ -605,44 +678,36 @@ export default function RetailOpexStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Property Tax (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Property Tax (% of Gross Rental Revenue)"
+              value={propertyTaxPct}
+              onChange={(val) =>
+                handleFieldChange("propertyTaxPct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 5"
-              value={propertyTaxPct}
-              onChange={(e) =>
-                handleFieldChange("propertyTaxPct", Number(e.target.value))
-              }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propertyTaxPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isAiGenerated={!!aiPropertyTaxPct && !overrides.propertyTaxPct}
+              isManualOverride={!!overrides.propertyTaxPct}
+              helperText="Applied to Step 1 base rent revenue each year"
             />
-            <p className="mt-1 text-sm text-slate-500">
-              Applied to Step 1 base rent revenue each year
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Insurance (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Insurance (% of Gross Rental Revenue)"
+              value={insurancePct}
+              onChange={(val) =>
+                handleFieldChange("insurancePct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 1.5"
-              value={insurancePct}
-              onChange={(e) =>
-                handleFieldChange("insurancePct", Number(e.target.value))
-              }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.insurancePct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isAiGenerated={!!aiInsurancePct && !overrides.insurancePct}
+              isManualOverride={!!overrides.insurancePct}
+              helperText="Applied to Step 1 base rent revenue each year"
             />
-            <p className="mt-1 text-sm text-slate-500">
-              Applied to Step 1 base rent revenue each year
-            </p>
           </div>
         </div>
       </div>
@@ -653,39 +718,34 @@ export default function RetailOpexStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Marketing (% of Total Revenue)
-            </label>
-            <input
+            <AiInput
+              label="Marketing (% of Total Revenue)"
+              value={marketingPct || aiOpex?.marketing_pct_revenue || 0}
+              onChange={(val) => handleFieldChange("marketingPct", Number(val))}
               type="number"
               step={0.1}
-              value={marketingPct}
-              onChange={(e) =>
-                handleFieldChange("marketingPct", Number(e.target.value))
+              isAiGenerated={
+                !!aiOpex?.marketing_pct_revenue && !overrides.marketingPct
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.marketingPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.marketingPct}
+              helperText="% of (Min Rent + Other Income) from Steps 1 & 2"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              % of (Min Rent + Other Income) from Steps 1 &amp; 2
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              G&amp;A (% of Total Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="G&A (% of Total Revenue)"
+              value={gAndAPct || aiOpex?.g_and_a_pct_revenue || 0}
+              onChange={(val) => handleFieldChange("gAndAPct", Number(val))}
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 1"
-              value={gAndAPct}
-              onChange={(e) => handleFieldChange("gAndAPct", Number(e.target.value))}
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.gAndAPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isAiGenerated={
+                !!aiOpex?.g_and_a_pct_revenue && !overrides.gAndAPct
+              }
+              isManualOverride={!!overrides.gAndAPct}
+              helperText="% of (Base Rent + Other Income) from Steps 1 & 2"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              % of (Base Rent + Other Income) from Steps 1 &amp; 2
-            </p>
           </div>
         </div>
       </div>
@@ -695,17 +755,16 @@ export default function RetailOpexStep() {
           D. Management Fee
         </h3>
         <div className="max-w-xs">
-          <label className="mb-1 block text-xs text-slate-400">
-            Base Management Fee (% of Total Revenue)
-          </label>
-          <input
+          <AiInput
+            label="Base Management Fee (% of Total Revenue)"
+            value={mgmtFeePct || aiOpex?.management_fee_pct_revenue || 0}
+            onChange={(val) => handleFieldChange("mgmtFeePct", Number(val))}
             type="number"
             step={0.1}
-            value={mgmtFeePct}
-            onChange={(e) =>
-              handleFieldChange("mgmtFeePct", Number(e.target.value))
+            isAiGenerated={
+              !!aiOpex?.management_fee_pct_revenue && !overrides.mgmtFeePct
             }
-            className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.mgmtFeePct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+            isManualOverride={!!overrides.mgmtFeePct}
           />
         </div>
       </div>
@@ -716,48 +775,55 @@ export default function RetailOpexStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Year 1 (% of Revenue)
-            </label>
-            <input
+            <AiInput
+              label="Year 1 (% of Revenue)"
+              value={
+                renovationYear1 || aiOpex?.renovation_provision?.year_1_pct || 0
+              }
+              onChange={(val) => handleFieldChange("renovationYear1", Number(val))}
               type="number"
               step={0.1}
-              value={renovationYear1}
-              onChange={(e) =>
-                handleFieldChange("renovationYear1", Number(e.target.value))
+              isAiGenerated={
+                !!aiOpex?.renovation_provision?.year_1_pct &&
+                !overrides.renovationYear1
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.renovationYear1 ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.renovationYear1}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Year 2 (% of Revenue)
-            </label>
-            <input
+            <AiInput
+              label="Year 2 (% of Revenue)"
+              value={
+                renovationYear2 || aiOpex?.renovation_provision?.year_2_pct || 0
+              }
+              onChange={(val) => handleFieldChange("renovationYear2", Number(val))}
               type="number"
               step={0.1}
-              value={renovationYear2}
-              onChange={(e) =>
-                handleFieldChange("renovationYear2", Number(e.target.value))
+              isAiGenerated={
+                !!aiOpex?.renovation_provision?.year_2_pct &&
+                !overrides.renovationYear2
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.renovationYear2 ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.renovationYear2}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Years 3–10 (% of Revenue)
-            </label>
-            <input
+            <AiInput
+              label="Years 3–10 (% of Revenue)"
+              value={
+                renovationYears3to10 ||
+                aiOpex?.renovation_provision?.years_3_10_pct ||
+                0
+              }
+              onChange={(val) =>
+                handleFieldChange("renovationYears3to10", Number(val))
+              }
               type="number"
               step={0.1}
-              value={renovationYears3to10}
-              onChange={(e) =>
-                handleFieldChange(
-                  "renovationYears3to10",
-                  Number(e.target.value)
-                )
+              isAiGenerated={
+                !!aiOpex?.renovation_provision?.years_3_10_pct &&
+                !overrides.renovationYears3to10
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.renovationYears3to10 ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.renovationYears3to10}
             />
           </div>
         </div>

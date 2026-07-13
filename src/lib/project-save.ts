@@ -18,9 +18,12 @@ import { getCachedContent, checkPuterStatus } from "@/lib/cache-service";
 import {
   loadProjectIndex,
   readProjectRaw,
+  removeProjectIndexEntry,
   upsertProjectIndexEntry,
   userProjectDataKey,
   writeProjectRaw,
+  deleteKvValue,
+  projectDataKeysForLookup,
 } from "@/lib/puter-storage";
 import { sanitizeForStorage } from "@/lib/sanitize";
 import type {
@@ -451,6 +454,25 @@ export async function fetchProjectIndex(
     (a, b) =>
       new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime()
   );
+}
+
+export async function deleteProjectFromKV(
+  userId: string,
+  projectId: string
+): Promise<void> {
+  if (!userId?.trim()) {
+    throw new Error("User ID is required to delete a project.");
+  }
+  if (!projectId?.trim()) {
+    throw new Error("Project ID is required.");
+  }
+
+  await removeProjectIndexEntry(userId, projectId);
+
+  const keysToDelete = new Set(projectDataKeysForLookup(userId, projectId));
+  await Promise.all([...keysToDelete].map((key) => deleteKvValue(key)));
+
+  console.log(`[ProjectSave] ✓ Deleted project ${projectId}`);
 }
 
 export async function saveProjectToKV(

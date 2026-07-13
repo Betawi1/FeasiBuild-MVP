@@ -188,9 +188,10 @@ export default function ResidentialRevenueStep({
 
   const defaultLeaseUpMonths = Math.round((benchmark?.leaseUpYears ?? 2.5) * 12);
 
-  const [residentialGla, setResidentialGla] = useState(
-    () => snapPositive(snap?.residentialGlaSqft, defaultResidentialGlaSqft)
-  );
+  const [residentialGla, setResidentialGla] = useState(() => {
+    if (projectInfo.residentialGLA) return projectInfo.residentialGLA;
+    return snapPositive(snap?.residentialGlaSqft, defaultResidentialGlaSqft);
+  });
   const [retailGla, setRetailGla] = useState(
     () => snapPositive(snap?.retailGlaSqft, defaultRetailGlaSqft)
   );
@@ -283,10 +284,17 @@ export default function ResidentialRevenueStep({
   >(() => snap?.manualYearValues ?? {});
 
   useEffect(() => {
+    if (projectInfo.residentialGLA) {
+      setResidentialGla(projectInfo.residentialGLA);
+    }
+  }, [projectInfo.residentialGLA]);
+
+  useEffect(() => {
+    if (projectInfo.residentialGLA) return;
     if (defaultResidentialGlaSqft > 0 && residentialGla <= 0) {
       setResidentialGla(defaultResidentialGlaSqft);
     }
-  }, [defaultResidentialGlaSqft, residentialGla]);
+  }, [defaultResidentialGlaSqft, residentialGla, projectInfo.residentialGLA]);
 
   useEffect(() => {
     if (defaultRetailGlaSqft > 0 && retailGla <= 0) {
@@ -601,17 +609,19 @@ export default function ResidentialRevenueStep({
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="col-span-2">
-            <label className="mb-1 block text-xs text-slate-400">
-              Residential GLA (sq ft)
+            <label className="mb-2 block text-sm font-medium text-slate-300">
+              Residential GLA (sqft)
             </label>
             <input
               type="number"
-              value={residentialGla}
-              onChange={(e) =>
-                handleFieldChange("residentialGla", Number(e.target.value) || 0)
-              }
-              className={overrideFieldClass(false)}
+              value={projectInfo.residentialGLA || 0}
+              readOnly
+              className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
+              title="Locked: Defined in Component 1 Step 4 Building Configuration"
             />
+            <p className="mt-1 text-xs text-amber-400">
+              🔒 Locked: To change, go back to Component 1 Step 4
+            </p>
             {fieldError("residentialGla") && (
               <p className="mt-1 text-sm text-red-400">
                 {fieldError("residentialGla")}

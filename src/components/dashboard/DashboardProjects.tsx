@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import { PlusCircle } from "lucide-react";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import { fetchProjectIndex } from "@/lib/project-save";
+import useFinModelStore from "@/store/useFinModelStore";
 import type { ProjectIndexEntry } from "@/types/project";
 
 function formatLastModified(isoDate: string): string {
@@ -20,8 +21,31 @@ function formatLastModified(isoDate: string): string {
 
 export default function DashboardProjects() {
   const { user, isLoaded } = useUser();
+  const deleteProject = useFinModelStore((s) => s.deleteProject);
   const [projects, setProjects] = useState<ProjectIndexEntry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const handleDeleteProject = useCallback(
+    async (project: ProjectIndexEntry) => {
+      if (!user?.id) return;
+
+      const confirmed = window.confirm(
+        `Are you sure you want to delete "${project.projectName || project.projectId}"? This cannot be undone.`
+      );
+      if (!confirmed) return;
+
+      try {
+        await deleteProject(project.projectId, user.id);
+        setProjects((prev) =>
+          prev.filter((item) => item.projectId !== project.projectId)
+        );
+      } catch (error) {
+        console.error("[Dashboard] Failed to delete project:", error);
+        window.alert("Failed to delete project. Please try again.");
+      }
+    },
+    [deleteProject, user?.id]
+  );
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -135,6 +159,9 @@ export default function DashboardProjects() {
               location={project.location}
               status={project.status}
               lastModified={formatLastModified(project.lastModified)}
+              onDelete={() => {
+                void handleDeleteProject(project);
+              }}
             />
           ))}
 

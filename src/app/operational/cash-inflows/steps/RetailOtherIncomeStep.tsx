@@ -17,6 +17,7 @@ import {
 } from "@/lib/benchmarks/retail-other-income";
 import { getRetailRevenueBenchmark } from "@/lib/benchmarks/retail-revenue";
 import useFinModelStore from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import type { OperationalRetailHoldSnapshot } from "@/lib/operational-pnl";
 
 export type RetailOtherIncomeStepErrors = Record<string, string>;
@@ -65,8 +66,11 @@ function roundPct2(value: number): number {
 
 export default function RetailOtherIncomeStep() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
-  const step1Data = useFinModelStore((s) => s.operational.retailHoldSnapshot);
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
+  const aiC2 = cashOutflows?.aiResearchData?.c2_operational;
+  const aiOtherIncome = aiC2?.step2_other_income;
+  const aiCamExpenses = aiC2?.step3_operating_expenses?.cam_fixed_base_annual;
+  const step1Data = useFinModelStore((s) => s.operational.retailHoldSnapshot);
   const currencyCode = projectInfo.currency || "AED";
 
   const incomeBenchmark = useMemo(
@@ -149,9 +153,11 @@ export default function RetailOtherIncomeStep() {
     step1Data?.fixedBreakpointPsf ?? 500
   );
 
-  const [camExpenses, setCamExpenses] = useState(
-    step1Data?.camExpensesAed ?? defaultCamTotal
-  );
+  const [camExpenses, setCamExpenses] = useState(() => {
+    if (step1Data?.camExpensesAed != null) return step1Data.camExpensesAed;
+    if (aiCamExpenses != null) return aiCamExpenses;
+    return defaultCamTotal;
+  });
   const [propertyTaxPct, setPropertyTaxPct] = useState(() => {
     if (
       step1Data?.propertyTaxPctOfGrossRent != null &&
@@ -212,6 +218,13 @@ export default function RetailOtherIncomeStep() {
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
   >({});
+
+  useEffect(() => {
+    if (!aiCamExpenses || overrides.camExpenses) return;
+    const snap = getOperationalRetailHoldSnapshot();
+    if (snap?.camExpensesAed != null) return;
+    setCamExpenses(aiCamExpenses);
+  }, [aiCamExpenses, overrides.camExpenses]);
 
   const leasedPctForYear = useCallback(
     (yearIndex0: number) => {
@@ -465,20 +478,63 @@ export default function RetailOtherIncomeStep() {
   }, [incomeBenchmark, gla, overrides, projectInfo, step1Data?.avgTenantSalesPsf]);
 
   const handleResetAll = () => {
-    if (!incomeBenchmark) return;
-    setAvgTenantSalesPsf(incomeBenchmark.avgTenantSalesPsf);
-    setSalesGrowthPct(incomeBenchmark.salesGrowthPct);
-    setPercentageRentRate(incomeBenchmark.percentageRentRate);
-    setBreakpointType(incomeBenchmark.breakpointType || "natural");
-    setBreakpointMultiple(incomeBenchmark.breakpointMultiple || 1.0);
-    setCamExpenses(incomeBenchmark.camExpensesPerSqft * gla);
-    setPropertyTaxPct(defaultPropertyTaxPct);
-    setInsurancePct(defaultInsurancePct);
-    setRecoveryRate(incomeBenchmark.recoveryRate || 95);
-    setParkingRevenuePerDay(incomeBenchmark.parkingRevenuePerSpaceDay || 10);
-    setParkingUtilization(incomeBenchmark.parkingUtilization || 70);
-    setOperatingDays(incomeBenchmark.operatingDays || 365);
-    setAdvertisingRatePerSqft(incomeBenchmark.advertisingRatePerSqft || 0.875);
+    if (aiOtherIncome) {
+      setAvgTenantSalesPsf(
+        aiOtherIncome.avg_tenant_sales_psf ?? incomeBenchmark?.avgTenantSalesPsf ?? 3000
+      );
+      setSalesGrowthPct(
+        aiOtherIncome.sales_growth_pct ?? incomeBenchmark?.salesGrowthPct ?? 3.0
+      );
+      setPercentageRentRate(
+        aiOtherIncome.percentage_rent_rate_pct ??
+          incomeBenchmark?.percentageRentRate ??
+          5
+      );
+      setBreakpointType(
+        (aiOtherIncome.breakpoint_type ??
+          incomeBenchmark?.breakpointType ??
+          "natural") as "natural" | "fixed"
+      );
+      setBreakpointMultiple(
+        aiOtherIncome.breakpoint_multiple ?? incomeBenchmark?.breakpointMultiple ?? 1.0
+      );
+      setCamExpenses(aiOtherIncome.cam_expenses ?? defaultCamTotal);
+      setPropertyTaxPct(
+        roundPct2(aiOtherIncome.property_tax_pct_of_revenue ?? defaultPropertyTaxPct)
+      );
+      setInsurancePct(
+        roundPct2(aiOtherIncome.insurance_pct_of_revenue ?? defaultInsurancePct)
+      );
+      setRecoveryRate(aiOtherIncome.recovery_rate_pct ?? incomeBenchmark?.recoveryRate ?? 95);
+      setParkingRevenuePerDay(
+        aiOtherIncome.parking_revenue_per_space_day ??
+          incomeBenchmark?.parkingRevenuePerSpaceDay ??
+          10
+      );
+      setParkingUtilization(
+        aiOtherIncome.parking_utilization ?? incomeBenchmark?.parkingUtilization ?? 70
+      );
+      setOperatingDays(aiOtherIncome.operating_days ?? incomeBenchmark?.operatingDays ?? 365);
+      setAdvertisingRatePerSqft(
+        aiOtherIncome.advertising_kiosks_events_psf ??
+          incomeBenchmark?.advertisingRatePerSqft ??
+          0.875
+      );
+    } else if (incomeBenchmark) {
+      setAvgTenantSalesPsf(incomeBenchmark.avgTenantSalesPsf);
+      setSalesGrowthPct(incomeBenchmark.salesGrowthPct);
+      setPercentageRentRate(incomeBenchmark.percentageRentRate);
+      setBreakpointType(incomeBenchmark.breakpointType || "natural");
+      setBreakpointMultiple(incomeBenchmark.breakpointMultiple || 1.0);
+      setCamExpenses(incomeBenchmark.camExpensesPerSqft * gla);
+      setPropertyTaxPct(defaultPropertyTaxPct);
+      setInsurancePct(defaultInsurancePct);
+      setRecoveryRate(incomeBenchmark.recoveryRate || 95);
+      setParkingRevenuePerDay(incomeBenchmark.parkingRevenuePerSpaceDay || 10);
+      setParkingUtilization(incomeBenchmark.parkingUtilization || 70);
+      setOperatingDays(incomeBenchmark.operatingDays || 365);
+      setAdvertisingRatePerSqft(incomeBenchmark.advertisingRatePerSqft || 0.875);
+    }
     setParkingSpaces(defaultSpaces);
     setOverrides({});
     setManualYearValues({});
@@ -568,7 +624,7 @@ export default function RetailOtherIncomeStep() {
               onClick={handleResetAll}
               className="text-xs text-emerald-400 transition hover:text-emerald-300"
             >
-              Use profile defaults
+              Reset to benchmark
             </button>
           </div>
         </div>
@@ -580,16 +636,17 @@ export default function RetailOtherIncomeStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Avg Tenant Sales psf – Year 1 ({currencyCode})
-            </label>
-            <input
-              type="number"
-              value={avgTenantSalesPsf}
-              onChange={(e) =>
-                handleFieldChange("avgTenantSalesPsf", Number(e.target.value))
+            <AiInput
+              label={`Avg Tenant Sales psf – Year 1 (${currencyCode})`}
+              value={avgTenantSalesPsf || aiOtherIncome?.avg_tenant_sales_psf || 0}
+              onChange={(val) =>
+                handleFieldChange("avgTenantSalesPsf", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.avgTenantSalesPsf ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="number"
+              isAiGenerated={
+                !!aiOtherIncome?.avg_tenant_sales_psf && !overrides.avgTenantSalesPsf
+              }
+              isManualOverride={!!overrides.avgTenantSalesPsf}
             />
           </div>
           <div>
@@ -606,16 +663,18 @@ export default function RetailOtherIncomeStep() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Percentage Rent Rate (%)
-            </label>
-            <input
-              type="number"
-              value={percentageRentRate}
-              onChange={(e) =>
-                handleFieldChange("percentageRentRate", Number(e.target.value))
+            <AiInput
+              label="Percentage Rent Rate (%)"
+              value={percentageRentRate || aiOtherIncome?.percentage_rent_rate_pct || 0}
+              onChange={(val) =>
+                handleFieldChange("percentageRentRate", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.percentageRentRate ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="number"
+              isAiGenerated={
+                !!aiOtherIncome?.percentage_rent_rate_pct &&
+                !overrides.percentageRentRate
+              }
+              isManualOverride={!!overrides.percentageRentRate}
             />
           </div>
           <div>
@@ -675,73 +734,59 @@ export default function RetailOtherIncomeStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              CAM Expenses ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`CAM Expenses (${currencyCode})`}
               value={camExpenses}
-              onChange={(e) =>
-                handleFieldChange("camExpenses", Number(e.target.value))
-              }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.camExpenses ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              onChange={(val) => handleFieldChange("camExpenses", Number(val))}
+              type="number"
+              isAiGenerated={!!aiCamExpenses && !overrides.camExpenses}
+              isManualOverride={!!overrides.camExpenses}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Property Tax (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Property Tax (% of Gross Rental Revenue)"
+              value={propertyTaxPct || aiOtherIncome?.property_tax_pct_of_revenue || 0}
+              onChange={(val) => handleFieldChange("propertyTaxPct", Number(val))}
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 5"
-              value={propertyTaxPct}
-              onChange={(e) =>
-                handleFieldChange("propertyTaxPct", Number(e.target.value))
+              isAiGenerated={
+                !!aiOtherIncome?.property_tax_pct_of_revenue && !overrides.propertyTaxPct
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propertyTaxPct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.propertyTaxPct}
+              helperText="Applied to Step 1 base rent revenue each year"
             />
-            <p className="mt-1 text-sm text-slate-500">
-              Applied to Step 1 base rent revenue each year
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Insurance (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Insurance (% of Gross Rental Revenue)"
+              value={insurancePct || aiOtherIncome?.insurance_pct_of_revenue || 0}
+              onChange={(val) => handleFieldChange("insurancePct", Number(val))}
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 1.5"
-              value={insurancePct}
-              onChange={(e) =>
-                handleFieldChange("insurancePct", Number(e.target.value))
+              isAiGenerated={
+                !!aiOtherIncome?.insurance_pct_of_revenue && !overrides.insurancePct
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.insurancePct ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.insurancePct}
+              helperText="Applied to Step 1 base rent revenue each year"
             />
-            <p className="mt-1 text-sm text-slate-500">
-              Applied to Step 1 base rent revenue each year
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Recovery Rate (%)
-            </label>
-            <input
+            <AiInput
+              label="Recovery Rate (%)"
+              value={recoveryRate || aiOtherIncome?.recovery_rate_pct || 0}
+              onChange={(val) => handleFieldChange("recoveryRate", Number(val))}
               type="number"
-              value={recoveryRate}
-              onChange={(e) =>
-                handleFieldChange("recoveryRate", Number(e.target.value))
+              isAiGenerated={
+                !!aiOtherIncome?.recovery_rate_pct && !overrides.recoveryRate
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.recoveryRate ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.recoveryRate}
+              helperText="% billed to tenants (vacancy/caps adjusted)"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              % billed to tenants (vacancy/caps adjusted)
-            </p>
           </div>
         </div>
       </div>
@@ -763,16 +808,22 @@ export default function RetailOtherIncomeStep() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Revenue/Space/Day ({currencyCode})
-            </label>
-            <input
-              type="number"
-              value={parkingRevenuePerDay}
-              onChange={(e) =>
-                handleFieldChange("parkingRevenuePerDay", Number(e.target.value))
+            <AiInput
+              label={`Revenue/Space/Day (${currencyCode})`}
+              value={
+                parkingRevenuePerDay ||
+                aiOtherIncome?.parking_revenue_per_space_day ||
+                0
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.parkingRevenuePerDay ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              onChange={(val) =>
+                handleFieldChange("parkingRevenuePerDay", Number(val))
+              }
+              type="number"
+              isAiGenerated={
+                !!aiOtherIncome?.parking_revenue_per_space_day &&
+                !overrides.parkingRevenuePerDay
+              }
+              isManualOverride={!!overrides.parkingRevenuePerDay}
             />
           </div>
           <div>
@@ -808,24 +859,25 @@ export default function RetailOtherIncomeStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Advertising/Kiosks/Events Rate ({currencyCode} per sqft GLA/year)
-            </label>
-            <input
+            <AiInput
+              label={`Advertising/Kiosks/Events Rate (${currencyCode} per sqft GLA/year)`}
+              value={
+                advertisingRatePerSqft ||
+                aiOtherIncome?.advertising_kiosks_events_psf ||
+                0
+              }
+              onChange={(val) =>
+                handleFieldChange("advertisingRatePerSqft", Number(val))
+              }
               type="number"
               step={0.01}
-              value={advertisingRatePerSqft}
-              onChange={(e) =>
-                handleFieldChange(
-                  "advertisingRatePerSqft",
-                  Number(e.target.value)
-                )
+              isAiGenerated={
+                !!aiOtherIncome?.advertising_kiosks_events_psf &&
+                !overrides.advertisingRatePerSqft
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.advertisingRatePerSqft ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.advertisingRatePerSqft}
+              helperText={`Annual income = rate × total GLA (${gla.toLocaleString()} sqft)`}
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Annual income = rate × total GLA ({gla.toLocaleString()} sqft)
-            </p>
           </div>
         </div>
       </div>

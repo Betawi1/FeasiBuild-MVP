@@ -7,6 +7,10 @@ import useSaleModelStore, {
   type CashInflows,
   type ProjectInfo,
 } from "@/store/useSaleModelStore";
+import type { AiResearchData } from "@/store/useFinModelStore";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
+import { AiInput } from "@/components/ui/AiInput";
+import { AiHintBox } from "@/components/ui/AiHintBox";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 import {
@@ -35,6 +39,11 @@ function CashInflowsPageContent() {
 
   const [errors, setErrors] = useState<Errors>({});
   const cashInflowStepVisitLogged = useRef<Set<number>>(new Set());
+
+  const isSaleLandedProduct = useMemo(
+    () => Boolean(projectInfo.buildingSubType?.includes("landed")),
+    [projectInfo.buildingSubType]
+  );
 
   // Sale Development stream (8 steps)
   const totalSteps = 8; // indices 0–7
@@ -65,6 +74,25 @@ function CashInflowsPageContent() {
     setCurrentStep(desired);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync Step 5 Saleable BUA Ratio to Cash Inflows state when entering Component 2 Step 1
+  useEffect(() => {
+    if (currentStep === 0) {
+      const ratio = isSaleLandedProduct
+        ? projectInfo.salesLandedSaleableRatio
+        : projectInfo.salesHighRiseSaleableRatio;
+      if (ratio !== undefined) {
+        updateCashInflows({ saleableBUARatio: ratio });
+        console.log("🔗 Synced Step 5 Saleable BUA Ratio to Cash Inflows:", ratio);
+      }
+    }
+  }, [
+    isSaleLandedProduct,
+    currentStep,
+    projectInfo.salesLandedSaleableRatio,
+    projectInfo.salesHighRiseSaleableRatio,
+    updateCashInflows,
+  ]);
 
   // Log current values on first visit to each audited wizard step
   useEffect(() => {
@@ -223,6 +251,138 @@ function CashInflowsPageContent() {
   const grossSalesLive = useMemo(() => {
     return totalSaleableBUA * cashInflows.salesPrice;
   }, [totalSaleableBUA, cashInflows.salesPrice]);
+
+  const aiDataRaw = cashOutflows.aiResearchData;
+  const aiData = useMemo(() => {
+    if (!aiDataRaw) return undefined;
+    // Always normalize so c2_sales alt keys resolve to avg_sales_price_psf
+    return normalizeAiResearchData(aiDataRaw) as unknown as AiResearchData;
+  }, [aiDataRaw]);
+  const aiC2 = aiData?.c2_sales;
+  const aiSalesPrice =
+    typeof aiC2?.avg_sales_price_psf === "number" &&
+    aiC2.avg_sales_price_psf > 0
+      ? aiC2.avg_sales_price_psf
+      : undefined;
+  const aiAgentCommission = aiC2?.deductions?.agent_commission_pct;
+  const aiVatPercent = aiC2?.deductions?.vat_pct;
+  const aiEscrowFeePercent = aiC2?.deductions?.escrow_fees_pct;
+  const aiSalesDiscount = aiC2?.deductions?.avg_sales_discount_pct;
+
+  const isRateOverride = (current: number, bench?: number) =>
+    bench != null && Math.abs(current - bench) > 0.001;
+
+  const isSalesPriceManual = isRateOverride(cashInflows.salesPrice, aiSalesPrice);
+  const isAgentCommissionManual = isRateOverride(
+    cashInflows.buyerMix.brokerCommissionPercent,
+    aiAgentCommission
+  );
+  const isVatManual = isRateOverride(
+    cashInflows.buyerMix.vatPercent,
+    aiVatPercent
+  );
+  const isEscrowManual = isRateOverride(
+    cashInflows.buyerMix.escrowFeePercent,
+    aiEscrowFeePercent
+  );
+  const isSalesDiscountManual = isRateOverride(
+    cashInflows.buyerMix.salesDiscountPercent,
+    aiSalesDiscount
+  );
+
+  const DEFAULT_SALES_PRICE = 1200;
+  const lastAppliedAiSalesPriceRef = useRef<number | null>(null);
+
+  // Sync AI sales price into store (default 1200 currently shadows AI 710 in the input)
+  useEffect(() => {
+    if (aiSalesPrice == null) return;
+
+    const current = cashInflows.salesPrice;
+    const prevAi = lastAppliedAiSalesPriceRef.current;
+    const alreadyOnAi = Math.abs(current - aiSalesPrice) < 0.001;
+    const stillOnDefault =
+      current === DEFAULT_SALES_PRICE || current === 0 || !Number.isFinite(current);
+    const stillOnPrevAi =
+      prevAi != null && Math.abs(current - prevAi) < 0.001;
+
+    if (alreadyOnAi) {
+      lastAppliedAiSalesPriceRef.current = aiSalesPrice;
+      return;
+    }
+
+    if (stillOnDefault || stillOnPrevAi) {
+      updateCashInflows({ salesPrice: aiSalesPrice });
+      lastAppliedAiSalesPriceRef.current = aiSalesPrice;
+    }
+  }, [aiSalesPrice, cashInflows.salesPrice, updateCashInflows]);
+
+  // Sync AI deductions when still on wizard defaults
+  useEffect(() => {
+    const patchBuyer: Partial<CashInflows["buyerMix"]> = {};
+    if (
+      aiAgentCommission != null &&
+      cashInflows.buyerMix.brokerCommissionPercent === 2 &&
+      Math.abs(aiAgentCommission - 2) > 0.001
+    ) {
+      patchBuyer.brokerCommissionPercent = aiAgentCommission;
+    }
+    if (
+      aiVatPercent != null &&
+      cashInflows.buyerMix.vatPercent === 5 &&
+      Math.abs(aiVatPercent - 5) > 0.001
+    ) {
+      patchBuyer.vatPercent = aiVatPercent;
+    }
+    if (
+      aiEscrowFeePercent != null &&
+      cashInflows.buyerMix.escrowFeePercent === 1 &&
+      Math.abs(aiEscrowFeePercent - 1) > 0.001
+    ) {
+      patchBuyer.escrowFeePercent = aiEscrowFeePercent;
+    }
+    if (
+      aiSalesDiscount != null &&
+      cashInflows.buyerMix.salesDiscountPercent === 3 &&
+      Math.abs(aiSalesDiscount - 3) > 0.001
+    ) {
+      patchBuyer.salesDiscountPercent = aiSalesDiscount;
+    }
+    if (Object.keys(patchBuyer).length === 0) return;
+    updateCashInflows({
+      buyerMix: { ...cashInflows.buyerMix, ...patchBuyer },
+    });
+  }, [
+    aiAgentCommission,
+    aiVatPercent,
+    aiEscrowFeePercent,
+    aiSalesDiscount,
+    cashInflows.buyerMix,
+    updateCashInflows,
+  ]);
+
+  const resetSalesPriceToBenchmark = () => {
+    if (aiSalesPrice == null) return;
+    updateCashInflows({ salesPrice: aiSalesPrice });
+    lastAppliedAiSalesPriceRef.current = aiSalesPrice;
+  };
+
+  const resetDeductionsToBenchmark = () => {
+    updateCashInflows({
+      buyerMix: {
+        ...cashInflows.buyerMix,
+        ...(aiAgentCommission != null
+          ? { brokerCommissionPercent: aiAgentCommission }
+          : {}),
+        ...(aiVatPercent != null ? { vatPercent: aiVatPercent } : {}),
+        ...(aiEscrowFeePercent != null
+          ? { escrowFeePercent: aiEscrowFeePercent }
+          : {}),
+        ...(aiSalesDiscount != null
+          ? { salesDiscountPercent: aiSalesDiscount }
+          : {}),
+      },
+    });
+  };
 
   const deductionsPercent = useMemo(() => {
     return (
@@ -754,6 +914,37 @@ function CashInflowsPageContent() {
     return mapping[sub || ""] || sub || "—";
   };
 
+  const renderSaleBenchmarkBar = ({
+    hasManualOverride,
+    onReset,
+  }: {
+    hasManualOverride?: boolean;
+    onReset?: () => void;
+  }) => (
+    <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
+      <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        Benchmark
+      </span>
+      <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
+        {getPrettySubTypeName()} • {projectInfo.city} • {projectInfo.country}
+      </span>
+      {hasManualOverride && (
+        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
+          Manual overrides
+        </span>
+      )}
+      {onReset && (
+        <button
+          type="button"
+          onClick={onReset}
+          className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
+        >
+          Reset to benchmark
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-12 pb-32">
       <div className="max-w-4xl mx-auto">
@@ -811,15 +1002,17 @@ function CashInflowsPageContent() {
                 </label>
                 <input
                   type="number"
-                  value={cashInflows.saleableBUARatio}
-                  onChange={(e) =>
-                    updateFormData(
-                      "saleableBUARatio",
-                      Number(e.target.value) || 0
-                    )
+                  value={
+                    isSaleLandedProduct
+                      ? projectInfo.salesLandedSaleableRatio ?? 0
+                      : projectInfo.salesHighRiseSaleableRatio ?? 0
                   }
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  readOnly
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
                 />
+                <p className="mt-1 text-xs text-amber-400">
+                  🔒 Locked: To change, go back to Component 1 Step 5
+                </p>
                 {fieldError("saleableBUARatio") && (
                   <p className="mt-1 text-sm text-red-400">
                     {fieldError("saleableBUARatio")}
@@ -836,16 +1029,10 @@ function CashInflowsPageContent() {
           {/* Step 3: Sales Price per sqft */}
           {currentStep === 1 && (
             <div>
-              {/* BENCHMARK PROFILE BAR */}
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200 border border-slate-700">
-                  {getPrettySubTypeName()} • {projectInfo.city} •{" "}
-                  {projectInfo.country}
-                </span>
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride: isSalesPriceManual,
+                onReset: aiSalesPrice != null ? resetSalesPriceToBenchmark : undefined,
+              })}
               <h2 className="text-xl font-semibold text-white mb-6">
                 Average Sales Price
               </h2>
@@ -854,28 +1041,36 @@ function CashInflowsPageContent() {
               </p>
               <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
                 <div className="max-w-sm space-y-2">
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Average Sales Price ({projectInfo.currency}/sqft)
-                  </label>
-                  <input
-                    type="number"
+                  <AiInput
+                    label={`Average Sales Price (${projectInfo.currency}/sqft)`}
                     value={cashInflows.salesPrice}
-                    onChange={(e) =>
-                      updateFormData(
-                        "salesPrice",
-                        Number(e.target.value) || 0
-                      )
+                    onChange={(v) =>
+                      updateFormData("salesPrice", Number(v) || 0)
                     }
-                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    isAiGenerated={!!aiSalesPrice}
+                    isManualOverride={isSalesPriceManual}
+                    helperText="Use a weighted average across unit mixes (studios, 1BR, 2BR, etc.)."
                   />
+                  {aiSalesPrice != null && isSalesPriceManual && (
+                    <button
+                      type="button"
+                      onClick={resetSalesPriceToBenchmark}
+                      className="text-xs text-emerald-400 transition-colors hover:text-emerald-300"
+                    >
+                      Reset to benchmark ({aiSalesPrice.toLocaleString()}{" "}
+                      {projectInfo.currency}/sqft)
+                    </button>
+                  )}
                   {fieldError("averagePricePerSqft") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("averagePricePerSqft")}
                     </p>
                   )}
-                  <p className="text-xs text-slate-500">
-                    Use a weighted average across unit mixes (studios, 1BR, 2BR, etc.).
-                  </p>
+                  {fieldError("salesPrice") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("salesPrice")}
+                    </p>
+                  )}
                 </div>
 
                 {/* Unadjusted / gross sales revenue preview */}
@@ -1092,11 +1287,6 @@ function CashInflowsPageContent() {
                     <p className="mt-1 text-xs text-slate-500">Typically M0–M2 (3 months).</p>
                   </div>
                 </div>
-                <div className="mt-4 rounded border border-emerald-500/30 bg-emerald-500/10 p-3">
-                  <p className="text-xs text-emerald-300">
-                    Treatment: down payment is 100% direct to developer (not escrowed).
-                  </p>
-                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
@@ -1298,16 +1488,20 @@ function CashInflowsPageContent() {
           {/* Buyer Mix & Deductions */}
           {currentStep === 5 && (
             <div>
-              {/* BENCHMARK PROFILE BAR */}
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Benchmark
-                </span>
-                <span className="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200 border border-slate-700">
-                  {getPrettySubTypeName()} • {projectInfo.city} •{" "}
-                  {projectInfo.country}
-                </span>
-              </div>
+              {renderSaleBenchmarkBar({
+                hasManualOverride:
+                  isAgentCommissionManual ||
+                  isVatManual ||
+                  isEscrowManual ||
+                  isSalesDiscountManual,
+                onReset:
+                  aiAgentCommission != null ||
+                  aiVatPercent != null ||
+                  aiEscrowFeePercent != null ||
+                  aiSalesDiscount != null
+                    ? resetDeductionsToBenchmark
+                    : undefined,
+              })}
               <h2 className="text-xl font-semibold text-white mb-6">
                 Buyer Mix & Deductions
               </h2>
@@ -1372,90 +1566,66 @@ function CashInflowsPageContent() {
                   <h3 className="text-sm font-semibold text-slate-200">
                     Deductions
                   </h3>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Agent / Broker Commission (% of GV)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashInflows.buyerMix.brokerCommissionPercent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "brokerCommissionPercent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("brokerCommissionPercent") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("brokerCommissionPercent")}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      VAT on Sales (% of GV)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashInflows.buyerMix.vatPercent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "vatPercent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("vatPercent") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("vatPercent")}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Escrow / Collection Fees (% of GV)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashInflows.buyerMix.escrowFeePercent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "escrowFeePercent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("escrowFeePercent") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("escrowFeePercent")}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Average Sales Discount (% of list price)
-                    </label>
-                    <input
-                      type="number"
-                      value={cashInflows.buyerMix.salesDiscountPercent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "salesDiscountPercent",
-                          Number(e.target.value) || 0
-                        )
-                      }
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {fieldError("salesDiscountPercent") && (
-                      <p className="mt-1 text-sm text-red-400">
-                        {fieldError("salesDiscountPercent")}
-                      </p>
-                    )}
-                  </div>
+                  <AiInput
+                    label="Agent / Broker Commission (% of GV)"
+                    type="percentage"
+                    value={cashInflows.buyerMix.brokerCommissionPercent}
+                    onChange={(v) =>
+                      updateFormData("brokerCommissionPercent", Number(v) || 0)
+                    }
+                    isAiGenerated={!!aiAgentCommission}
+                    isManualOverride={isAgentCommissionManual}
+                  />
+                  {fieldError("brokerCommissionPercent") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("brokerCommissionPercent")}
+                    </p>
+                  )}
+                  <AiInput
+                    label="VAT on Sales (% of GV)"
+                    type="percentage"
+                    value={cashInflows.buyerMix.vatPercent}
+                    onChange={(v) =>
+                      updateFormData("vatPercent", Number(v) || 0)
+                    }
+                    isAiGenerated={aiVatPercent != null}
+                    isManualOverride={isVatManual}
+                  />
+                  {fieldError("vatPercent") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("vatPercent")}
+                    </p>
+                  )}
+                  <AiInput
+                    label="Escrow / Collection Fees (% of GV)"
+                    type="percentage"
+                    value={cashInflows.buyerMix.escrowFeePercent}
+                    onChange={(v) =>
+                      updateFormData("escrowFeePercent", Number(v) || 0)
+                    }
+                    isAiGenerated={aiEscrowFeePercent != null}
+                    isManualOverride={isEscrowManual}
+                  />
+                  {fieldError("escrowFeePercent") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("escrowFeePercent")}
+                    </p>
+                  )}
+                  <AiInput
+                    label="Average Sales Discount (% of list price)"
+                    type="percentage"
+                    value={cashInflows.buyerMix.salesDiscountPercent}
+                    onChange={(v) =>
+                      updateFormData("salesDiscountPercent", Number(v) || 0)
+                    }
+                    isAiGenerated={!!aiSalesDiscount}
+                    isManualOverride={isSalesDiscountManual}
+                  />
+                  {fieldError("salesDiscountPercent") && (
+                    <p className="mt-1 text-sm text-red-400">
+                      {fieldError("salesDiscountPercent")}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1590,10 +1760,13 @@ function CashInflowsPageContent() {
                         {fieldError("launchMonthOffset")}
                       </p>
                     )}
-                    <p className="text-xs text-slate-500 mt-1">
-                      For GCC off-plan projects, launches often occur up to 6–12 months
-                      before or around construction start.
-                    </p>
+                    <AiHintBox
+                      title="AI Sales Launch Recommendation"
+                      className="mt-2"
+                    >
+                      {aiData?.hints?.sales_launch_text ||
+                        `For ${projectInfo.city} market, sales typically launch 6-12 months before construction completion.`}
+                    </AiHintBox>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">

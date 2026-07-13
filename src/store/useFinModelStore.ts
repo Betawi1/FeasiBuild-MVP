@@ -123,6 +123,10 @@ export type ProjectInfo = {
   /** ISO-style country code (e.g. AE) — used by Sale wizard country/currency UX. */
   countryCode?: string;
   city: string;
+  /** Optional map pin from LocationMapPicker (lat/lng). */
+  coordinates?: { lat: number; lng: number } | null;
+  /** Neighborhood / sub-market from reverse geocoding when a pin is dropped. */
+  subMarket?: string;
   currency:
     | "AED"
     | "USD"
@@ -203,6 +207,65 @@ export type ProjectInfo = {
   retailDepreciation?: RetailDepreciationConfig;
   /** Operational office Component 2 Step 4 — depreciation & WC summary. */
   officeDepreciation?: OfficeDepreciationConfig;
+  hotelBasements?: number;
+  hotelPodiums?: number;
+  hotelGroundFloors?: number;
+  hotelGuestRoomFloors?: number;
+  hotelTotalBuildingBUA?: number;
+  hotelBasementBUA?: number;
+  hotelPodiumBUA?: number;
+  hotelGuestRoomGLA?: number;
+  hotelPublicArea?: number;
+  hotelBackOfHouse?: number;
+  hotelTotalKeys?: number;
+  hotelPlotArea?: number;
+  retailBasements?: number;
+  retailPodiums?: number;
+  retailGroundFloors?: number;
+  retailRetailFloors?: number;
+  retailTotalBuildingBUA?: number;
+  retailBasementBUA?: number;
+  retailPodiumBUA?: number;
+  retailGLA?: number;
+  retailPlotArea?: number;
+  officeBasements?: number;
+  officePodiums?: number;
+  officeGroundFloors?: number;
+  officeOfficeFloors?: number;
+  officeTotalBuildingBUA?: number;
+  officeBasementBUA?: number;
+  officePodiumBUA?: number;
+  officeGLA?: number;
+  officePlotArea?: number;
+  residentialBasements?: number;
+  residentialPodiums?: number;
+  residentialGroundFloors?: number;
+  residentialResidentialFloors?: number;
+  residentialTotalBuildingBUA?: number;
+  residentialBasementBUA?: number;
+  residentialPodiumBUA?: number;
+  residentialGLA?: number;
+  residentialPlotArea?: number;
+  // Sale stream Step 4 — Market Segmentation & Positioning
+  salesMarketPositioning?: string; // 'Affordable' | 'Mid-Market' | 'Upper-Mid Market' | 'Prime / Luxury'
+  salesFinishingStandard?: string; // 'Core & Shell' | 'Standard Finish' | 'Premium Finish' | 'Fully Furnished'
+  // Sale stream Step 5 — High-Rise Configuration
+  salesHighRiseBasements?: number;
+  salesHighRisePodiums?: number;
+  salesHighRiseGroundFloors?: number;
+  salesHighRiseUpperFloors?: number;
+  salesHighRiseTotalBUA?: number;
+  salesHighRiseBasementBUA?: number;
+  salesHighRisePodiumBUA?: number;
+  salesHighRiseSaleableRatio?: number;
+  salesHighRiseLandArea?: number;
+  // Sale stream Step 5 — Landed Configuration
+  salesLandedUpperFloors?: number;
+  salesLandedNumUnits?: number;
+  salesLandedBUAperUnit?: number;
+  salesLandedSaleableRatio?: number;
+  salesLandedLandAreaPerUnit?: number;
+  salesLandedCommonAreaPct?: number;
   buildingConfig: BuildingConfig;
 };
 
@@ -375,6 +438,234 @@ export type SoftCostAllocation = {
   otherFees: number;
 };
 
+export type AiResearchData = {
+  c1_development: {
+    construction_rates: {
+      building_rate_psf: number;
+      parking_rate_psf: number;
+      basement_rate_psf: number;
+      infrastructure_rate_psf?: number;
+    };
+    soft_costs: {
+      sc_percentage: number;
+      powc_percentage: number;
+      ffe_percentage: {
+        recommended: number;
+        min_range: number;
+        max_range: number;
+        justification?: string;
+      };
+    };
+    land_rate_psf: number;
+    construction_period: {
+      months: number;
+      range: string;
+      justification?: string;
+    };
+    s_curve: {
+      stage_1_pct: number;
+      stage_2_pct: number;
+      stage_3_pct: number;
+      stage_4_pct: number;
+      justification?: string;
+    };
+    powc_breakdown: {
+      site_establishment_pct: number;
+      overhead_pct: number;
+      authority_fees_pct: number;
+      timing?: {
+        site_establishment?: string;
+        overhead?: string;
+        authority_fees?: string;
+      };
+    };
+    sc_breakdown: {
+      architect_pct: number;
+      pm_pct: number;
+      engineering_pct: number;
+      geotech_pct: number;
+      other_pct: number;
+      timing?: {
+        architect?: string;
+        pm?: string;
+        engineering?: string;
+        geotech?: string;
+        other?: string;
+      };
+    };
+  };
+  c2_operational?: {
+    room_revenues?: {
+      adr_year_1: number;
+      adr_inflation_pct: number;
+    };
+    revenue_mix?: {
+      rooms: number;
+      food: number;
+      beverage: number;
+      room_service: number;
+      telecom: number;
+      spa: number;
+      rental: number;
+    };
+    direct_costs?: {
+      rooms_payroll: number;
+      rooms_other: number;
+      food_cos: number;
+      beverage_cos: number;
+      fnb_payroll: number;
+      fnb_other: number;
+      telecom: number;
+      spa: number;
+      rental: number;
+    };
+    undistributed_expenses?: {
+      g_and_a: number;
+      marketing: number;
+      prop_ops: number;
+      utilities: number;
+      base_mgmt_fee_room_rev: number;
+      incentive_fee_ebitda: number;
+      renovation_y1: number;
+      renovation_y2: number;
+      renovation_y3_10: number;
+    };
+    base_rent?: {
+      base_rent_year_1_psf: number;
+      rent_escalation_pct: number;
+    };
+    step1_base_rent?: {
+      base_rent_year_1_psf?: number;
+      rent_escalation_pct?: number;
+      opening_occupancy_pct?: number;
+      stabilized_occupancy_pct?: number;
+      lease_up_years?: number;
+    };
+    step2_other_income?: {
+      avg_tenant_sales_psf?: number;
+      sales_growth_pct?: number;
+      percentage_rent_rate_pct?: number;
+      breakpoint_type?: string;
+      breakpoint_multiple?: number;
+      cam_expenses?: number;
+      recovery_rate_pct?: number;
+      property_tax_pct_of_revenue?: number;
+      insurance_pct_of_revenue?: number;
+      parking_revenue_per_space_day?: number;
+      parking_utilization?: number;
+      operating_days?: number;
+      advertising_kiosks_events_psf?: number;
+    };
+    step3_operating_expenses?: {
+      cam_fixed_base_annual?: number;
+      cam_variable_rate_psf?: number;
+      property_tax_pct_of_revenue?: number;
+      insurance_pct_of_revenue?: number;
+      marketing_pct_revenue?: number;
+      g_and_a_pct_revenue?: number;
+      management_fee_pct_revenue?: number;
+      renovation_provision?: {
+        year_1_pct?: number;
+        year_2_pct?: number;
+        years_3_10_pct?: number;
+      };
+    };
+    step6_useful_life_working_capital?: {
+      construction_useful_life_years?: number;
+      ffe_useful_life_years?: number;
+      ffe_renovation_pct_year_6?: number;
+      ti_useful_life_years?: number;
+      leasing_commissions_life_years?: number;
+      accounts_receivable_months_revenue?: number;
+      accounts_payable_months_opex?: number;
+    };
+    other_income?: {
+      avg_tenant_sales_psf?: number;
+      percentage_rent_rate_pct?: number;
+      recovery_rate_pct?: number;
+      property_tax_pct_of_revenue?: number;
+      insurance_pct_of_revenue?: number;
+      parking_revenue_per_space_day?: number;
+      advertising_kiosks_events_psf?: number;
+    };
+    operating_expenses?: {
+      cam_fixed_base_psf?: number;
+      cam_variable_rate_psf?: number;
+      marketing_pct_revenue?: number;
+      g_and_a_pct_revenue?: number;
+      management_fee_pct_revenue?: number;
+      renovation_provision?: {
+        year_1_pct: number;
+        year_2_pct: number;
+        years_3_10_pct: number;
+      };
+    };
+    office_rent?: {
+      avg_rent_psf_year_1: number;
+      annual_escalation_pct: number;
+    };
+    retail_rent?: {
+      avg_rent_psf_year_1: number;
+      annual_escalation_pct: number;
+    };
+    residential_rent?: {
+      avg_rent_psf_year_1: number;
+      annual_escalation_pct: number;
+    };
+    other_income_btr?: {
+      parking_fee_per_space?: number;
+      parking_uptake_pct?: number;
+      amenity_fee_per_unit?: number;
+      amenity_uptake_pct?: number;
+      utility_recovery_per_unit?: number;
+      utility_uptake_pct?: number;
+      other_fee_per_unit?: number;
+      other_fee_uptake_pct?: number;
+    };
+    operating_expenses_btr?: {
+      maintenance_pct_of_residential_gla?: number;
+      utilities_pct_of_common_vacant_gla?: number;
+      property_tax_pct_of_revenue?: number;
+      insurance_pct_of_revenue?: number;
+      marketing_pct_of_EGI?: number;
+      g_and_a_pct_of_revenue?: number;
+      capex_reserve_pct_of_gla?: number;
+    };
+    depreciation_wc?: {
+      construction_useful_life_years: number;
+      ffe_useful_life_years: number;
+      ffe_renovation_pct_year_6: number;
+      ti_useful_life_years?: number;
+      office_ti_useful_life_years?: number;
+      retail_ti_useful_life_years?: number;
+      office_leasing_comm_life_years?: number;
+      retail_leasing_comm_life_years?: number;
+      accounts_receivable_months_revenue: number;
+      accounts_payable_months_opex: number;
+    };
+  };
+  c2_sales?: {
+    avg_sales_price_psf: number;
+    deductions: {
+      agent_commission_pct: number;
+      vat_pct: number;
+      escrow_fees_pct: number;
+      avg_sales_discount_pct: number;
+    };
+  };
+  hints?: {
+    contingency_text?: string;
+    construction_period_text?: string;
+    sales_launch_text?: string;
+  };
+  guardrails?: {
+    land_tdc_target_pct?: { min: number; max: number; recommended: number };
+    dc_tdc_target_pct?: { min: number; max: number; recommended: number };
+  };
+  /** Fingerprint of inputs used when this research was generated */
+  _researchKey?: string;
+};
+
 export type CashOutflows = {
   // Raw inputs (wizard steps 2–13)
   buildingBUA: number;
@@ -425,6 +716,10 @@ export type CashOutflows = {
   operationalHotelScManual?: boolean;
   operationalHotelPowcManual?: boolean;
   operationalHotelFfeManual?: boolean;
+  operationalHotelBuildingRateManual?: boolean;
+  operationalHotelParkingRateManual?: boolean;
+  operationalHotelBasementRateManual?: boolean;
+  operationalHotelLandRateManual?: boolean;
   /** Last retail benchmark profile applied (country:segment:positioning). */
   operationalRetailProfileKey?: string;
   operationalRetailBuildingRateManual?: boolean;
@@ -452,6 +747,8 @@ export type CashOutflows = {
   operationalResidentialPowcManual?: boolean;
   operationalResidentialFfeManual?: boolean;
   operationalResidentialLandRateManual?: boolean;
+  /** AI research data from Puter.js (Component 1 & 2 benchmarks) */
+  aiResearchData?: AiResearchData;
 };
 
 export type PaymentPlans = {
@@ -911,6 +1208,62 @@ const defaultProjectInfo: ProjectInfo = {
   residentialPositioning: "",
   residentialFurnishingLevel: "unfurnished",
   residentialIsServicedApartment: false,
+  hotelBasements: 0,
+  hotelPodiums: 0,
+  hotelGroundFloors: 0,
+  hotelGuestRoomFloors: 0,
+  hotelTotalBuildingBUA: 0,
+  hotelBasementBUA: 0,
+  hotelPodiumBUA: 0,
+  hotelGuestRoomGLA: 0,
+  hotelPublicArea: 0,
+  hotelBackOfHouse: 0,
+  hotelTotalKeys: 0,
+  hotelPlotArea: 0,
+  retailBasements: 0,
+  retailPodiums: 0,
+  retailGroundFloors: 0,
+  retailRetailFloors: 0,
+  retailTotalBuildingBUA: 0,
+  retailBasementBUA: 0,
+  retailPodiumBUA: 0,
+  retailGLA: 0,
+  retailPlotArea: 0,
+  officeBasements: 0,
+  officePodiums: 0,
+  officeGroundFloors: 0,
+  officeOfficeFloors: 0,
+  officeTotalBuildingBUA: 0,
+  officeBasementBUA: 0,
+  officePodiumBUA: 0,
+  officeGLA: 0,
+  officePlotArea: 0,
+  residentialBasements: 0,
+  residentialPodiums: 0,
+  residentialGroundFloors: 0,
+  residentialResidentialFloors: 0,
+  residentialTotalBuildingBUA: 0,
+  residentialBasementBUA: 0,
+  residentialPodiumBUA: 0,
+  residentialGLA: 0,
+  residentialPlotArea: 0,
+  salesMarketPositioning: "",
+  salesFinishingStandard: "",
+  salesHighRiseBasements: 0,
+  salesHighRisePodiums: 0,
+  salesHighRiseGroundFloors: 0,
+  salesHighRiseUpperFloors: 0,
+  salesHighRiseTotalBUA: 0,
+  salesHighRiseBasementBUA: 0,
+  salesHighRisePodiumBUA: 0,
+  salesHighRiseSaleableRatio: 0,
+  salesHighRiseLandArea: 0,
+  salesLandedUpperFloors: 1,
+  salesLandedNumUnits: 0,
+  salesLandedBUAperUnit: 0,
+  salesLandedSaleableRatio: 100,
+  salesLandedLandAreaPerUnit: 0,
+  salesLandedCommonAreaPct: 0,
   buildingConfig: defaultBuildingConfig,
 };
 
@@ -957,6 +1310,10 @@ const defaultCashOutflows: CashOutflows = {
   operationalHotelScManual: false,
   operationalHotelPowcManual: false,
   operationalHotelFfeManual: false,
+  operationalHotelBuildingRateManual: false,
+  operationalHotelParkingRateManual: false,
+  operationalHotelBasementRateManual: false,
+  operationalHotelLandRateManual: false,
   operationalRetailProfileKey: undefined,
   operationalRetailBuildingRateManual: false,
   operationalRetailParkingRateManual: false,
@@ -981,6 +1338,7 @@ const defaultCashOutflows: CashOutflows = {
   operationalResidentialPowcManual: false,
   operationalResidentialFfeManual: false,
   operationalResidentialLandRateManual: false,
+  aiResearchData: undefined,
 };
 
 const defaultCashInflows: CashInflows = {
@@ -1334,6 +1692,8 @@ export type FinModelActions = {
   hydrateProject: (savedData: ProjectSaveData) => void;
   /** Track the active saved project for update-in-place saves. */
   setActiveProject: (projectId: string | null, projectName?: string | null) => void;
+  /** Remove a saved project from Puter KV / local index. */
+  deleteProject: (projectId: string, userId: string) => Promise<void>;
   /** Reset the operational stream slice to defaults (new study). */
   resetOperational: () => void;
   /** Reset the sale stream slice to defaults (new study). */
@@ -2095,6 +2455,15 @@ const useFinModelStore = create<FinModelStore>()(
           activeProjectId: projectId,
           activeProjectName: projectName ?? null,
         });
+      },
+
+      deleteProject: async (projectId, userId) => {
+        const { deleteProjectFromKV } = await import("@/lib/project-save");
+        await deleteProjectFromKV(userId, projectId);
+        const state = get();
+        if (state.activeProjectId === projectId) {
+          set({ activeProjectId: null, activeProjectName: null });
+        }
       },
 
       resetOperational: () => {

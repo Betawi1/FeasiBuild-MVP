@@ -19,6 +19,8 @@ export interface BenchmarkHeaderProps {
   isServicedApartment?: boolean;
   hotelSegment?: string;
   hotelStars?: string | number;
+  /** Optional label for the reset button (default: Use profile defaults). */
+  resetButtonLabel?: string;
   onUseDefaults: () => void;
   isManualOverride: boolean;
   /** Optional; reset clears manual flags via `onUseDefaults`. */
@@ -41,6 +43,7 @@ export default function BenchmarkHeader({
   isManualOverride,
   setIsManualOverride,
   showResetButton = true,
+  resetButtonLabel = "Reset to benchmark",
 }: BenchmarkHeaderProps) {
   let benchmarkText = "";
 
@@ -107,16 +110,16 @@ export default function BenchmarkHeader({
             </div>
           )}
         </div>
-        {showResetButton ? (
+        {showResetButton && isManualOverride ? (
           <button
             type="button"
             onClick={() => {
               setIsManualOverride?.(false);
               onUseDefaults();
             }}
-            className="text-xs font-medium text-emerald-400 underline-offset-2 transition hover:text-emerald-300 hover:underline"
+            className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
           >
-            Use profile defaults
+            {resetButtonLabel}
           </button>
         ) : null}
       </div>

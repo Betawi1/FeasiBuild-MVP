@@ -61,7 +61,7 @@ export default function Component4FinancingDocs() {
           </p>
           <ul className="space-y-2 text-slate-300 ml-4 list-disc">
             <li><strong className="text-white">Consolidated Inputs:</strong> Total development cost, land cost, stabilized NOI, and operating period from Components 1–3</li>
-            <li><strong className="text-white">Funding Gap Visualization:</strong> Peak funding requirement vs. debt capacity vs. equity required</li>
+            <li><strong className="text-white">Funding Gap Visualization - Preliminary:</strong> Peak funding requirement vs. debt capacity vs. equity required</li>
             <li><strong className="text-white">Capital Stack:</strong> Visual breakdown of debt / preference / equity split</li>
             <li><strong className="text-white">Key Metrics:</strong> Construction period, operating period, and net surplus at stabilization</li>
           </ul>

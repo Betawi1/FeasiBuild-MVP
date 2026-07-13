@@ -5,10 +5,16 @@ interface PuterChatResponse {
   content?: string;
 }
 
+type PuterChatMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_call_id?: string;
+};
+
 interface PuterAI {
   chat(
-    prompt: string,
-    options?: { model?: string; stream?: boolean }
+    prompt: string | PuterChatMessage[],
+    options?: { model?: string; stream?: boolean; temperature?: number }
   ): Promise<PuterChatResponse | string>;
 }
 

@@ -66,7 +66,7 @@ export default function SaleComponent4Docs() {
               <p className="text-sm text-slate-400">Displays Total Development Costs (TDC) from Component 1, and Net Sales Proceeds, Construction Period, Sales Start Month (e.g., -M6 for pre-sales), and Net Surplus from Component 2.</p>
             </div>
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-              <h4 className="text-white font-medium mb-2">Funding Gap Visualization</h4>
+              <h4 className="text-white font-medium mb-2">Funding Gap Visualization - Preliminary</h4>
               <p className="text-sm text-slate-400 mb-3">Three critical metrics displayed in cards:</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="rounded bg-amber-500/10 border border-amber-500/30 p-3">

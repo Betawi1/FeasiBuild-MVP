@@ -17,6 +17,7 @@ import {
   type RetailDepreciationYearRow,
 } from "@/lib/benchmarks/retail-depreciation";
 import useFinModelStore from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import type { RetailDepreciationConfig } from "@/store/useFinModelStore";
 import type { OperationalRetailHoldSnapshot } from "@/lib/operational-pnl";
 import { getOperationalRetailHoldSnapshot } from "./RetailOtherIncomeStep";
@@ -154,8 +155,10 @@ export function validateRetailDepreciationStep(
 
 export default function RetailDepreciationStep() {
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
-  const snap = useFinModelStore((s) => s.operational.retailHoldSnapshot);
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
+  const aiC2 = cashOutflows?.aiResearchData?.c2_operational;
+  const aiDep = aiC2?.step6_useful_life_working_capital;
+  const snap = useFinModelStore((s) => s.operational.retailHoldSnapshot);
   const retailOpex = projectInfo.retailOpex;
   const currencyCode = projectInfo.currency || "AED";
 
@@ -373,14 +376,26 @@ export default function RetailDepreciationStep() {
   }, [benchmark, overrides, snap?.constructionLife, resolved]);
 
   const handleResetAll = () => {
-    const b = resolved;
-    setConstructionLife(b.constructionLife);
-    setFfeLife(b.ffeLife);
-    setFfeRenovationPctYear6(b.ffeRenovationPctYear6);
-    setTiLife(b.tiLife);
-    setLeasingCommLife(b.leasingCommLife);
-    setArMonths(b.arMonths);
-    setApMonths(b.apMonths);
+    if (aiDep) {
+      setConstructionLife(aiDep.construction_useful_life_years ?? resolved.constructionLife);
+      setFfeLife(aiDep.ffe_useful_life_years ?? resolved.ffeLife);
+      setFfeRenovationPctYear6(
+        aiDep.ffe_renovation_pct_year_6 ?? resolved.ffeRenovationPctYear6
+      );
+      setTiLife(aiDep.ti_useful_life_years ?? resolved.tiLife);
+      setLeasingCommLife(aiDep.leasing_commissions_life_years ?? resolved.leasingCommLife);
+      setArMonths(aiDep.accounts_receivable_months_revenue ?? resolved.arMonths);
+      setApMonths(aiDep.accounts_payable_months_opex ?? resolved.apMonths);
+    } else {
+      const b = resolved;
+      setConstructionLife(b.constructionLife);
+      setFfeLife(b.ffeLife);
+      setFfeRenovationPctYear6(b.ffeRenovationPctYear6);
+      setTiLife(b.tiLife);
+      setLeasingCommLife(b.leasingCommLife);
+      setArMonths(b.arMonths);
+      setApMonths(b.apMonths);
+    }
     setOverrides({});
     setManualYearValues({});
   };
@@ -507,7 +522,7 @@ export default function RetailDepreciationStep() {
               onClick={handleResetAll}
               className="text-xs text-emerald-400 transition hover:text-emerald-300"
             >
-              Use profile defaults
+              Reset to benchmark
             </button>
           </div>
         </div>
@@ -519,111 +534,110 @@ export default function RetailDepreciationStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.constructionLife}
-            </label>
-            <input
-              type="number"
-              value={constructionLife}
-              onChange={(e) =>
-                handleFieldChange("constructionLife", Number(e.target.value))
+            <AiInput
+              label={LIFE_FIELD_LABELS.constructionLife}
+              value={
+                constructionLife || aiDep?.construction_useful_life_years || 0
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.constructionLife ? "border-2 border-amber-500" : "border border-slate-600"}`}
-            />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Straight-line depreciation
-            </p>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.ffeLife}
-            </label>
-            <input
-              type="number"
-              value={ffeLife}
-              onChange={(e) =>
-                handleFieldChange("ffeLife", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("constructionLife", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.ffeLife ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="number"
+              isAiGenerated={
+                !!aiDep?.construction_useful_life_years &&
+                !overrides.constructionLife
+              }
+              isManualOverride={!!overrides.constructionLife}
+              helperText="Straight-line depreciation"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.ffeRenovationPctYear6}
-            </label>
-            <input
+            <AiInput
+              label={LIFE_FIELD_LABELS.ffeLife}
+              value={ffeLife || aiDep?.ffe_useful_life_years || 0}
+              onChange={(val) => handleFieldChange("ffeLife", Number(val))}
               type="number"
-              value={ffeRenovationPctYear6}
-              onChange={(e) =>
-                handleFieldChange(
-                  "ffeRenovationPctYear6",
-                  Number(e.target.value)
-                )
+              isAiGenerated={
+                !!aiDep?.ffe_useful_life_years && !overrides.ffeLife
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.ffeRenovationPctYear6 ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.ffeLife}
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Capitalized at Year 6, amortized over remaining life
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.tiLife}
-            </label>
-            <input
-              type="number"
-              value={tiLife}
-              onChange={(e) =>
-                handleFieldChange("tiLife", Number(e.target.value))
+            <AiInput
+              label={LIFE_FIELD_LABELS.ffeRenovationPctYear6}
+              value={
+                ffeRenovationPctYear6 || aiDep?.ffe_renovation_pct_year_6 || 0
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.tiLife ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              onChange={(val) =>
+                handleFieldChange("ffeRenovationPctYear6", Number(val))
+              }
+              type="number"
+              isAiGenerated={
+                !!aiDep?.ffe_renovation_pct_year_6 &&
+                !overrides.ffeRenovationPctYear6
+              }
+              isManualOverride={!!overrides.ffeRenovationPctYear6}
+              helperText="Capitalized at Year 6, amortized over remaining life"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Straight-line over lease term or building life
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.leasingCommLife}
-            </label>
-            <input
+            <AiInput
+              label={LIFE_FIELD_LABELS.tiLife}
+              value={tiLife || aiDep?.ti_useful_life_years || 0}
+              onChange={(val) => handleFieldChange("tiLife", Number(val))}
               type="number"
-              value={leasingCommLife}
-              onChange={(e) =>
-                handleFieldChange("leasingCommLife", Number(e.target.value))
+              isAiGenerated={
+                !!aiDep?.ti_useful_life_years && !overrides.tiLife
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.leasingCommLife ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.tiLife}
+              helperText="Straight-line over lease term or building life"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Straight-line (matches average lease term)
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.arMonths}
-            </label>
-            <input
+            <AiInput
+              label={LIFE_FIELD_LABELS.leasingCommLife}
+              value={
+                leasingCommLife || aiDep?.leasing_commissions_life_years || 0
+              }
+              onChange={(val) =>
+                handleFieldChange("leasingCommLife", Number(val))
+              }
+              type="number"
+              isAiGenerated={
+                !!aiDep?.leasing_commissions_life_years &&
+                !overrides.leasingCommLife
+              }
+              isManualOverride={!!overrides.leasingCommLife}
+              helperText="Straight-line (matches average lease term)"
+            />
+          </div>
+          <div>
+            <AiInput
+              label={LIFE_FIELD_LABELS.arMonths}
+              value={
+                arMonths || aiDep?.accounts_receivable_months_revenue || 0
+              }
+              onChange={(val) => handleFieldChange("arMonths", Number(val))}
               type="number"
               step={0.5}
-              value={arMonths}
-              onChange={(e) =>
-                handleFieldChange("arMonths", Number(e.target.value))
+              isAiGenerated={
+                !!aiDep?.accounts_receivable_months_revenue && !overrides.arMonths
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.arMonths ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.arMonths}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.apMonths}
-            </label>
-            <input
+            <AiInput
+              label={LIFE_FIELD_LABELS.apMonths}
+              value={apMonths || aiDep?.accounts_payable_months_opex || 0}
+              onChange={(val) => handleFieldChange("apMonths", Number(val))}
               type="number"
               step={0.5}
-              value={apMonths}
-              onChange={(e) =>
-                handleFieldChange("apMonths", Number(e.target.value))
+              isAiGenerated={
+                !!aiDep?.accounts_payable_months_opex && !overrides.apMonths
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.apMonths ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.apMonths}
             />
           </div>
         </div>
