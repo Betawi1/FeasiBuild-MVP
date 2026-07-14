@@ -45,7 +45,7 @@ export default function ResidentialStep9LandCosts({
       />
       <p className="mb-4 text-sm text-slate-400">
         Land rate is suggested from your residential segment, positioning, and
-        country. Plot area is defined in Step 4 Building Configuration.
+        country. Plot area is defined in Step 5 Building Configuration.
       </p>
 
       <div className="mb-6 grid grid-cols-1 items-end gap-4 md:grid-cols-3">
@@ -58,10 +58,10 @@ export default function ResidentialStep9LandCosts({
             value={projectInfo.residentialPlotArea || 0}
             readOnly
             className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-slate-400"
-            title="Locked: Defined in Step 4 Building Configuration"
+            title="Locked: Defined in Step 5 Building Configuration"
           />
           <p className="mt-1 text-xs text-amber-400">
-            🔒 Locked: To change, go back to Step 4
+            🔒 Locked: To change, go back to Step 5
           </p>
           {fieldError("landArea") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("landArea")}</p>
@@ -93,6 +93,33 @@ export default function ResidentialStep9LandCosts({
             {projectInfo.currency}
           </p>
         </div>
+      </div>
+      {/* Land Rate per GFA/BUA Display */}
+      <div className="mb-6 mt-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-slate-400">Land Rate per GFA/BUA:</span>
+          <span className="text-sm font-semibold text-emerald-400">
+            {projectInfo.currency || "AED"}{" "}
+            {(() => {
+              const landRate = cashOutflows.landRate || 0;
+              const landArea = projectInfo.residentialPlotArea || 0;
+              const bua = projectInfo.residentialTotalBuildingBUA || 0;
+
+              if (landRate > 0 && landArea > 0 && bua > 0) {
+                const ratePerGFA = (landRate * landArea) / bua;
+                return ratePerGFA.toLocaleString("en-US", {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2,
+                });
+              }
+              return "0";
+            })()}
+            {" /sqft (GFA)"}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          Formula: (Land Rate × Plot Area) / Total BUA
+        </p>
       </div>
     </>
   );

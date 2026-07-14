@@ -135,7 +135,7 @@ export default function OfficeSegmentationStep({
       patch.officeCoworkingDelivery = "developer";
     }
     updateProjectInfo(patch, "operational");
-    logOperationalCashOutflow("officeSegment", id, 5);
+    logOperationalCashOutflow("officeSegment", id, 4);
   };
 
   const handlePositioningSelect = (
@@ -143,7 +143,7 @@ export default function OfficeSegmentationStep({
   ) => {
     setPositioning(id);
     updateProjectInfo({ officePositioning: id }, "operational");
-    logOperationalCashOutflow("officePositioning", id, 5);
+    logOperationalCashOutflow("officePositioning", id, 4);
   };
 
   const handleCoworkingDelivery = (val: OfficeCoworkingDelivery) => {
@@ -163,10 +163,10 @@ export default function OfficeSegmentationStep({
 
   useEffect(() => {
     if (projectInfo?.officeSegment) {
-      logOperationalCashOutflow("officeSegment", projectInfo.officeSegment, 5);
+      logOperationalCashOutflow("officeSegment", projectInfo.officeSegment, 4);
     }
     if (projectInfo?.officePositioning) {
-      logOperationalCashOutflow("officePositioning", projectInfo.officePositioning, 5);
+      logOperationalCashOutflow("officePositioning", projectInfo.officePositioning, 4);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

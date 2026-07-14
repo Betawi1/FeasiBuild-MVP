@@ -793,10 +793,10 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
             value={projectInfo.hotelTotalKeys || 0}
             readOnly
             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-            title="Locked: Defined in Step 4 Building Configuration"
+            title="Locked: Defined in Component 1 Step 5 Building Configuration"
           />
           <p className="mt-1 text-xs text-amber-400">
-            🔒 Locked: To change, go back to Component 1 Step 4
+            🔒 Locked: To change, go back to Component 1 Step 5
           </p>
           {fieldError("numberOfRooms") && (
             <p className="mt-1 text-sm text-red-400">

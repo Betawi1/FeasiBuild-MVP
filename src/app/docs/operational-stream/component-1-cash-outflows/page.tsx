@@ -98,30 +98,7 @@ export default function Component1Docs() {
 
         {/* Step 4 */}
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
-          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 4: Building Configuration</h3>
-          <p className="text-slate-300 leading-relaxed mb-3">
-            Define the physical structure of your building. These inputs directly affect construction cost calculations
-            in Step 6.
-          </p>
-          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-3">
-            <div>
-              <h4 className="text-white font-medium">Number of Basements</h4>
-              <p className="text-sm text-slate-400">Underground levels for parking, MEP, or storage. Basements have significantly higher construction costs per sqm than above-grade floors.</p>
-            </div>
-            <div>
-              <h4 className="text-white font-medium">Number of Podium / Parking Floors</h4>
-              <p className="text-sm text-slate-400">Above-grade parking or retail podium levels. These typically have lower construction costs per sqm than occupied floors.</p>
-            </div>
-            <div>
-              <h4 className="text-white font-medium">Number of Building Floors</h4>
-              <p className="text-sm text-slate-400">Above-grade occupied floors (guest rooms, office space, residential units). This is the primary revenue-generating area.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Step 5 */}
-        <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
-          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Operating Segment & Market Positioning</h3>
+          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 4: Operating Segment & Market Positioning</h3>
           <p className="text-slate-300 leading-relaxed mb-4">
             Based on the asset type selected in Step 3, you will choose an <strong className="text-white">operating segment</strong> and
             <strong className="text-white"> market positioning</strong>. These selections calibrate the construction cost benchmarks,
@@ -273,6 +250,29 @@ export default function Component1Docs() {
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-200">
             <strong>Serviced Apartment Model:</strong> Available for High-Rise/Mid-Rise + Luxury/Grade A. When enabled,
             the model assumes hotel-like services with higher operating costs and a 30-50% revenue premium over standard BTR.
+          </div>
+        </div>
+
+        {/* Step 5 */}
+        <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
+          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Building Configuration</h3>
+          <p className="text-slate-300 leading-relaxed mb-3">
+            Define the physical structure of your building. These inputs directly affect construction cost calculations
+            in Step 6.
+          </p>
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <div>
+              <h4 className="text-white font-medium">Number of Basements</h4>
+              <p className="text-sm text-slate-400">Underground levels for parking, MEP, or storage. Basements have significantly higher construction costs per sqm than above-grade floors.</p>
+            </div>
+            <div>
+              <h4 className="text-white font-medium">Number of Podium / Parking Floors</h4>
+              <p className="text-sm text-slate-400">Above-grade parking or retail podium levels. These typically have lower construction costs per sqm than occupied floors.</p>
+            </div>
+            <div>
+              <h4 className="text-white font-medium">Number of Building Floors</h4>
+              <p className="text-sm text-slate-400">Above-grade occupied floors (guest rooms, office space, residential units). This is the primary revenue-generating area.</p>
+            </div>
           </div>
         </div>
 

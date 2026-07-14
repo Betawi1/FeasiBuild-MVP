@@ -11,11 +11,26 @@ type PuterChatMessage = {
   tool_call_id?: string;
 };
 
+type PuterStreamChunk = {
+  value?: string;
+  text?: string;
+  content?: string;
+  reasoning?: string;
+  message?: { content?: string | Array<{ text?: string }> };
+};
+
 interface PuterAI {
   chat(
     prompt: string | PuterChatMessage[],
-    options?: { model?: string; stream?: boolean; temperature?: number }
-  ): Promise<PuterChatResponse | string>;
+    options?: {
+      model?: string;
+      stream?: boolean;
+      temperature?: number;
+      max_tokens?: number;
+    }
+  ): Promise<
+    PuterChatResponse | string | AsyncIterable<PuterStreamChunk | string>
+  >;
 }
 
 interface PuterKV {

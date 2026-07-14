@@ -11,7 +11,7 @@ import {
 
 export type { AiResearchOptions, AiResearchResult } from "@/lib/constants/aiPrompts";
 
-const AI_RESEARCH_MODEL = "qwen/qwen3.6-flash";
+const AI_RESEARCH_MODEL = "qwen/qwen3.7-plus";
 
 function extractChatText(response: unknown): string {
   if (typeof response === "string") return response;
@@ -31,6 +31,47 @@ function extractChatText(response: unknown): string {
   return r.text ?? r.content ?? "";
 }
 
+function extractStreamChunkText(chunk: unknown): string {
+  if (typeof chunk === "string") return chunk;
+  if (!chunk || typeof chunk !== "object") return "";
+
+  const c = chunk as {
+    value?: string;
+    text?: string;
+    content?: string;
+    reasoning?: string;
+    message?: { content?: string | Array<{ text?: string }> };
+  };
+
+  if (typeof c.value === "string") return c.value;
+  if (typeof c.text === "string") return c.text;
+  if (typeof c.content === "string") return c.content;
+  if (typeof c.reasoning === "string") return c.reasoning;
+  if (typeof c.message?.content === "string") return c.message.content;
+  if (Array.isArray(c.message?.content)) {
+    return c.message.content.map((part) => part.text ?? "").join("");
+  }
+  return "";
+}
+
+/** Accumulate Puter streaming or non-streaming chat responses into one string. */
+async function accumulateChatResponse(response: unknown): Promise<string> {
+  if (
+    response &&
+    typeof response === "object" &&
+    Symbol.asyncIterator in response
+  ) {
+    let fullResponse = "";
+    for await (const chunk of response as AsyncIterable<unknown>) {
+      fullResponse += extractStreamChunkText(chunk);
+    }
+    return fullResponse;
+  }
+
+  if (typeof response === "string") return response;
+  return extractChatText(response);
+}
+
 async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
   if (typeof window === "undefined") return undefined;
 
@@ -42,40 +83,103 @@ async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
   return undefined;
 }
 
-/** Extract JSON from raw AI text (markdown fences, reasoning blocks, or brace fallback). */
-function extractJsonString(rawText: string): string {
-  // Strip chain-of-thought reasoning blocks before JSON extraction
-  let cleaned = rawText.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "").trim();
-
-  const jsonMatch = cleaned.match(/```json\s*([\s\S]*?)\s*```/);
-  if (jsonMatch?.[1]) {
-    console.log("✅ Extracted JSON from markdown block.");
-    return jsonMatch[1].trim();
+function tryParseAiJson(candidate: string): AiResearchResult | null {
+  try {
+    return JSON.parse(candidate) as AiResearchResult;
+  } catch {
+    return null;
   }
+}
 
-  // Generic ``` ... ``` fence without json language tag
-  const fenceMatch = cleaned.match(/```\s*([\s\S]*?)\s*```/);
-  if (fenceMatch?.[1]) {
-    const inner = fenceMatch[1].trim();
-    if (inner.startsWith("{") || inner.startsWith("[")) {
-      console.log("✅ Extracted JSON from generic markdown fence.");
-      return inner;
+/** Extract JSON from markdown fences or outermost `{...}` braces. */
+function extractFromMarkdownOrBraces(text: string): AiResearchResult | null {
+  const jsonFence = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if (jsonFence?.[1]) {
+    const parsed = tryParseAiJson(jsonFence[1].trim());
+    if (parsed) {
+      console.log("✅ Extracted JSON from ```json fence");
+      return parsed;
     }
   }
 
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    console.log("✅ Extracted JSON using brace fallback.");
-    return cleaned.substring(firstBrace, lastBrace + 1).trim();
+  const fence = text.match(/```\s*([\s\S]*?)\s*```/);
+  if (fence?.[1]) {
+    const inner = fence[1].trim();
+    if (inner.startsWith("{") || inner.startsWith("[")) {
+      const parsed = tryParseAiJson(inner);
+      if (parsed) {
+        console.log("✅ Extracted JSON from generic markdown fence");
+        return parsed;
+      }
+    }
   }
 
-  return cleaned.trim();
+  // Strip fence markers (handles leftover prose outside fences poorly, so try last)
+  const withoutMarkdown = text
+    .replace(/```json\s*/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  const strippedMd = tryParseAiJson(withoutMarkdown);
+  if (strippedMd) return strippedMd;
+
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = text.substring(firstBrace, lastBrace + 1);
+    const parsed = tryParseAiJson(candidate);
+    if (parsed) {
+      console.log("✅ Extracted JSON via brace bounds (length:", candidate.length, ")");
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
-function parseJsonResponse(raw: string): AiResearchResult {
-  const jsonString = extractJsonString(raw);
-  return JSON.parse(jsonString) as AiResearchResult;
+/**
+ * Robust JSON extraction for AI responses that may include:
+ * - markdown code fences (```json ... ```)
+ * - <reasoning>...</reasoning> blocks
+ * - prose before/after the JSON object
+ */
+function extractJsonFromResponse(text: string): AiResearchResult {
+  console.log("🔍 Raw AI Response Length:", text.length);
+  console.log("🔍 First 500 chars:", text.substring(0, 500));
+
+  // Strategy 1: Try parsing the entire text first
+  const direct = tryParseAiJson(text.trim());
+  if (direct) return direct;
+  console.log("⚠️ Direct parse failed, trying extraction strategies...");
+
+  // Strategy 2: Prefer content after </reasoning>
+  const afterReasoningParts = text.split(/<\/reasoning>/i);
+  if (afterReasoningParts.length > 1) {
+    const jsonPart = afterReasoningParts.slice(1).join("</reasoning>").trim();
+    const parsed =
+      tryParseAiJson(jsonPart) ?? extractFromMarkdownOrBraces(jsonPart);
+    if (parsed) {
+      console.log("✅ Parsed JSON after </reasoning>");
+      return parsed;
+    }
+    console.log("⚠️ Post-reasoning parse failed");
+  }
+
+  // Strategy 3: Strip reasoning tags, then markdown/braces
+  const withoutReasoning = text
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+    .trim();
+  const stripped =
+    tryParseAiJson(withoutReasoning) ??
+    extractFromMarkdownOrBraces(withoutReasoning);
+  if (stripped) return stripped;
+
+  // Strategy 4: Markdown / brace extraction on full raw text
+  const fromFull = extractFromMarkdownOrBraces(text);
+  if (fromFull) return fromFull;
+
+  throw new Error(
+    `Unable to parse JSON from AI response. Raw response preview: ${text.substring(0, 1000)}...`
+  );
 }
 
 /** Safety clamp to prevent UI-breaking hallucinations */
@@ -201,7 +305,7 @@ export const useAiResearch = () => {
         const systemPrompt = getSystemPrompt(options.assetType);
         const userPrompt = buildUserPrompt(options);
 
-        console.log("🚀 Sending payload to AI...");
+        console.log("🚀 Sending payload to AI (stream)...");
         const response = await puter.ai.chat(
           [
             { role: "system", content: systemPrompt },
@@ -209,13 +313,14 @@ export const useAiResearch = () => {
           ],
           {
             model: AI_RESEARCH_MODEL,
+            stream: true, // REQUIRED for Qwen 3.7 Plus
             temperature: 0.1, // CRITICAL: Locks creativity for financial accuracy
+            max_tokens: 8000, // REQUIRED: reasoning block + full JSON output
           }
         );
 
-        // Puter returns a chat object; extract the message string
-        const rawText = extractChatText(response);
-        console.log("🔍 RAW AI RESPONSE:", rawText);
+        const rawText = await accumulateChatResponse(response);
+        console.log("🔍 Complete AI Response:", rawText);
 
         const reasoningMatch = rawText.match(/<reasoning>([\s\S]*?)<\/reasoning>/i);
         if (reasoningMatch?.[1]) {
@@ -226,24 +331,39 @@ export const useAiResearch = () => {
           throw new Error("Empty response from AI research");
         }
 
+        let parsedRaw: AiResearchResult;
+        try {
+          parsedRaw = extractJsonFromResponse(rawText);
+          console.log("✅ Successfully parsed AI data:", parsedRaw);
+        } catch (parseError) {
+          console.error("❌ JSON Parse Error:", parseError);
+          console.error("Raw Response:", rawText);
+          throw new Error(
+            "Failed to parse AI response. Please try again or check console for details."
+          );
+        }
+
         const parsedData = sanitizeAiData(
-          normalizeAiResearchData(parseJsonResponse(rawText)),
+          normalizeAiResearchData(parsedRaw),
           options.location.currency || "USD"
         );
-        console.log("🎉 Successfully parsed AI data:", parsedData);
+        console.log("🎉 Successfully normalized AI data:", parsedData);
         setIsLoading(false);
         return parsedData;
-      } catch (err) {
-        console.error("❌ AI Research Error Details:");
-        console.error(
-          "Error Message:",
-          err instanceof Error ? err.message : err
-        );
-        console.error("Stack Trace:", err instanceof Error ? err.stack : "");
+      } catch (err: any) {
+        console.error("❌ AI Research Failed:");
+
+        // Log the raw error object to see Puter's exact response
+        console.error("Raw Error Object:", err);
+
+        // Puter sometimes puts the error message in err.message or err.error
+        const errorMessage = err?.message || err?.error || JSON.stringify(err);
+        console.error("Extracted Error Message:", errorMessage);
+
         setError(
-          err instanceof Error
-            ? err.message
-            : "An unknown error occurred during AI research."
+          typeof errorMessage === "string"
+            ? errorMessage
+            : "AI research failed. Check console for details."
         );
         setIsLoading(false);
         return null;

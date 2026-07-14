@@ -617,10 +617,10 @@ export default function ResidentialRevenueStep({
               value={projectInfo.residentialGLA || 0}
               readOnly
               className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
-              title="Locked: Defined in Component 1 Step 4 Building Configuration"
+              title="Locked: Defined in Component 1 Step 5 Building Configuration"
             />
             <p className="mt-1 text-xs text-amber-400">
-              🔒 Locked: To change, go back to Component 1 Step 4
+              🔒 Locked: To change, go back to Component 1 Step 5
             </p>
             {fieldError("residentialGla") && (
               <p className="mt-1 text-sm text-red-400">

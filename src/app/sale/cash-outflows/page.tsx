@@ -1435,20 +1435,7 @@ function CashOutflowsPageContent() {
         newErrors.landRate = "Land rate must be greater than 0.";
     }
 
-    if (step === 9) {
-      const landTarget = aiData?.guardrails?.land_tdc_target_pct;
-      const dcTarget = aiData?.guardrails?.dc_tdc_target_pct;
-
-      const landMax = landTarget?.max ?? 51;
-      const dcMin = dcTarget?.min ?? 49;
-
-      if (landToTdcRatio > landMax) {
-        newErrors.landRatio = `Land/TDC should be ≤ ${landMax}%. Adjust land or development costs.`;
-      }
-      if (dcToTdcRatio < dcMin) {
-        newErrors.dcRatio = `Development/TDC should be ≥ ${dcMin}%. Current balance is land-heavy.`;
-      }
-    }
+    // Step 9 (TDC ratios): AI Land/TDC and DC/TDC guardrails are informational only.
 
     if (step === 10) {
       const co = readSaleCashOutflows();
@@ -3144,7 +3131,7 @@ function CashOutflowsPageContent() {
                             <AiGuardrailBox
                               severity="error"
                               title="TDC Ratio Outside Institutional Range"
-                              message={`Your Land/TDC ratio (${landToTdcRatio.toFixed(1)}%) or DC/TDC ratio (${dcToTdcRatio.toFixed(1)}%) is outside the target range for this market and asset type. Please adjust your land or development costs.`}
+                              message={`Your Land/TDC ratio (${landToTdcRatio.toFixed(1)}%) or DC/TDC ratio (${dcToTdcRatio.toFixed(1)}%) is outside the target range for this market and asset type. You may adjust land/development costs or proceed anyway.`}
                               className="mt-2"
                             />
                           )}

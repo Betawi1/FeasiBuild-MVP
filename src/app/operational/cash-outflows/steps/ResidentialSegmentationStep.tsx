@@ -195,7 +195,7 @@ export default function ResidentialSegmentationStep({
       patch.residentialIsServicedApartment = false;
     }
     updateProjectInfo(patch, "operational");
-    logOperationalCashOutflow("residentialSegment", id, 5);
+    logOperationalCashOutflow("residentialSegment", id, 4);
   };
 
   const handlePositioningSelect = (id: ResidentialPositioning) => {
@@ -206,7 +206,7 @@ export default function ResidentialSegmentationStep({
       patch.residentialIsServicedApartment = false;
     }
     updateProjectInfo(patch, "operational");
-    logOperationalCashOutflow("residentialPositioning", id, 5);
+    logOperationalCashOutflow("residentialPositioning", id, 4);
   };
 
   const handleFurnishingChange = (val: ResidentialFurnishingLevel) => {

@@ -117,8 +117,14 @@ const JSON_OUTPUT_INSTRUCTIONS = `
 CRITICAL OUTPUT FORMAT:
 Return ONLY valid JSON. No markdown, no code fences, no commentary outside the JSON object.
 
+CRITICAL DATA FORMATTING RULES:
+1. PERCENTAGES: All percentage values MUST be expressed as whole numbers (e.g., 18 for 18%, NOT 0.18). This applies to sc_percentage, powc_percentage, ffe_percentage, s_curve stages, and all breakdowns.
+2. FX RATE: "fx_rate_to_usd" is a REQUIRED field. It MUST be the first key in the JSON object. Do not omit it.
+3. GUARDRAIL MATH: The sum of land_tdc_target_pct.recommended and dc_tdc_target_pct.recommended MUST equal approximately 100%. (e.g., If Land is 20%, DC MUST be 80%). Do not output independent percentages that do not sum to ~100%.
+
 Use this exact top-level structure (nested keys required — do not flatten C1 rates):
 {
+  "fx_rate_to_usd": number,
   "c1_development": {
     "construction_rates": {
       "building_rate_psf": number,
@@ -136,7 +142,7 @@ Use this exact top-level structure (nested keys required — do not flatten C1 r
         "justification": "short string"
       }
     },
-    "land_rate_psf": number,
+    "land_rate_psf": number, // CRITICAL: Normalized rate per sq. ft. of PLOT AREA. If source data is per Allowable BUA, convert: (Allowable BUA × Rate per BUA) / Plot Area.
     "construction_period": {
       "months": number,
       "range": "e.g. 24-36",
@@ -185,7 +191,7 @@ c1_development MUST use the nested structure above.
 Required numeric fields:
 - construction_rates.building_rate_psf, parking_rate_psf, basement_rate_psf
 - soft_costs.sc_percentage, powc_percentage, ffe_percentage.recommended/min_range/max_range
-- land_rate_psf
+- land_rate_psf (MUST be normalized per Plot Area sqft — never per Allowable BUA/GFA without converting)
 - construction_period.months (+ range string)
 - s_curve.stage_1_pct through stage_4_pct (must sum to ~100)
 - powc_breakdown and sc_breakdown percentage shares (must sum to ~100 each)
@@ -438,29 +444,48 @@ guardrails land_tdc_target_pct and dc_tdc_target_pct:
 
 const LAND_CATEGORY_INSTRUCTIONS = `
 LAND RATE RESEARCH - CRITICAL INSTRUCTIONS:
-You MUST research land rates for the SPECIFIC LAND USE CATEGORY required for this asset type.
+YOU MUST RESEARCH ACTUAL MARKET TRANSACTIONS, NOT APPLY THEORETICAL DISCOUNTS.
 
-Land Categories by Asset Type:
+STEP 1 - RESEARCH ACTUAL TRANSACTIONS:
+Search for recent (2024-2026) land transactions and listings for the specific asset type and location. Use sources like:
+- Property portals (Property Finder, Bayut, Dubizzle, etc.)
+- Dubai Land Department (DLD) transaction data
+- Local real estate market reports
+- Developer pricing (for master-planned communities)
+
+STEP 2 - IDENTIFY THE CORRECT LAND USE CATEGORY:
 - Hotels: "Hospitality/Tourism Land" - land zoned for hotel/resort development
 - Shopping Malls/Retail: "Commercial Land" - land zoned for retail/commercial use
 - Office: "Office/Commercial Land" - land zoned for office/business use
 - Residential (BTR/Sale): "Residential Land" - land zoned for residential development
-- Commercial Sale: "Commercial Land" - land zoned for commercial use
 
-CRITICAL:
-- DO NOT return generic "raw land" or "vacant land" rates
-- DO NOT return residential land rates for commercial assets (or vice versa)
-- The land rate MUST reflect the value of land WITH the necessary development permissions/zoning for the specific asset type
-- Commercial land is typically 2-10x more expensive than raw/residential land in the same location
-- If exact land category data is unavailable, use the closest comparable category and explicitly state this in your <reasoning> block
+STEP 3 - DETERMINE PRICING BASIS:
+In some markets (especially Dubai, Saudi Arabia, and Malaysian commercial plots), land is quoted per sq. ft. of ALLOWABLE GFA/BUA. In other markets, it is quoted per sq. ft. of raw Plot Area.
 
-Example for Malaysia:
-- Raw Land: ~RM 64/psf
-- Residential Land: ~RM 385-410/psf
-- Commercial Land: ~RM 599/psf
-- Industrial Land: ~RM 222/psf
+IF THE RATE IS PER ALLOWABLE GFA/BUA, YOU MUST NORMALIZE IT TO PLOT AREA USING THIS FORMULA:
+Normalized Land Rate (per Plot sqft) = (Allowable Total BUA × Rate per BUA sqft) / Total Plot Area
 
-You MUST research the correct category for the asset type provided.
+EXAMPLE FOR DUBAI:
+- User provides: Plot Area = 42,000 sqft, Allowable Total BUA = 480,000 sqft
+- You research and find: JVC commercial/hospitality plots trade at AED 1,000-1,300 per GFA sqft
+- Your calculation: (480,000 × 1,200) / 42,000 = AED 13,714 per Plot sqft
+- You output in JSON: "land_rate_psf": 13714
+
+STEP 4 - PROVIDE REALISTIC MARKET RATES:
+DO NOT apply arbitrary percentage discounts. Base your rates on actual market data:
+
+DUBAI EXAMPLES (2024-2026):
+- JVC Residential Land: AED 100-200 per sqft (plot area) OR AED 800-1,400 per sqft (GFA)
+- JVC Commercial/Hospitality Land: AED 800-2,800+ per sqft (plot area) OR AED 1,000-1,500 per sqft (GFA)
+- Downtown Dubai Commercial: AED 2,000-5,000+ per sqft (plot area)
+- Dubai Marina Hospitality: AED 1,500-4,000+ per sqft (plot area)
+
+MALAYSIA EXAMPLES (2024-2026):
+- Kuala Lumpur Residential Land: RM 300-600 per sqft (plot area)
+- KL Commercial Land: RM 500-1,200 per sqft (plot area) OR RM 400-900 per sqft (GFA)
+- Johor Bahru Residential: RM 200-450 per sqft (plot area)
+
+If exact land category data is unavailable, use the closest comparable transaction and explicitly state this in your <reasoning> block.
 `.trim();
 
 export type AiPromptConfig = {
@@ -477,6 +502,8 @@ CRITICAL RULES FOR ALL OUTPUTS:
 4. NO HALLUCINATION: Do not invent data. If exact data for a specific sub-market is unavailable, use the broader city data but explicitly state this in your reasoning.
 5. LAND RATE IS A FIXED LOCATION BENCHMARK: Land rates are determined SOLELY by the specific Sub-Market and Coordinates. They are NOT affected by Market Positioning, Star Rating, or Operating Segment.
 CRITICAL: If the user changes positioning from Mid-Market to Luxury, the Land Rate (psf) MUST remain virtually identical (max 10% variance). Do NOT calculate "residual land value". The value of the land is fixed by its location, not the building on it.
+6. GUARDRAIL MATHEMATICAL CONSISTENCY: When outputting guardrails, you MUST ensure that land_tdc_target_pct + dc_tdc_target_pct ≈ 100%. (e.g., If Land is 20% of TDC, DC MUST be 80% of TDC). Never output values that sum to significantly less or more than 100%.
+7. EVIDENCE-BASED RESEARCH ONLY: You MUST base all land rates and construction rates on actual market transactions and listings, not theoretical discounts. If you cannot find specific data for the sub-market, use broader city data but explicitly state this. Never apply arbitrary percentage discounts (e.g., "30-50% discount for mid-market") without grounding them in actual comparable transactions.
 
 ${LAND_CATEGORY_INSTRUCTIONS}
 
@@ -491,6 +518,9 @@ In the <reasoning> block, you MUST:
 4. Explicitly state the realistic market rate ranges you are using for this specific city and positioning.
 5. For construction period hints, you MUST explicitly state the exact number of floors and basements — do NOT round or approximate these numbers.
 6. Confirm that land_rate_psf is a fixed location + land-category benchmark (sub-market/coordinates only).
+7. Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+8. If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft". The final JSON "land_rate_psf" must be this normalized plot area rate.
+9. DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.
 
 ${JSON_OUTPUT_INSTRUCTIONS}
 
@@ -507,12 +537,19 @@ CRITICAL RULES FOR ALL OUTPUTS:
 4. NO HALLUCINATION: Do not invent data. If exact data for a specific sub-market is unavailable, use the broader city data but explicitly state this in your reasoning.
 5. LAND RATE IS A FIXED LOCATION BENCHMARK: Land rates are determined SOLELY by the specific Sub-Market and Coordinates. They are NOT affected by Market Positioning or Finishing Standard.
 CRITICAL: If the user changes positioning from Mid-Market to Luxury, the Land Rate (psf) MUST remain virtually identical (max 10% variance). Do NOT calculate "residual land value". The value of the land is fixed by its location (e.g., Al Dhait South), not the building on it. If Mid-Market land is 105, Luxury land must also be ~105-115.
+6. GUARDRAIL MATHEMATICAL CONSISTENCY: When outputting guardrails, you MUST ensure that land_tdc_target_pct + dc_tdc_target_pct ≈ 100%. (e.g., If Land is 20% of TDC, DC MUST be 80% of TDC). Never output values that sum to significantly less or more than 100%.
+7. EVIDENCE-BASED RESEARCH ONLY: You MUST base all land rates and construction rates on actual market transactions and listings, not theoretical discounts. If you cannot find specific data for the sub-market, use broader city data but explicitly state this. Never apply arbitrary percentage discounts (e.g., "30-50% discount for mid-market") without grounding them in actual comparable transactions.
 
 ${LAND_CATEGORY_INSTRUCTIONS}
 
 RESPONSE FORMAT:
 - First write a <reasoning>...</reasoning> block with your chain-of-thought analysis.
 - Then output ONLY the JSON object (no markdown fences, no commentary after the JSON).
+
+In the <reasoning> block, you MUST:
+- Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+- If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft".
+- DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.
 
 ${JSON_OUTPUT_INSTRUCTIONS}
 
@@ -695,7 +732,10 @@ CRITICAL: Before outputting the JSON, you MUST write a <reasoning> block. In thi
 4. Explicitly state the realistic market rate ranges you are using for this specific city and positioning (e.g., "For Mid-Market High-Rise in RAK, standard build rates are 250-400 AED/psf").
 5. Explain how the Finishing Standard impacts the construction rate (NOT the land rate).
 6. Confirm that land_rate_psf is a fixed location benchmark for ${landCategory} (sub-market/coordinates only). Changing Market Positioning must not move land rate by more than ~10% — never use residual land value.
-7. For construction period hints, you MUST explicitly state the exact number of Upper Floors (${upperFloors}) and Basements (${basements}) — do NOT round or approximate these numbers.
+7. Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+8. If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft". The final JSON "land_rate_psf" must be this normalized plot area rate.
+9. DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.
+10. For construction period hints, you MUST explicitly state the exact number of Upper Floors (${upperFloors}) and Basements (${basements}) — do NOT round or approximate these numbers.
 
 ADDITIONAL RESEARCH TASK (FX Rate):
 CRITICAL: Check the "Currency" selected in the Project Parameters.
@@ -817,7 +857,10 @@ Building Configuration & Areas:
 - Operating Type: ${buildingConfig.operatingSegment ?? "Not specified"}
 - Star Rating: ${buildingConfig.starRating ?? "Not specified"}
 
-CRITICAL: Use these exact physical dimensions to calculate and provide benchmarks. For example, construction rates should reflect the specific mix of basement, podium, and tower floors provided. Land cost benchmarks should be evaluated against the specific plot size and Land Use Category (${landCategory}).`
+CRITICAL: Use these exact physical dimensions to calculate and provide benchmarks. For example, construction rates should reflect the specific mix of basement, podium, and tower floors provided. Land cost benchmarks should be evaluated against the specific plot size and Land Use Category (${landCategory}).
+- Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+- If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft".
+- DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.`
       : "";
 
   const retailBuildingSection =
@@ -844,7 +887,10 @@ CRITICAL RENT RESEARCH:
 - ALL rates MUST be ANNUAL (per year per sqft), NOT monthly.
 - If you find monthly rates (e.g., RM 10-25/psf/month), multiply by 12 to get annual (RM 120-300/psf/year).
 - In your <reasoning> block, explicitly state whether you found monthly or annual rates and show the conversion calculation.
-- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.`
+- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.
+- Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+- If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft".
+- DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.`
       : "";
 
   const officeBuildingSection =
@@ -870,7 +916,10 @@ CRITICAL RENT RESEARCH:
 - ALL rates MUST be ANNUAL (per year per sqft), NOT monthly.
 - If you find monthly rates (e.g., RM 15/psf/month), multiply by 12 to get annual (RM 180/psf/year).
 - In your <reasoning> block, explicitly state: "Found monthly rent of RM X/psf, converted to annual: RM Y/psf (X × 12)".
-- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.`
+- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.
+- Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+- If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft".
+- DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.`
       : "";
 
   const residentialBuildingSection =
@@ -897,7 +946,10 @@ CRITICAL RENT RESEARCH:
 - ALL rates MUST be ANNUAL (per year per sqft), NOT monthly.
 - If you find monthly rates (e.g., RM 3/psf/month), multiply by 12 to get annual (RM 36/psf/year).
 - In your <reasoning> block, explicitly state: "Found monthly rent of RM X/psf, converted to annual: RM Y/psf (X × 12)".
-- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.`
+- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.
+- Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
+- If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft".
+- DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.`
       : "";
 
   return `${config.userPromptIntro}
@@ -955,7 +1007,6 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
   const c1Raw = asRecord(root.c1_development) ?? {};
   const ratesRaw = asRecord(c1Raw.construction_rates) ?? {};
   const softRaw = asRecord(c1Raw.soft_costs) ?? {};
-  const ffeRaw = asRecord(softRaw.ffe_percentage) ?? {};
   const periodRaw = asRecord(c1Raw.construction_period) ?? {};
   const sCurveRaw = asRecord(c1Raw.s_curve) ?? {};
   const powcRaw = asRecord(c1Raw.powc_breakdown) ?? {};
@@ -976,16 +1027,27 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
 
   const scPct = num(softRaw.sc_percentage, softRaw.softCostsPercent, c1Raw.softCostsPercent, c1Raw.sc_percentage) ?? 0;
   const powcPct = num(softRaw.powc_percentage, softRaw.powcPercent, c1Raw.powcPercent, c1Raw.powc_percentage) ?? 0;
+
+  // ffe_percentage may be { recommended, min_range, max_range } OR a bare number
+  const ffeRaw =
+    asRecord(softRaw.ffe_percentage) ??
+    asRecord(c1Raw.ffe_percentage) ??
+    {};
   const ffeRec =
     num(
       ffeRaw.recommended,
+      typeof softRaw.ffe_percentage === "number" ? softRaw.ffe_percentage : undefined,
       softRaw.ffePercent,
-      softRaw.ffe_percentage,
-      c1Raw.ffePercent,
-      c1Raw.ffe_percentage
+      typeof c1Raw.ffe_percentage === "number" ? c1Raw.ffe_percentage : undefined,
+      c1Raw.ffePercent
     ) ?? 0;
   const ffeMin = num(ffeRaw.min_range, ffeRaw.min) ?? Math.max(0, ffeRec * 0.8);
   const ffeMax = num(ffeRaw.max_range, ffeRaw.max) ?? ffeRec * 1.2;
+
+  console.log("🔧 FFE Extraction Debug:");
+  console.log("- softRaw.ffe_percentage:", softRaw.ffe_percentage);
+  console.log("- ffeRaw:", ffeRaw);
+  console.log("- ffeRec (recommended):", ffeRec);
 
   const landRate = num(c1Raw.land_rate_psf, c1Raw.landRate) ?? 0;
   const months =

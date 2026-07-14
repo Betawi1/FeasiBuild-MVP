@@ -119,7 +119,7 @@ export default function HotelSegmentationStep({
       );
     }
     if (projectInfo?.hotelStarRating) {
-      logOperationalCashOutflow("hotelStarRating", projectInfo.hotelStarRating, 5);
+      logOperationalCashOutflow("hotelStarRating", projectInfo.hotelStarRating, 4);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -139,9 +139,9 @@ export default function HotelSegmentationStep({
     if (!keepStar) {
       setStarRating("");
     }
-    logOperationalCashOutflow("hotelOperatingType", value, 5);
+    logOperationalCashOutflow("hotelOperatingType", value, 4);
     if (keepStar && starRating) {
-      logOperationalCashOutflow("hotelStarRating", starRating, 5);
+      logOperationalCashOutflow("hotelStarRating", starRating, 4);
     }
   };
 
@@ -149,7 +149,7 @@ export default function HotelSegmentationStep({
     const next = String(s);
     setStarRating(next);
     updateProjectInfo({ hotelStarRating: next }, "operational");
-    logOperationalCashOutflow("hotelStarRating", next, 5);
+    logOperationalCashOutflow("hotelStarRating", next, 4);
   };
 
   return (

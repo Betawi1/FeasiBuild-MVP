@@ -98,10 +98,10 @@ export default function RetailSegmentationStep({
 
   useEffect(() => {
     if (projectInfo?.retailSegment) {
-      logOperationalCashOutflow("retailSegment", projectInfo.retailSegment, 5);
+      logOperationalCashOutflow("retailSegment", projectInfo.retailSegment, 4);
     }
     if (projectInfo?.retailPositioning) {
-      logOperationalCashOutflow("retailPositioning", projectInfo.retailPositioning, 5);
+      logOperationalCashOutflow("retailPositioning", projectInfo.retailPositioning, 4);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -109,7 +109,7 @@ export default function RetailSegmentationStep({
   const handleSegmentSelect = (id: (typeof RETAIL_SEGMENTS)[number]["id"]) => {
     setSegment(id);
     updateProjectInfo({ retailSegment: id }, "operational");
-    logOperationalCashOutflow("retailSegment", id, 5);
+    logOperationalCashOutflow("retailSegment", id, 4);
   };
 
   const handlePositioningSelect = (
@@ -117,7 +117,7 @@ export default function RetailSegmentationStep({
   ) => {
     setPositioning(id);
     updateProjectInfo({ retailPositioning: id }, "operational");
-    logOperationalCashOutflow("retailPositioning", id, 5);
+    logOperationalCashOutflow("retailPositioning", id, 4);
   };
 
   return (

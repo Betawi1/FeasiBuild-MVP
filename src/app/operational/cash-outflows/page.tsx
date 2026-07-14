@@ -791,7 +791,7 @@ function CashOutflowsPageContent() {
     });
   };
 
-  // Log Step 3 asset type & Step 5 segment/positioning on first visit
+  // Log Step 3 asset type & Step 4 segment/positioning on first visit
   useEffect(() => {
     if (!isOperationalStream) return;
     const uiStep = currentStep + 1;
@@ -803,44 +803,44 @@ function CashOutflowsPageContent() {
       }
     }
 
-    if (uiStep === 5) {
-      if (!cashOutflowStepVisitLogged.current.has(5)) {
-        cashOutflowStepVisitLogged.current.add(5);
+    if (uiStep === 4) {
+      if (!cashOutflowStepVisitLogged.current.has(4)) {
+        cashOutflowStepVisitLogged.current.add(4);
         if (isOperationalHotel) {
           if (projectInfo.hotelOperatingType) {
             logOperationalCashOutflow(
               "hotelOperatingType",
               projectInfo.hotelOperatingType,
-              5
+              4
             );
           }
           if (projectInfo.hotelStarRating) {
             logOperationalCashOutflow(
               "hotelStarRating",
               projectInfo.hotelStarRating,
-              5
+              4
             );
           }
         } else if (isOperationalRetail) {
           if (projectInfo.retailSegment) {
-            logOperationalCashOutflow("retailSegment", projectInfo.retailSegment, 5);
+            logOperationalCashOutflow("retailSegment", projectInfo.retailSegment, 4);
           }
           if (projectInfo.retailPositioning) {
             logOperationalCashOutflow(
               "retailPositioning",
               projectInfo.retailPositioning,
-              5
+              4
             );
           }
         } else if (isOperationalOffice) {
           if (projectInfo.officeSegment) {
-            logOperationalCashOutflow("officeSegment", projectInfo.officeSegment, 5);
+            logOperationalCashOutflow("officeSegment", projectInfo.officeSegment, 4);
           }
           if (projectInfo.officePositioning) {
             logOperationalCashOutflow(
               "officePositioning",
               projectInfo.officePositioning,
-              5
+              4
             );
           }
         } else if (isOperationalResidential) {
@@ -848,14 +848,14 @@ function CashOutflowsPageContent() {
             logOperationalCashOutflow(
               "residentialSegment",
               projectInfo.residentialSegment,
-              5
+              4
             );
           }
           if (projectInfo.residentialPositioning) {
             logOperationalCashOutflow(
               "residentialPositioning",
               projectInfo.residentialPositioning,
-              5
+              4
             );
           }
         }
@@ -1083,12 +1083,20 @@ function CashOutflowsPageContent() {
 
   // Temporary: verify FFE AI range persists across step navigation
   useEffect(() => {
-    console.log("SC/POWC/DC Step - AI Data:", aiData);
+    console.log("🔍 SC/POWC/FFE Step - Debug Data:");
+    console.log("- Cash Outflows FFE:", cashOutflows?.ffePercent);
+    console.log("- AI Research Data:", cashOutflows?.aiResearchData);
     console.log(
-      "🔍 FFE Percentage Data:",
-      aiData?.c1_development?.soft_costs?.ffe_percentage
+      "- AI FFE Percentage:",
+      cashOutflows?.aiResearchData?.c1_development?.soft_costs?.ffe_percentage
     );
-  }, [aiData]);
+    console.log(
+      "- AI FFE Recommended:",
+      cashOutflows?.aiResearchData?.c1_development?.soft_costs?.ffe_percentage
+        ?.recommended
+    );
+    console.log("- Derived aiFfePct:", aiFfePct);
+  }, [cashOutflows, aiFfePct]);
 
   // Auto-zero parking rate when parking BUA is 0
   useEffect(() => {
@@ -1266,7 +1274,7 @@ function CashOutflowsPageContent() {
     );
   };
 
-  // Trigger AI Research after Hotel Segmentation (Step 5 -> Step 6)
+  // Trigger AI Research after Segmentation + Building Config (entering Step 6 Construction)
   useEffect(() => {
     if (!isOperationalHotel || currentStep !== 5) return;
     if (!projectInfo.hotelOperatingType || !projectInfo.hotelStarRating) return;
@@ -1458,7 +1466,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Phase 1 AI Research: Retail (single trigger with Step 4 building data)
+  // Phase 1 AI Research: Retail (single trigger with Step 5 building data)
   useEffect(() => {
     if (!isOperationalRetail || currentStep !== 5) return;
     if (!projectInfo.retailSegment || !projectInfo.retailPositioning) return;
@@ -1635,7 +1643,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Phase 1 AI Research: Office (single trigger with Step 4 building data)
+  // Phase 1 AI Research: Office (single trigger with Step 5 building data)
   useEffect(() => {
     if (!isOperationalOffice || currentStep !== 5) return;
     if (!projectInfo.officeSegment || !projectInfo.officePositioning) return;
@@ -1814,7 +1822,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Phase 1 AI Research: Residential BTR (single trigger with Step 4 building data)
+  // Phase 1 AI Research: Residential BTR (single trigger with Step 5 building data)
   useEffect(() => {
     if (!isOperationalResidential || currentStep !== 5) return;
     if (!projectInfo.residentialSegment || !projectInfo.residentialPositioning) return;
@@ -1998,7 +2006,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Hotel Step 4 BUA data to Cash Outflows state when entering Step 6
+  // Sync Hotel Step 5 BUA data to Cash Outflows state when entering Step 6
   useEffect(() => {
     if (isOperationalHotel && currentStep === 5) {
       const updates: Partial<CashOutflows> = {};
@@ -2014,7 +2022,7 @@ function CashOutflowsPageContent() {
 
       if (Object.keys(updates).length > 0) {
         updateCashOutflowsForStream(updates);
-        console.log(" Synced Hotel Step 4 BUA to Cash Outflows:", updates);
+        console.log(" Synced Hotel Step 5 BUA to Cash Outflows:", updates);
       }
     }
   }, [
@@ -2026,7 +2034,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Retail Step 4 BUA data to Cash Outflows state when entering Step 6
+  // Sync Retail Step 5 BUA data to Cash Outflows state when entering Step 6
   useEffect(() => {
     if (isOperationalRetail && currentStep === 5) {
       const updates: Partial<CashOutflows> = {};
@@ -2042,7 +2050,7 @@ function CashOutflowsPageContent() {
 
       if (Object.keys(updates).length > 0) {
         updateCashOutflowsForStream(updates);
-        console.log("🔗 Synced Retail Step 4 BUA to Cash Outflows:", updates);
+        console.log("🔗 Synced Retail Step 5 BUA to Cash Outflows:", updates);
       }
     }
   }, [
@@ -2054,13 +2062,13 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Hotel Step 4 Plot Area to Cash Outflows state when entering Step 9 (Land Costs)
+  // Sync Hotel Step 5 Plot Area to Cash Outflows state when entering Step 9 (Land Costs)
   useEffect(() => {
     if (isOperationalHotel && currentStep === 8) {
       if (projectInfo.hotelPlotArea) {
         updateCashOutflowsForStream({ landArea: projectInfo.hotelPlotArea });
         console.log(
-          "🔗 Synced Hotel Step 4 Plot Area to Cash Outflows:",
+          "🔗 Synced Hotel Step 5 Plot Area to Cash Outflows:",
           projectInfo.hotelPlotArea
         );
       }
@@ -2072,13 +2080,13 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Retail Step 4 Plot Area to Cash Outflows state when entering Step 9
+  // Sync Retail Step 5 Plot Area to Cash Outflows state when entering Step 9
   useEffect(() => {
     if (isOperationalRetail && currentStep === 8) {
       if (projectInfo.retailPlotArea) {
         updateCashOutflowsForStream({ landArea: projectInfo.retailPlotArea });
         console.log(
-          "🔗 Synced Retail Step 4 Plot Area to Cash Outflows:",
+          "🔗 Synced Retail Step 5 Plot Area to Cash Outflows:",
           projectInfo.retailPlotArea
         );
       }
@@ -2090,7 +2098,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Office Step 4 BUA data to Cash Outflows state when entering Step 6
+  // Sync Office Step 5 BUA data to Cash Outflows state when entering Step 6
   useEffect(() => {
     if (isOperationalOffice && currentStep === 5) {
       const updates: Partial<CashOutflows> = {};
@@ -2106,7 +2114,7 @@ function CashOutflowsPageContent() {
 
       if (Object.keys(updates).length > 0) {
         updateCashOutflowsForStream(updates);
-        console.log(" Synced Office Step 4 BUA to Cash Outflows:", updates);
+        console.log(" Synced Office Step 5 BUA to Cash Outflows:", updates);
       }
     }
   }, [
@@ -2118,13 +2126,13 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Office Step 4 Plot Area to Cash Outflows state when entering Step 9
+  // Sync Office Step 5 Plot Area to Cash Outflows state when entering Step 9
   useEffect(() => {
     if (isOperationalOffice && currentStep === 8) {
       if (projectInfo.officePlotArea) {
         updateCashOutflowsForStream({ landArea: projectInfo.officePlotArea });
         console.log(
-          "🔗 Synced Office Step 4 Plot Area to Cash Outflows:",
+          "🔗 Synced Office Step 5 Plot Area to Cash Outflows:",
           projectInfo.officePlotArea
         );
       }
@@ -2136,7 +2144,7 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Residential Step 4 BUA data to Cash Outflows state when entering Step 6
+  // Sync Residential Step 5 BUA data to Cash Outflows state when entering Step 6
   useEffect(() => {
     if (isOperationalResidential && currentStep === 5) {
       const updates: Partial<CashOutflows> = {};
@@ -2152,7 +2160,7 @@ function CashOutflowsPageContent() {
 
       if (Object.keys(updates).length > 0) {
         updateCashOutflowsForStream(updates);
-        console.log("🔗 Synced Residential Step 4 BUA to Cash Outflows:", updates);
+        console.log("🔗 Synced Residential Step 5 BUA to Cash Outflows:", updates);
       }
     }
   }, [
@@ -2164,13 +2172,13 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  // Sync Residential Step 4 Plot Area to Cash Outflows state when entering Step 9
+  // Sync Residential Step 5 Plot Area to Cash Outflows state when entering Step 9
   useEffect(() => {
     if (isOperationalResidential && currentStep === 8) {
       if (projectInfo.residentialPlotArea) {
         updateCashOutflowsForStream({ landArea: projectInfo.residentialPlotArea });
         console.log(
-          "🔗 Synced Residential Step 4 Plot Area to Cash Outflows:",
+          "🔗 Synced Residential Step 5 Plot Area to Cash Outflows:",
           projectInfo.residentialPlotArea
         );
       }
@@ -2368,6 +2376,14 @@ function CashOutflowsPageContent() {
     if (!isValidHotelCombo(op, star).valid) return;
     if (baseCC <= 0 || ccWithContingency <= 0) return;
 
+    // Prefer AI research soft costs when available; MVP/profile tables are fallback only.
+    const pickSc = (profilePct: number) =>
+      aiScPct != null ? round2(Number(aiScPct)) : round2(profilePct);
+    const pickPowc = (profilePct: number) =>
+      aiPowcPct != null ? round2(Number(aiPowcPct)) : round2(profilePct);
+    const pickFfe = (profilePct: number) =>
+      aiFfePct != null ? round2(Number(aiFfePct)) : round2(profilePct);
+
     // Prefer MVP profile defaults (location + segment + stars) when available.
     const { key: k, profile: def } = findProfileDefault(projectInfo);
     if (def) {
@@ -2385,19 +2401,19 @@ function CashOutflowsPageContent() {
         patch.operationalHotelScManual = false;
         patch.operationalHotelPowcManual = false;
         patch.operationalHotelFfeManual = false;
-        patch.softCostPercent = round2(def.softCostPercent);
-        patch.powcPercent = round2(def.powcPercent);
-        patch.ffePercent = round2(def.ffePercent);
+        patch.softCostPercent = pickSc(def.softCostPercent);
+        patch.powcPercent = pickPowc(def.powcPercent);
+        patch.ffePercent = pickFfe(def.ffePercent);
         updateCashOutflowsForStream(patch);
         return;
       }
 
       if (!st?.operationalHotelScManual)
-        patch.softCostPercent = round2(def.softCostPercent);
+        patch.softCostPercent = pickSc(def.softCostPercent);
       if (!st?.operationalHotelPowcManual)
-        patch.powcPercent = round2(def.powcPercent);
+        patch.powcPercent = pickPowc(def.powcPercent);
       if (!st?.operationalHotelFfeManual)
-        patch.ffePercent = round2(def.ffePercent);
+        patch.ffePercent = pickFfe(def.ffePercent);
 
       const pctDiff = (next: number | undefined, cur: number) =>
         next !== undefined && Math.abs(next - cur) > 0.004;
@@ -2434,13 +2450,16 @@ function CashOutflowsPageContent() {
       patch.operationalHotelScManual = false;
       patch.operationalHotelPowcManual = false;
       patch.operationalHotelFfeManual = false;
-      patch.softCostPercent = round2(softPct);
-      patch.powcPercent = round2(powcPct);
-      patch.ffePercent = round2(ffePct);
+      patch.softCostPercent = pickSc(softPct);
+      patch.powcPercent = pickPowc(powcPct);
+      patch.ffePercent = pickFfe(ffePct);
     } else {
-      if (!st?.operationalHotelScManual) patch.softCostPercent = round2(softPct);
-      if (!st?.operationalHotelPowcManual) patch.powcPercent = round2(powcPct);
-      if (!st?.operationalHotelFfeManual) patch.ffePercent = round2(ffePct);
+      if (!st?.operationalHotelScManual)
+        patch.softCostPercent = pickSc(softPct);
+      if (!st?.operationalHotelPowcManual)
+        patch.powcPercent = pickPowc(powcPct);
+      if (!st?.operationalHotelFfeManual)
+        patch.ffePercent = pickFfe(ffePct);
     }
 
     if (keyChanged) {
@@ -2468,6 +2487,9 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     baseCC,
     ccWithContingency,
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
     updateCashOutflowsForStream,
   ]);
 
@@ -3197,11 +3219,12 @@ function CashOutflowsPageContent() {
         patch.operationalOfficeFfeManual = false;
       }
       if (!st?.operationalOfficeScManual)
-        patch.softCostPercent = round2(officeBenchmark.softCostsPercent);
+        patch.softCostPercent =
+          aiScPct ?? round2(officeBenchmark.softCostsPercent);
       if (!st?.operationalOfficePowcManual)
-        patch.powcPercent = round2(officeBenchmark.powcPercent);
+        patch.powcPercent = aiPowcPct ?? round2(officeBenchmark.powcPercent);
       if (!st?.operationalOfficeFfeManual)
-        patch.ffePercent = round2(officeBenchmark.ffePercent);
+        patch.ffePercent = aiFfePct ?? round2(officeBenchmark.ffePercent);
     }
 
     if (currentStep === 8) {
@@ -3209,7 +3232,7 @@ function CashOutflowsPageContent() {
         patch.operationalOfficeLandRateManual = false;
       }
       if (!st?.operationalOfficeLandRateManual)
-        patch.landRate = officeBenchmark.landRate;
+        patch.landRate = aiLandRate ?? officeBenchmark.landRate;
     }
 
     const numDiff = (next: number | undefined, cur: number) =>
@@ -3236,6 +3259,10 @@ function CashOutflowsPageContent() {
     projectInfo.officeSegment,
     projectInfo.officePositioning,
     officeCoworkingDeliveryForBenchmark,
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
+    aiLandRate,
     updateCashOutflowsForStream,
   ]);
 
@@ -3257,7 +3284,23 @@ function CashOutflowsPageContent() {
         newErrors.buildingType = "Building type is required.";
     }
 
-    if (step === 3) {
+    if (step === 3 && isOperationalHotel) {
+      Object.assign(newErrors, validateHotelSegmentation(projectInfo));
+    }
+
+    if (step === 3 && isOperationalRetail) {
+      Object.assign(newErrors, validateRetailSegmentation(projectInfo));
+    }
+
+    if (step === 3 && isOperationalOffice) {
+      Object.assign(newErrors, validateOfficeSegmentation(projectInfo));
+    }
+
+    if (step === 3 && isOperationalResidential) {
+      Object.assign(newErrors, validateResidentialSegmentation(projectInfo));
+    }
+
+    if (step === 4) {
       if (bc.basements < 0)
         newErrors.basements = "Basements cannot be negative.";
       if (bc.podiumFloors < 0)
@@ -3266,24 +3309,8 @@ function CashOutflowsPageContent() {
         newErrors.towerFloors = "Building floors must be greater than 0.";
     }
 
-    if (step === 4 && isOperationalHotel) {
-      Object.assign(newErrors, validateHotelSegmentation(projectInfo));
-    }
-
-    if (step === 4 && isOperationalRetail) {
-      Object.assign(newErrors, validateRetailSegmentation(projectInfo));
-    }
-
-    if (step === 4 && isOperationalOffice) {
-      Object.assign(newErrors, validateOfficeSegmentation(projectInfo));
-    }
-
-    if (step === 4 && isOperationalResidential) {
-      Object.assign(newErrors, validateResidentialSegmentation(projectInfo));
-    }
-
     if (
-      step === 4 &&
+      step === 3 &&
       !isOperationalHotel &&
       !isOperationalRetail &&
       !isOperationalOffice &&
@@ -3329,17 +3356,7 @@ function CashOutflowsPageContent() {
         newErrors.powcPercent =
           "POWC % should be between 0% and 20% of CC incl. contingency.";
       }
-      if (showsOperationalFfe) {
-        // Prefer AI-researched range; do not fall back to hardcoded 5–15% retail (etc.)
-        if (
-          aiFfeMin !== undefined &&
-          aiFfeMax !== undefined &&
-          (cashOutflows.ffePercent < aiFfeMin ||
-            cashOutflows.ffePercent > aiFfeMax)
-        ) {
-          newErrors.ffePercent = `FFE % must be between ${aiFfeMin}% and ${aiFfeMax}% for ${ffeSegmentLabel}.`;
-        }
-      }
+      // FFE AI range warnings (AiGuardrailBox) are informational only — do not block Next.
     }
 
     if (step === 8) {
@@ -3349,20 +3366,7 @@ function CashOutflowsPageContent() {
         newErrors.landRate = "Land rate must be greater than 0.";
     }
 
-    if (step === 9) {
-      const landTarget = aiData?.guardrails?.land_tdc_target_pct;
-      const dcTarget = aiData?.guardrails?.dc_tdc_target_pct;
-
-      const landMax = landTarget?.max ?? 51;
-      const dcMin = dcTarget?.min ?? 49;
-
-      if (landToTdcRatio > landMax) {
-        newErrors.landRatio = `Land/TDC should be ≤ ${landMax}%. Adjust land or development costs.`;
-      }
-      if (dcToTdcRatio < dcMin) {
-        newErrors.dcRatio = `Development/TDC should be ≥ ${dcMin}%. Current balance is land-heavy.`;
-      }
-    }
+    // Step 9 (TDC ratios): AI Land/TDC and DC/TDC guardrails are informational only.
 
     if (step === 10) {
       const co = useFinModelStore.getState().operational?.cashOutflows;
@@ -3795,8 +3799,125 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Building Configuration */}
+          {/* Step 4: Operating Segment & Positioning */}
           {currentStep === 3 && (
+            <div>
+              {isOperationalOffice ? (
+                <OfficeSegmentationStep
+                  errors={{
+                    officeSegment: fieldError("officeSegment"),
+                    officePositioning: fieldError("officePositioning"),
+                  }}
+                />
+              ) : isOperationalRetail ? (
+                <RetailSegmentationStep
+                  errors={{
+                    retailSegment: fieldError("retailSegment"),
+                    retailPositioning: fieldError("retailPositioning"),
+                  }}
+                />
+              ) : isOperationalResidential ? (
+                <ResidentialSegmentationStep
+                  errors={{
+                    residentialSegment: fieldError("residentialSegment"),
+                    residentialPositioning: fieldError(
+                      "residentialPositioning"
+                    ),
+                    residentialFurnishingLevel: fieldError(
+                      "residentialFurnishingLevel"
+                    ),
+                  }}
+                />
+              ) : isOperationalHotel ? (
+                <HotelSegmentationStep
+                  errors={{
+                    hotelOperatingType: fieldError("hotelOperatingType"),
+                    hotelStarRating: fieldError("hotelStarRating"),
+                  }}
+                />
+              ) : (
+                <>
+                  <h2 className="text-xl font-semibold text-white mb-6">
+                    Mixed-Use (Retail on Ground/Podium)
+                  </h2>
+                  {projectInfo.buildingType === "residential" ||
+                  projectInfo.buildingType === "office" ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-slate-200">
+                            Retail / Mixed-use Component
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            Toggle if the Hi-Rise Residential ground/podium includes retail or F&amp;B.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateFormData(
+                              "hasRetailComponent",
+                              !projectInfo.buildingConfig.hasRetailComponent
+                            )
+                          }
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            projectInfo.buildingConfig.hasRetailComponent
+                              ? "bg-emerald-600"
+                              : "bg-slate-600"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              projectInfo.buildingConfig.hasRetailComponent
+                                ? "translate-x-6"
+                                : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {projectInfo.buildingConfig.hasRetailComponent && (
+                        <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-2">
+                            Retail BUA as % of Ground/Podium BUA
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              value={projectInfo.buildingConfig.retailPercentage}
+                              min={1}
+                              max={50}
+                              onChange={(e) =>
+                                updateFormData(
+                                  "retailPercentage",
+                                  Number(e.target.value) || 0
+                                )
+                              }
+                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                            <span className="text-slate-400 text-sm">%</span>
+                          </div>
+                          {fieldError("retailPercentage") && (
+                            <p className="mt-1 text-sm text-red-400">
+                              {fieldError("retailPercentage")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">
+                      Mixed-use toggle is primarily for residential and office
+                      towers.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Step 5: Building Configuration */}
+          {currentStep === 4 && (
             <div className="space-y-6">
               <h2 className="text-xl font-bold text-white capitalize border-b border-slate-700 pb-4">
                 {projectInfo.buildingType === "retail"
@@ -4536,123 +4657,6 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 1c: Operational hotel segment / Mixed-Use Toggle */}
-          {currentStep === 4 && (
-            <div>
-              {isOperationalOffice ? (
-                <OfficeSegmentationStep
-                  errors={{
-                    officeSegment: fieldError("officeSegment"),
-                    officePositioning: fieldError("officePositioning"),
-                  }}
-                />
-              ) : isOperationalRetail ? (
-                <RetailSegmentationStep
-                  errors={{
-                    retailSegment: fieldError("retailSegment"),
-                    retailPositioning: fieldError("retailPositioning"),
-                  }}
-                />
-              ) : isOperationalResidential ? (
-                <ResidentialSegmentationStep
-                  errors={{
-                    residentialSegment: fieldError("residentialSegment"),
-                    residentialPositioning: fieldError(
-                      "residentialPositioning"
-                    ),
-                    residentialFurnishingLevel: fieldError(
-                      "residentialFurnishingLevel"
-                    ),
-                  }}
-                />
-              ) : isOperationalHotel ? (
-                <HotelSegmentationStep
-                  errors={{
-                    hotelOperatingType: fieldError("hotelOperatingType"),
-                    hotelStarRating: fieldError("hotelStarRating"),
-                  }}
-                />
-              ) : (
-                <>
-                  <h2 className="text-xl font-semibold text-white mb-6">
-                    Mixed-Use (Retail on Ground/Podium)
-                  </h2>
-                  {projectInfo.buildingType === "residential" ||
-                  projectInfo.buildingType === "office" ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-slate-200">
-                            Retail / Mixed-use Component
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            Toggle if the Hi-Rise Residential ground/podium includes retail or F&amp;B.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateFormData(
-                              "hasRetailComponent",
-                              !projectInfo.buildingConfig.hasRetailComponent
-                            )
-                          }
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            projectInfo.buildingConfig.hasRetailComponent
-                              ? "bg-emerald-600"
-                              : "bg-slate-600"
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              projectInfo.buildingConfig.hasRetailComponent
-                                ? "translate-x-6"
-                                : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {projectInfo.buildingConfig.hasRetailComponent && (
-                        <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Retail BUA as % of Ground/Podium BUA
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              value={projectInfo.buildingConfig.retailPercentage}
-                              min={1}
-                              max={50}
-                              onChange={(e) =>
-                                updateFormData(
-                                  "retailPercentage",
-                                  Number(e.target.value) || 0
-                                )
-                              }
-                              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                            />
-                            <span className="text-slate-400 text-sm">%</span>
-                          </div>
-                          {fieldError("retailPercentage") && (
-                            <p className="mt-1 text-sm text-red-400">
-                              {fieldError("retailPercentage")}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-400">
-                      Mixed-use toggle is primarily for residential and office
-                      towers.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
           {/* Step 2: Construction Costs */}
           {currentStep === 5 && (
             <div>
@@ -4713,10 +4717,10 @@ function CashOutflowsPageContent() {
                           value={step4BuildingBua || 0}
                           readOnly
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-                          title="Locked: Defined in Step 4 Building Configuration"
+                          title="Locked: Defined in Step 5 Building Configuration"
                         />
                         <p className="mt-1 text-xs text-amber-400">
-                          🔒 Locked: To change, go back to Step 4
+                          🔒 Locked: To change, go back to Step 5
                         </p>
                       </>
                     ) : (
@@ -4835,10 +4839,10 @@ function CashOutflowsPageContent() {
                             value={step4ParkingBua || 0}
                             readOnly
                             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-                            title="Locked: Defined in Step 4 Building Configuration"
+                            title="Locked: Defined in Step 5 Building Configuration"
                           />
                           <p className="mt-1 text-xs text-amber-400">
-                            🔒 Locked: To change, go back to Step 4
+                            🔒 Locked: To change, go back to Step 5
                           </p>
                         </>
                       ) : (
@@ -4954,10 +4958,10 @@ function CashOutflowsPageContent() {
                             value={step4BasementBua || 0}
                             readOnly
                             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-                            title="Locked: Defined in Step 4 Building Configuration"
+                            title="Locked: Defined in Step 5 Building Configuration"
                           />
                           <p className="mt-1 text-xs text-amber-400">
-                            🔒 Locked: To change, go back to Step 4
+                            🔒 Locked: To change, go back to Step 5
                           </p>
                         </>
                       ) : (
@@ -5131,7 +5135,7 @@ function CashOutflowsPageContent() {
                       <label className="block text-sm text-slate-400 mb-2">
                         Total Land Area (sqft)
                         <span className="text-xs text-slate-500 ml-2">
-                          (from Step 4)
+                          (from Step 5)
                         </span>
                       </label>
                       <input
@@ -5142,7 +5146,7 @@ function CashOutflowsPageContent() {
                         className="w-full px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-slate-400"
                       />
                       <p className="text-xs text-slate-500 mt-1">
-                        Auto-populated from Step 4 (saleable land ÷ 70%)
+                        Auto-populated from Step 5 (saleable land ÷ 70%)
                       </p>
                     </div>
 
@@ -5343,7 +5347,7 @@ function CashOutflowsPageContent() {
                 </p>
               ) : isOperationalResidential ? (
                 <p className="mb-6 text-sm text-slate-400">
-                  Complete residential segment and positioning in Step 5 to load
+                  Complete residential segment and positioning in Step 4 to load
                   benchmark SC, POWC, and FFE defaults.
                 </p>
               ) : (
@@ -5470,7 +5474,19 @@ function CashOutflowsPageContent() {
                                   : "Hotel"
                             })`
                       }
-                      value={cashOutflows.ffePercent || aiFfePct || 0}
+                      value={
+                        (
+                          isOperationalHotel
+                            ? cashOutflows.operationalHotelFfeManual
+                            : isOperationalRetail
+                              ? cashOutflows.operationalRetailFfeManual
+                              : isOperationalOffice
+                                ? cashOutflows.operationalOfficeFfeManual
+                                : true
+                        )
+                          ? cashOutflows.ffePercent || 0
+                          : (aiFfePct ?? cashOutflows.ffePercent ?? 0)
+                      }
                       onChange={(value) => {
                         const v = Number(value) || 0;
                         if (isOperationalHotel) {
@@ -5544,7 +5560,7 @@ function CashOutflowsPageContent() {
                         <AiGuardrailBox
                           severity="error"
                           title="FFE% Outside Recommended Range"
-                          message={`Your FFE value (${cashOutflows.ffePercent || 0}%) is outside the target range for this market and asset type. Please adjust your FFE percentage. Recommended range: ${aiFfeMin}% - ${aiFfeMax}% of CC incl. contingency for ${ffeSegmentLabel}.`}
+                          message={`Your FFE value (${cashOutflows.ffePercent || 0}%) is outside the target range for this market and asset type. Recommended range: ${aiFfeMin}% - ${aiFfeMax}% of CC incl. contingency for ${ffeSegmentLabel}. You may adjust or proceed anyway.`}
                           className="mt-4"
                         />
                       )}
@@ -5647,7 +5663,7 @@ function CashOutflowsPageContent() {
                 </>
               ) : isOperationalResidential ? (
                 <p className="mb-4 text-sm text-slate-400">
-                  Complete residential segment and positioning in Step 5 to load
+                  Complete residential segment and positioning in Step 4 to load
                   benchmark land rate defaults.
                 </p>
               ) : null}
@@ -5665,10 +5681,10 @@ function CashOutflowsPageContent() {
                         value={step4PlotArea || 0}
                         readOnly
                         className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-                        title="Locked: Defined in Step 4 Building Configuration"
+                        title="Locked: Defined in Step 5 Building Configuration"
                       />
                       <p className="mt-1 text-xs text-amber-400">
-                        🔒 Locked: To change, go back to Step 4
+                        🔒 Locked: To change, go back to Step 5
                       </p>
                     </>
                   ) : (
@@ -5753,6 +5769,38 @@ function CashOutflowsPageContent() {
                     {projectInfo.currency}
                   </p>
                 </div>
+              </div>
+              {/* Land Rate per GFA/BUA Display */}
+              <div className="mt-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-400">
+                    Land Rate per GFA/BUA:
+                  </span>
+                  <span className="text-sm font-semibold text-emerald-400">
+                    {projectInfo.currency || "AED"}{" "}
+                    {(() => {
+                      const landRate =
+                        cashOutflows.landRate || aiLandRate || 0;
+                      const landArea =
+                        step4PlotArea || cashOutflows.landArea || 0;
+                      const bua =
+                        step4BuildingBua || cashOutflows.buildingBUA || 0;
+
+                      if (landRate > 0 && landArea > 0 && bua > 0) {
+                        const ratePerGFA = (landRate * landArea) / bua;
+                        return ratePerGFA.toLocaleString("en-US", {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2,
+                        });
+                      }
+                      return "0";
+                    })()}
+                    {" /sqft (GFA)"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Formula: (Land Rate × Plot Area) / Total BUA
+                </p>
               </div>
               </>
               ) : null}
@@ -5840,7 +5888,7 @@ function CashOutflowsPageContent() {
                             <AiGuardrailBox
                               severity="error"
                               title="TDC Ratio Outside Institutional Range"
-                              message={`Your Land/TDC ratio (${landToTdcRatio.toFixed(1)}%) or DC/TDC ratio (${dcToTdcRatio.toFixed(1)}%) is outside the target range for this market and asset type. Please adjust your land or development costs.`}
+                              message={`Your Land/TDC ratio (${landToTdcRatio.toFixed(1)}%) or DC/TDC ratio (${dcToTdcRatio.toFixed(1)}%) is outside the target range for this market and asset type. You may adjust land/development costs or proceed anyway.`}
                               className="mt-2"
                             />
                           )}

@@ -694,7 +694,7 @@ export default function RetailRevenueStep({
           </div>
         ) : (
           <p className="text-sm text-amber-400/90">
-            Complete Component 1 Step 5 (retail segment &amp; positioning) for
+            Complete Component 1 Step 4 (retail segment &amp; positioning) for
             benchmark suggestions.
           </p>
         )}
@@ -715,10 +715,10 @@ export default function RetailRevenueStep({
             value={projectInfo.retailGLA || 0}
             readOnly
             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-            title="Locked: Defined in Component 1 Step 4 Building Configuration"
+            title="Locked: Defined in Component 1 Step 5 Building Configuration"
           />
           <p className="mt-1 text-xs text-amber-400">
-            🔒 Locked: To change, go back to Component 1 Step 4
+            🔒 Locked: To change, go back to Component 1 Step 5
           </p>
           {fieldError("glaSqft") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("glaSqft")}</p>
