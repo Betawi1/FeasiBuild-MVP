@@ -28,7 +28,11 @@ import useFinModelStore, {
   type CashOutflows,
   type ProjectInfo,
 } from "@/store/useFinModelStore";
-import { saveProject, type ProjectIndexItem } from "@/lib/puter-kv";
+import {
+  buildAndSaveProject,
+  type BuildProjectSaveInput,
+} from "@/lib/project-save";
+import { useUser } from "@clerk/nextjs";
 import AIRecommendationBox from "@/components/AIRecommendationBox";
 import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
 import { AiHintBox } from "@/components/ui/AiHintBox";
@@ -638,84 +642,53 @@ function CashOutflowsPageContent() {
     [patchUpdateCashOutflows]
   );
 
-  const handleSaveProject = useCallback(async () => {
-    console.log("💾 [NEW SAVE] Starting project save to Puter KV...");
+  const { user } = useUser();
 
+  const handleSaveProject = useCallback(async () => {
+    console.log("💾 [SAVE] Starting project save via project-save.ts...");
     try {
-      // 1. Verify Puter is available
-      if (typeof window === "undefined" || !(window as any).puter) {
-        console.error("❌ [NEW SAVE] Puter.js is not loaded!");
-        alert(
-          "❌ Puter is not available. Please ensure you are logged into your Puter account."
-        );
+      if (!user?.id) {
+        alert("❌ You must be logged in to save a project.");
         return;
       }
-      console.log("✅ [NEW SAVE] Puter.js is available");
 
-      // 2. Get current state
       const state = useFinModelStore.getState();
       const currentProjectInfo = state.operational.projectInfo;
-      const currentCashOutflows = state.operational.cashOutflows;
 
-      // 3. Generate or retrieve Project ID
       const urlParams = new URLSearchParams(window.location.search);
-      let projectId = urlParams.get("projectId");
+      const projectId =
+        urlParams.get("projectId") ||
+        `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      if (!projectId) {
-        projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        console.log("💾 [NEW SAVE] Generated new project ID:", projectId);
-
-        // Update URL silently
-        const newUrl = `${window.location.pathname}?projectId=${projectId}`;
-        window.history.replaceState({}, "", newUrl);
-      } else {
-        console.log("💾 [NEW SAVE] Using existing project ID:", projectId);
-      }
-
-      // 4. Prepare lightweight index item
-      const indexItem: ProjectIndexItem = {
-        id: projectId,
-        title:
+      const saveInput: BuildProjectSaveInput = {
+        projectName:
           (currentProjectInfo as { projectName?: string }).projectName ||
           state.activeProjectName ||
           `${currentProjectInfo.buildingType || "Project"} - ${currentProjectInfo.city || "Unknown"}`,
-        type: "Operational",
-        location: `${currentProjectInfo.city || "Unknown"}, ${currentProjectInfo.country || "Unknown"}`,
-        status: "In Progress",
-        lastModified: new Date().toISOString(),
+        stream: "operational",
+        userId: user.id,
+        projectId: projectId,
       };
 
-      // 5. Prepare full project payload
-      const projectData = {
-        id: projectId,
-        operational: {
-          projectInfo: currentProjectInfo,
-          cashOutflows: currentCashOutflows,
-        },
-        savedAt: new Date().toISOString(),
-      };
+      console.log("💾 [SAVE] Saving project with ID:", projectId);
+      const result = await buildAndSaveProject(saveInput);
 
-      console.log(
-        "💾 [NEW SAVE] Payload prepared. Size:",
-        JSON.stringify(projectData).length,
-        "bytes"
-      );
+      // Update URL if it was a new project
+      if (!urlParams.get("projectId")) {
+        const newUrl = `${window.location.pathname}?projectId=${result.projectId}`;
+        window.history.replaceState({}, "", newUrl);
+      }
 
-      // 6. Save to Puter KV
-      await saveProject(indexItem, projectData);
-      console.log("✅ [NEW SAVE] Successfully saved to Puter KV!");
-
-      // 7. Show new success alert
       alert(
-        `✅ Project saved successfully to your Puter cloud!\n\nProject ID: ${projectId}`
+        `✅ Project saved successfully!\n\nProject ID: ${result.projectId}`
       );
     } catch (error) {
-      console.error("❌ [NEW SAVE] Failed to save project:", error);
+      console.error("❌ [SAVE] Failed to save project:", error);
       alert(
         `❌ Failed to save project.\n\nError: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-  }, []);
+  }, [user]);
 
   const { performResearch, isLoading: isAiLoading, error: aiError } =
     useAiResearch();
