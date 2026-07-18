@@ -49,6 +49,7 @@ export function buildMallCommentaryPrompt(
     const macroCtx: MacroCommentaryContext = {
       city: ctx.city,
       country: ctx.country,
+      subMarket: bundle.location.subMarket,
       assetType: `Shopping Mall (${ctx.mallType})`,
       projectIRR: ctx.projectIRR,
       constructionMonths: ctx.constructionPeriod,
@@ -69,7 +70,8 @@ export function buildMallCommentaryPrompt(
       "Stabilized Occupancy": `${ctx.stabilizedOccupancy}%`,
       TDC: fmtMallMoney(ctx.tdc, ctx.currency, true),
       "Project IRR": `${ctx.projectIRR}%`,
-    }
+    },
+    { subMarket: bundle.location.subMarket }
   );
   if (marketPrompt) return marketPrompt;
 

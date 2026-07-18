@@ -1,6 +1,7 @@
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import { buildMacroSlides } from "@/lib/feasibility/generate-market-slides";
 import { generateTitleSlide } from "@/lib/feasibility/generate-title-slide";
+import { generateProjectLocationSlide } from "@/lib/feasibility/generate-project-location-slide";
 import { generateFinancialSlides } from "@/lib/feasibility/generate-financial-slides";
 import {
   generateMallCommentaryFallback,
@@ -149,7 +150,8 @@ export async function generateMallCommentary(
       forceRegenerate: options?.forceRegenerate,
       section,
     });
-    return cleanAIContent(raw);
+    // generateCommentary already returns cleaned paragraphs
+    return raw;
   } catch (error) {
     console.error(`Failed to generate commentary for ${section}:`, error);
     return [`Content generation failed for ${section}. Please try again.`];
@@ -410,13 +412,14 @@ function generateMallFinancialSlides(
   ];
 }
 
-/** Full 33-slide shopping mall deck: Title → Executive → Project → Macro → Retail Market → Financial. */
+/** Full 33-slide shopping mall deck: Title → Executive → Location → Project → Macro → Retail Market → Financial. */
 export function generateShoppingMallSlides(
   bundle: FeasibilityProjectBundle
 ): FeasibilitySlide[] {
   return [
     generateTitleSlide(bundle),
     ...generateMallExecutiveSlides(bundle),
+    generateProjectLocationSlide(bundle),
     generateMallProjectSlide(bundle),
     ...generateMallMarketSlides(bundle),
     ...generateMallFinancialSlides(bundle),

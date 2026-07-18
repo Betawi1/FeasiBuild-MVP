@@ -14,14 +14,17 @@ interface Props extends SlideEditingProps {
   city: string;
 }
 
+const COL_GRID =
+  "grid grid-cols-[minmax(0,25%)_minmax(0,45%)_minmax(0,30%)] gap-3";
+
 function EffectList({ effect, color }: { effect: string; color: "red" | "emerald" }) {
   const dot = color === "red" ? "text-red-500" : "text-emerald-500";
   const sentences = splitEffectSentences(effect);
   return (
-    <ul className="space-y-0 text-[10px] text-slate-800 leading-snug">
+    <ul className="space-y-1 text-sm text-slate-700 leading-snug">
       {sentences.map((e, j) => (
         <li key={j} className="flex items-start">
-          <span className={`${dot} mr-1 shrink-0`}>•</span>
+          <span className={`${dot} mr-1.5 shrink-0`}>•</span>
           <span>
             {cleanDisplayText(e)}
             {!e.endsWith(".") ? "." : ""}
@@ -88,49 +91,49 @@ export default function KeyRiskFactorsSlide({
       <SlideHeader
         title="Key success and risk factors"
         subtitle="Potential risk factors and their mitigations"
-        className="!mb-2"
+        className="mb-4"
       />
 
-      <div className="flex-1 min-h-0 overflow-hidden space-y-1">
-        <div className="grid grid-cols-3 gap-1 text-[10px] font-bold text-slate-800">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+        <div className={`${COL_GRID} text-sm font-bold text-slate-800`}>
           <h3>Potential risks</h3>
           <h3>Possible effects on the Project</h3>
           <h3>Mitigating factors</h3>
         </div>
 
-        <div className="space-y-1">
-          <div className="bg-slate-800 text-white p-1 rounded text-[10px] font-bold">
+        <div className="space-y-2">
+          <div className="bg-slate-800 text-white px-2 py-1.5 rounded text-xs font-bold">
             Market threats
           </div>
           {data.marketThreats.map((item, i) => (
-            <div key={i} className="grid grid-cols-3 gap-1 text-[10px]">
-              <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
+            <div key={i} className={`${COL_GRID} text-sm`}>
+              <div className="bg-slate-100 p-2 rounded border-l-4 border-slate-800 leading-snug text-slate-800 font-medium">
                 {isEditing ? (
                   <textarea
                     value={item.risk}
                     onChange={(e) => updateThreat(i, { risk: e.target.value })}
-                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                   />
                 ) : (
                   cleanDisplayText(item.risk)
                 )}
               </div>
-              <div className="bg-slate-50 p-1 rounded border border-slate-300">
+              <div className="bg-slate-50 p-2 rounded border border-slate-300">
                 {isEditing ? (
                   <textarea
                     value={item.effect}
                     onChange={(e) => updateThreat(i, { effect: e.target.value })}
-                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                   />
                 ) : (
                   <EffectList effect={item.effect} color="red" />
                 )}
               </div>
-              <div className="bg-white p-1 rounded border border-slate-300">
-                <ul className="space-y-0 text-[10px] text-slate-800 leading-snug">
+              <div className="bg-white p-2 rounded border border-slate-300">
+                <ul className="space-y-1 text-sm text-slate-700 leading-snug">
                   {item.mitigatingFactors.map((factor, j) => (
                     <li key={j} className="flex items-start">
-                      <span className="text-emerald-500 mr-1 shrink-0">•</span>
+                      <span className="text-emerald-500 mr-1.5 shrink-0">•</span>
                       {isEditing ? (
                         <textarea
                           value={factor}
@@ -142,7 +145,7 @@ export default function KeyRiskFactorsSlide({
                               e.target.value
                             )
                           }
-                          className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[32px] text-[10px]"
+                          className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-sm"
                         />
                       ) : (
                         <span>{cleanDisplayText(factor)}</span>
@@ -155,43 +158,43 @@ export default function KeyRiskFactorsSlide({
           ))}
         </div>
 
-        <div className="space-y-1">
-          <div className="bg-slate-800 text-white p-1 rounded text-[10px] font-bold">
+        <div className="space-y-2">
+          <div className="bg-slate-800 text-white px-2 py-1.5 rounded text-xs font-bold">
             Project&apos;s possible weaknesses
           </div>
           {data.projectWeaknesses.map((item, i) => (
-            <div key={i} className="grid grid-cols-3 gap-1 text-[10px]">
-              <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
+            <div key={i} className={`${COL_GRID} text-sm`}>
+              <div className="bg-slate-100 p-2 rounded border-l-4 border-slate-800 leading-snug text-slate-800 font-medium">
                 {isEditing ? (
                   <textarea
                     value={item.weakness}
                     onChange={(e) =>
                       updateWeakness(i, { weakness: e.target.value })
                     }
-                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                   />
                 ) : (
                   cleanDisplayText(item.weakness)
                 )}
               </div>
-              <div className="bg-slate-50 p-1 rounded border border-slate-300">
+              <div className="bg-slate-50 p-2 rounded border border-slate-300">
                 {isEditing ? (
                   <textarea
                     value={item.effect}
                     onChange={(e) =>
                       updateWeakness(i, { effect: e.target.value })
                     }
-                    className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                    className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                   />
                 ) : (
                   <EffectList effect={item.effect} color="red" />
                 )}
               </div>
-              <div className="bg-white p-1 rounded border border-slate-300">
-                <ul className="space-y-0 text-[10px] text-slate-800 leading-snug">
+              <div className="bg-white p-2 rounded border border-slate-300">
+                <ul className="space-y-1 text-sm text-slate-700 leading-snug">
                   {item.mitigatingFactors.map((factor, j) => (
                     <li key={j} className="flex items-start">
-                      <span className="text-emerald-500 mr-1 shrink-0">•</span>
+                      <span className="text-emerald-500 mr-1.5 shrink-0">•</span>
                       {isEditing ? (
                         <textarea
                           value={factor}
@@ -203,7 +206,7 @@ export default function KeyRiskFactorsSlide({
                               e.target.value
                             )
                           }
-                          className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[32px] text-[10px]"
+                          className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-sm"
                         />
                       ) : (
                         <span>{cleanDisplayText(factor)}</span>
@@ -217,7 +220,7 @@ export default function KeyRiskFactorsSlide({
         </div>
       </div>
 
-      <p className="text-[9px] text-slate-500 mt-1 shrink-0">
+      <p className="text-[10px] text-slate-500 mt-2 shrink-0">
         Source: QWEN AI Market Research, {new Date().getFullYear()}
       </p>
     </SlideContainer>

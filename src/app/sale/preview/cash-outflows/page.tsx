@@ -167,6 +167,16 @@ export default function PreviewCashOutflowsPage() {
   ]);
 
   useEffect(() => {
+    // 🔍 DEBUG: Log what we're about to save
+    console.log("💾 [About to Save Construction Costs]:", {
+      pluggedConstruction_first5:
+        pluggedSeriesForStore.pluggedConstruction.slice(0, 6),
+      outflowProfile_construction_first5: outflowProfile.construction?.slice(
+        0,
+        6
+      ),
+    });
+
     // Save PLUGGED arrays to store (not raw) so downstream previews match this page.
     const next = {
       ...(cashOutflows as any),

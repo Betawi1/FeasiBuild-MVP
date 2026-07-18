@@ -49,6 +49,7 @@ export function buildOfficeCommentaryPrompt(
     const macroCtx: MacroCommentaryContext = {
       city: ctx.city,
       country: ctx.country,
+      subMarket: bundle.location.subMarket,
       assetType: "Prime Office + Retail Mixed-Use Tower",
       projectIRR: ctx.projectIRR,
       constructionMonths: ctx.constructionPeriod,
@@ -69,7 +70,8 @@ export function buildOfficeCommentaryPrompt(
       "Retail GLA": `${ctx.retailGla.toLocaleString()} sqft`,
       TDC: fmtOfficeMoney(ctx.tdc, ctx.currency, true),
       "Project IRR": `${ctx.projectIRR}%`,
-    }
+    },
+    { subMarket: bundle.location.subMarket }
   );
   if (marketPrompt) return marketPrompt;
 

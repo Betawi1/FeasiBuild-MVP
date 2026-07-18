@@ -107,25 +107,30 @@ function normStr(value: string | undefined): string {
 
 /**
  * Core operational inputs for cache hashing — primitives only.
- * Excludes IRR, cash-flow arrays, timestamps, and formatted loan labels.
+ * Excludes calculated totals (TDC/GDV/IRR), cash-flow arrays, timestamps.
  */
 export function buildOperationalStableInputs(
   bundle: FeasibilityProjectBundle
 ): Record<string, string | number> {
   const c1 = bundle.component1;
   const c2 = bundle.component2;
+  const c4 = bundle.component4;
   const city = normStr(bundle.location.city);
   const country = normStr(bundle.location.country);
+  const subMarket = normStr(bundle.location.subMarket ?? "");
+  const lat = bundle.location.coordinates?.lat;
+  const lng = bundle.location.coordinates?.lng;
 
   return {
     city,
     country,
-    location: `${city},${country}`,
+    subMarket,
+    lat: lat != null && Number.isFinite(lat) ? roundForHash(lat, 5) : "",
+    lng: lng != null && Number.isFinite(lng) ? roundForHash(lng, 5) : "",
+    location: `${city},${country},${subMarket}`,
     assetType: normStr(bundle.assetType),
     segment: normStr(bundle.segment),
     currency: normStr(bundle.currency),
-    tdc: roundForHash(bundle.component4.tdc, 0),
-    gdv: roundForHash(bundle.component4.gdv, 0),
     rooms: c1.rooms,
     bua: roundForHash(c1.bua, 0),
     constructionPeriod: c1.constructionPeriod,
@@ -145,6 +150,14 @@ export function buildOperationalStableInputs(
     occupancyStabilized: roundForHash(c2.occupancyStabilized, 2),
     operationalYears: c2.operationalYears,
     starRating: normStr(bundle.aggregate?.starRating),
+    approvedDebt: roundForHash(c4.approvedDebt, 0),
+    drawdownType: normStr(c4.drawdownType),
+    idcTreatment: normStr(c4.idcTreatment),
+    loanAtCompletion: roundForHash(c4.loanAtCompletion, 0),
+    loanType: normStr(c4.loanType),
+    interestRate: roundForHash(c4.interestRate, 4),
+    totalTenor: normStr(c4.totalTenor),
+    idcAmount: roundForHash(c4.idcAmount, 0),
   };
 }
 
@@ -175,20 +188,21 @@ export const SLIDE_DEPENDENCIES: Record<
 > = {
   macro: ["projectInfo", "marketData"],
   market: ["projectInfo", "marketData", "component2Data"],
-  "executive-summary": ["component2Data", "component4Data"],
+  "executive-summary": ["component1Data", "component2Data", "component4Data"],
   project: ["projectInfo", "component1Data", "component2Data"],
   "financial-assumptions": ["component1Data"],
   "development-schedule": ["component1Data", "component2Data"],
   "sales-assumptions": ["component2Data"],
-  "cash-flow": ["component2Data", "component4Data"],
+  "cash-flow": ["component1Data", "component2Data", "component4Data"],
   financing: ["component4Data", "component6Data"],
-  scenario: ["component2Data", "component4Data", "component6Data"],
+  scenario: ["component1Data", "component2Data", "component4Data", "component6Data"],
 };
 
 /** Map sale slide IDs to dependency sections for cache invalidation. */
 export const SALE_SLIDE_DEPENDENCY_SECTION: Record<string, SlideDependencySection> =
   {
     "exec-1": "executive-summary",
+    "project-location": "project",
     "sale-project-overview": "project",
     "macro-1": "macro",
     "macro-2": "macro",
@@ -223,6 +237,8 @@ export function buildSaleBundleHashes(
     projectInfo: generateDataHash({
       city: bundle.location.city,
       country: bundle.location.country,
+      subMarket: bundle.location.subMarket,
+      coordinates: bundle.location.coordinates,
       currency: bundle.currency,
       buildingSubType: bundle.buildingSubType,
       buildingType: bundle.buildingType,
@@ -249,9 +265,14 @@ export function buildOperationalBundleHashes(
   const stable = buildOperationalStableInputs(bundle);
   console.log("[Cache Debug] Operational stable inputs:", stable);
 
+  // CRITICAL: Only hash stable, user-controlled inputs.
+  // Do NOT include TDC/GDV/IRR (calculated; float between loads) or timestamps/IDs.
   const projectInfo = {
     city: stable.city,
     country: stable.country,
+    subMarket: stable.subMarket,
+    lat: stable.lat,
+    lng: stable.lng,
     currency: stable.currency,
     assetType: stable.assetType,
     segment: stable.segment,
@@ -262,12 +283,6 @@ export function buildOperationalBundleHashes(
     country: stable.country,
     assetType: stable.assetType,
     segment: stable.segment,
-    currency: stable.currency,
-    tdc: stable.tdc,
-    gdv: stable.gdv,
-    rooms: stable.rooms,
-    bua: stable.bua,
-    constructionPeriod: stable.constructionPeriod,
     starRating: stable.starRating,
     adrYear1: stable.adrYear1,
     adrStabilized: stable.adrStabilized,
@@ -299,9 +314,15 @@ export function buildOperationalBundleHashes(
     operationalYears: stable.operationalYears,
   };
 
-  const financialData = {
-    tdc: stable.tdc,
-    gdv: stable.gdv,
+  const financingData = {
+    approvedDebt: stable.approvedDebt,
+    drawdownType: stable.drawdownType,
+    idcTreatment: stable.idcTreatment,
+    loanAtCompletion: stable.loanAtCompletion,
+    loanType: stable.loanType,
+    interestRate: stable.interestRate,
+    totalTenor: stable.totalTenor,
+    idcAmount: stable.idcAmount,
   };
 
   const hashes = {
@@ -309,15 +330,30 @@ export function buildOperationalBundleHashes(
     marketData: generateDataHash(marketData, "operational.marketData"),
     component1Data: generateDataHash(component1Data, "operational.component1"),
     component2Data: generateDataHash(component2Data, "operational.component2"),
-    component4Data: generateDataHash(financialData, "operational.component4"),
-    component6Data: generateDataHash(financialData, "operational.component6"),
+    component4Data: generateDataHash(financingData, "operational.component4"),
+    component6Data: generateDataHash(financingData, "operational.component6"),
   };
 
   console.log("[Cache Debug] Operational component hashes:", hashes);
   return hashes;
 }
 
-/** Stable hash from core project inputs (location, asset, TDC/GDV). */
+/** Deep-compare two hash maps (order-independent via JSON of sorted keys). */
+export function hashesAreEqual(
+  a: Record<string, string>,
+  b: Record<string, string>
+): boolean {
+  const keysA = Object.keys(a).sort();
+  const keysB = Object.keys(b).sort();
+  if (keysA.length !== keysB.length) return false;
+  for (let i = 0; i < keysA.length; i++) {
+    const key = keysA[i]!;
+    if (key !== keysB[i] || a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
+/** Stable hash from core project inputs (location, asset, physical + financing inputs). */
 export function buildStableProjectHash(
   bundle: FeasibilityProjectBundle
 ): string {
@@ -332,6 +368,7 @@ export const OPERATIONAL_SLIDE_DEPENDENCY_SECTION: Record<
   SlideDependencySection
 > = {
   "exec-1": "executive-summary",
+  "project-location": "project",
   "mall-project-overview": "project",
   "office-project-overview": "project",
   "btr-project-overview": "project",
@@ -445,6 +482,8 @@ export function buildOperationalCommentaryCacheKey(
 }
 
 /** Layer 2: true when any dependency hash changed since last generation. */
+const loggedDependencyChanges = new Set<string>();
+
 export function shouldRegenerateSlide(
   slideSection: SlideDependencySection,
   oldHashes: Record<string, string>,
@@ -460,8 +499,20 @@ export function shouldRegenerateSlide(
 
   for (const dep of dependencies) {
     if (oldHashes[dep] !== newHashes[dep]) {
+      const logKey = `${slideSection}:${dep}:${oldHashes[dep] ?? "∅"}→${newHashes[dep] ?? "∅"}`;
+      if (!loggedDependencyChanges.has(logKey)) {
+        loggedDependencyChanges.add(logKey);
+        console.log(
+          `[Cache] Dependency changed for ${slideSection}: ${dep} (${oldHashes[dep] ?? "∅"} → ${newHashes[dep] ?? "∅"})`
+        );
+      }
       return true;
     }
   }
   return false;
+}
+
+/** Clear dedupe set for dependency-change logs (call at start of a generation run). */
+export function resetDependencyChangeLog(): void {
+  loggedDependencyChanges.clear();
 }

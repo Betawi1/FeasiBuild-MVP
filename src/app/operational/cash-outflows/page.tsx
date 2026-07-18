@@ -28,6 +28,7 @@ import useFinModelStore, {
   type CashOutflows,
   type ProjectInfo,
 } from "@/store/useFinModelStore";
+import { saveProject, type ProjectIndexItem } from "@/lib/puter-kv";
 import AIRecommendationBox from "@/components/AIRecommendationBox";
 import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
 import { AiHintBox } from "@/components/ui/AiHintBox";
@@ -49,6 +50,7 @@ import ResidentialStep6Construction from "./steps/ResidentialStep6Construction";
 import ResidentialStep8SoftCosts from "./steps/ResidentialStep8SoftCosts";
 import ResidentialStep9LandCosts from "./steps/ResidentialStep9LandCosts";
 import { useResidentialCashOutflowBenchmark } from "./steps/residential-cash-outflow-benchmark";
+import BenchmarkHeader from "@/components/BenchmarkHeader";
 import {
   DEFAULT_POWC_ALLOCATION,
   DEFAULT_SOFT_COST_ALLOCATION,
@@ -86,6 +88,9 @@ import {
   humanizeFieldId,
   logOperationalCashOutflow,
 } from "@/lib/operational-audit-fields";
+
+/** Bump only when AI research output schema changes (not model name). */
+const AI_CACHE_VERSION = "v1.0";
 
 type Errors = Record<string, string>;
 
@@ -633,6 +638,85 @@ function CashOutflowsPageContent() {
     [patchUpdateCashOutflows]
   );
 
+  const handleSaveProject = useCallback(async () => {
+    console.log("💾 [NEW SAVE] Starting project save to Puter KV...");
+
+    try {
+      // 1. Verify Puter is available
+      if (typeof window === "undefined" || !(window as any).puter) {
+        console.error("❌ [NEW SAVE] Puter.js is not loaded!");
+        alert(
+          "❌ Puter is not available. Please ensure you are logged into your Puter account."
+        );
+        return;
+      }
+      console.log("✅ [NEW SAVE] Puter.js is available");
+
+      // 2. Get current state
+      const state = useFinModelStore.getState();
+      const currentProjectInfo = state.operational.projectInfo;
+      const currentCashOutflows = state.operational.cashOutflows;
+
+      // 3. Generate or retrieve Project ID
+      const urlParams = new URLSearchParams(window.location.search);
+      let projectId = urlParams.get("projectId");
+
+      if (!projectId) {
+        projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        console.log("💾 [NEW SAVE] Generated new project ID:", projectId);
+
+        // Update URL silently
+        const newUrl = `${window.location.pathname}?projectId=${projectId}`;
+        window.history.replaceState({}, "", newUrl);
+      } else {
+        console.log("💾 [NEW SAVE] Using existing project ID:", projectId);
+      }
+
+      // 4. Prepare lightweight index item
+      const indexItem: ProjectIndexItem = {
+        id: projectId,
+        title:
+          (currentProjectInfo as { projectName?: string }).projectName ||
+          state.activeProjectName ||
+          `${currentProjectInfo.buildingType || "Project"} - ${currentProjectInfo.city || "Unknown"}`,
+        type: "Operational",
+        location: `${currentProjectInfo.city || "Unknown"}, ${currentProjectInfo.country || "Unknown"}`,
+        status: "In Progress",
+        lastModified: new Date().toISOString(),
+      };
+
+      // 5. Prepare full project payload
+      const projectData = {
+        id: projectId,
+        operational: {
+          projectInfo: currentProjectInfo,
+          cashOutflows: currentCashOutflows,
+        },
+        savedAt: new Date().toISOString(),
+      };
+
+      console.log(
+        "💾 [NEW SAVE] Payload prepared. Size:",
+        JSON.stringify(projectData).length,
+        "bytes"
+      );
+
+      // 6. Save to Puter KV
+      await saveProject(indexItem, projectData);
+      console.log("✅ [NEW SAVE] Successfully saved to Puter KV!");
+
+      // 7. Show new success alert
+      alert(
+        `✅ Project saved successfully to your Puter cloud!\n\nProject ID: ${projectId}`
+      );
+    } catch (error) {
+      console.error("❌ [NEW SAVE] Failed to save project:", error);
+      alert(
+        `❌ Failed to save project.\n\nError: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }, []);
+
   const { performResearch, isLoading: isAiLoading, error: aiError } =
     useAiResearch();
 
@@ -978,6 +1062,153 @@ function CashOutflowsPageContent() {
           : getOperationalFfeAssetLabel(projectInfo.buildingType);
   const aiPowcBreakdown = aiC1?.powc_breakdown;
   const aiScBreakdown = aiC1?.sc_breakdown;
+  const aiScurve = aiC1?.s_curve;
+
+  const ALLOC_EPS = 0.01;
+  const differsFromAi = (current: number, ai?: number | null) =>
+    ai != null && Number.isFinite(ai) && Math.abs(current - ai) > ALLOC_EPS;
+
+  const hasStageAllocationOverride = useMemo(() => {
+    if (!aiScurve) return false;
+    const sa = cashOutflows.stageAllocation;
+    return (
+      differsFromAi(sa.stage1Percent, aiScurve.stage_1_pct) ||
+      differsFromAi(sa.stage2Percent, aiScurve.stage_2_pct) ||
+      differsFromAi(sa.stage3Percent, aiScurve.stage_3_pct) ||
+      differsFromAi(sa.stage4Percent, aiScurve.stage_4_pct)
+    );
+  }, [
+    aiScurve,
+    cashOutflows.stageAllocation.stage1Percent,
+    cashOutflows.stageAllocation.stage2Percent,
+    cashOutflows.stageAllocation.stage3Percent,
+    cashOutflows.stageAllocation.stage4Percent,
+  ]);
+
+  const powcAllocCurrent =
+    cashOutflows.powcAllocation ?? { ...DEFAULT_POWC_ALLOCATION };
+  const softAllocCurrent =
+    cashOutflows.softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
+
+  const hasPowcAllocationOverride = useMemo(() => {
+    if (!aiPowcBreakdown) return false;
+    return (
+      differsFromAi(
+        powcAllocCurrent.siteEstablishment,
+        aiPowcBreakdown.site_establishment_pct
+      ) ||
+      differsFromAi(powcAllocCurrent.overhead, aiPowcBreakdown.overhead_pct) ||
+      differsFromAi(
+        powcAllocCurrent.authorityFees,
+        aiPowcBreakdown.authority_fees_pct
+      )
+    );
+  }, [
+    aiPowcBreakdown,
+    powcAllocCurrent.siteEstablishment,
+    powcAllocCurrent.overhead,
+    powcAllocCurrent.authorityFees,
+  ]);
+
+  const hasScAllocationOverride = useMemo(() => {
+    if (!aiScBreakdown) return false;
+    return (
+      differsFromAi(softAllocCurrent.architect, aiScBreakdown.architect_pct) ||
+      differsFromAi(
+        softAllocCurrent.projectManagement,
+        aiScBreakdown.pm_pct
+      ) ||
+      differsFromAi(
+        softAllocCurrent.engineering,
+        aiScBreakdown.engineering_pct
+      ) ||
+      differsFromAi(
+        softAllocCurrent.geotechnical,
+        aiScBreakdown.geotech_pct
+      ) ||
+      differsFromAi(softAllocCurrent.otherFees, aiScBreakdown.other_pct)
+    );
+  }, [
+    aiScBreakdown,
+    softAllocCurrent.architect,
+    softAllocCurrent.projectManagement,
+    softAllocCurrent.engineering,
+    softAllocCurrent.geotechnical,
+    softAllocCurrent.otherFees,
+  ]);
+
+  const hasDetailedAllocationOverride =
+    hasPowcAllocationOverride || hasScAllocationOverride;
+
+  const resetStagesToAiBenchmark = useCallback(() => {
+    if (!aiC1?.s_curve) return;
+    console.log("[Benchmark Reset] Construction stages from AI:", aiC1.s_curve);
+    updateCashOutflowsForStream({
+      stageAllocation: {
+        ...cashOutflows.stageAllocation,
+        stage1Percent: aiC1.s_curve.stage_1_pct ?? 10,
+        stage2Percent: aiC1.s_curve.stage_2_pct ?? 20,
+        stage3Percent: aiC1.s_curve.stage_3_pct ?? 40,
+        stage4Percent: aiC1.s_curve.stage_4_pct ?? 30,
+      },
+    });
+  }, [aiC1, cashOutflows.stageAllocation, updateCashOutflowsForStream]);
+
+  const resetDetailedAllocationsToAi = useCallback(() => {
+    if (!aiC1) return;
+    console.log("[Benchmark Reset] POWC/SC allocations from AI:", {
+      powc: aiC1.powc_breakdown,
+      sc: aiC1.sc_breakdown,
+    });
+    const patch: Partial<CashOutflows> = {};
+    if (aiC1.powc_breakdown) {
+      patch.powcAllocation = {
+        siteEstablishment: aiC1.powc_breakdown.site_establishment_pct,
+        overhead: aiC1.powc_breakdown.overhead_pct,
+        authorityFees: aiC1.powc_breakdown.authority_fees_pct,
+      };
+    }
+    if (aiC1.sc_breakdown) {
+      patch.softCostAllocation = {
+        architect: aiC1.sc_breakdown.architect_pct,
+        projectManagement: aiC1.sc_breakdown.pm_pct,
+        engineering: aiC1.sc_breakdown.engineering_pct,
+        geotechnical: aiC1.sc_breakdown.geotech_pct,
+        otherFees: aiC1.sc_breakdown.other_pct,
+      };
+    }
+    if (Object.keys(patch).length > 0) {
+      updateCashOutflowsForStream(patch);
+    }
+  }, [aiC1, updateCashOutflowsForStream]);
+
+  const allocInputClass = (current: number, aiVal?: number | null) => {
+    const base =
+      "w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500";
+    if (aiVal != null && differsFromAi(current, aiVal)) {
+      return `${base} border-2 border-amber-500`;
+    }
+    if (aiVal != null) {
+      return `${base} border-2 border-blue-500`;
+    }
+    return `${base} border border-slate-600`;
+  };
+
+  const renderAllocBadge = (current: number, aiVal?: number | null) => {
+    if (aiVal == null) return null;
+    if (differsFromAi(current, aiVal)) {
+      return (
+        <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+          Override
+        </span>
+      );
+    }
+    return (
+      <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+        AI
+      </span>
+    );
+  };
 
   const hotelHasManualOverride = !!(
     cashOutflows.operationalHotelScManual ||
@@ -987,6 +1218,23 @@ function CashOutflowsPageContent() {
     cashOutflows.operationalHotelParkingRateManual ||
     cashOutflows.operationalHotelBasementRateManual ||
     cashOutflows.operationalHotelLandRateManual
+  );
+
+  const hotelCcRateOverrides = {
+    building: !!cashOutflows.operationalHotelBuildingRateManual,
+    parking: !!cashOutflows.operationalHotelParkingRateManual,
+    basement: !!cashOutflows.operationalHotelBasementRateManual,
+    any: !!(
+      cashOutflows.operationalHotelBuildingRateManual ||
+      cashOutflows.operationalHotelParkingRateManual ||
+      cashOutflows.operationalHotelBasementRateManual
+    ),
+  };
+
+  const hotelSoftPercentOverrides = !!(
+    cashOutflows.operationalHotelScManual ||
+    cashOutflows.operationalHotelPowcManual ||
+    cashOutflows.operationalHotelFfeManual
   );
 
   const resetHotelToAiBenchmark = useCallback(() => {
@@ -1200,7 +1448,10 @@ function CashOutflowsPageContent() {
   }, [aiC1, updateCashOutflowsForStream]);
   // --- END: Hotel Step-Specific Resets ---
 
-  const renderHotelBenchmarkBar = (resetFn?: () => void) => {
+  const renderHotelBenchmarkBar = (
+    resetFn?: () => void,
+    hasOverride: boolean = hotelHasManualOverride
+  ) => {
     if (!isOperationalHotel || !operationalHotelProfileUi) return null;
     return (
       <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
@@ -1216,13 +1467,13 @@ function CashOutflowsPageContent() {
               projectInfo.hotelStarRating || "5"
             } · ${(projectInfo.city || "dubai").toLowerCase()}`}
           </HoverTipInline>
-          {hotelHasManualOverride && (
+          {hasOverride && (
             <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
               Manual overrides
             </span>
           )}
         </div>
-        {hotelHasManualOverride && resetFn && (
+        {hasOverride && resetFn && (
           <button
             type="button"
             onClick={resetFn}
@@ -1235,26 +1486,59 @@ function CashOutflowsPageContent() {
     );
   };
 
-  const renderRetailOfficeBenchmarkBar = ({
+  const renderRetailBenchmarkBar = ({
     hasManualOverride,
     onReset,
   }: {
     hasManualOverride: boolean;
     onReset?: () => void;
   }) => {
-    if (!retailBenchmarkReady && !officeBenchmarkReady) return null;
-    const label = retailBenchmarkReady
-      ? `Retail · ${projectInfo.retailSegment} · ${projectInfo.retailPositioning} · ${projectInfo.country}`
-      : `Office · ${projectInfo.officeSegment} · ${projectInfo.officePositioning} · ${projectInfo.country}`;
+    if (!isOperationalRetail) return null;
+    return (
+      <BenchmarkHeader
+        assetType="retail"
+        country={projectInfo.country}
+        segment={projectInfo.retailSegment}
+        positioning={projectInfo.retailPositioning}
+        onUseDefaults={onReset ?? (() => {})}
+        isManualOverride={hasManualOverride}
+        showResetButton={!!onReset}
+      />
+    );
+  };
+
+  const renderOfficeBenchmarkHeader = ({
+    hasManualOverride,
+    onReset,
+  }: {
+    hasManualOverride: boolean;
+    onReset?: () => void;
+  }) => {
+    // Show for Office projects, regardless of legacy benchmark match.
+    // AI research data is the primary source now.
+    if (!isOperationalOffice) return null;
+
+    const segmentTitle = projectInfo.officeSegment
+      ? projectInfo.officeSegment.replace(/_/g, " ")
+      : "Office";
+    const positioningTitle = projectInfo.officePositioning || "Standard";
+
     return (
       <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-700 pb-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Benchmark
           </span>
-          <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
-            {label}
-          </span>
+          <div className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1">
+            <span className="text-xs text-slate-300">
+              Office · {projectInfo.country || "Country"} · {segmentTitle} ·{" "}
+              {positioningTitle}
+              {projectInfo.officeSegment === "co_working" &&
+              projectInfo.officeCoworkingDelivery
+                ? ` · ${projectInfo.officeCoworkingDelivery}`
+                : ""}
+            </span>
+          </div>
           {hasManualOverride && (
             <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
               Manual overrides
@@ -1287,7 +1571,7 @@ function CashOutflowsPageContent() {
     }
 
     // Create the unique fingerprint for the current parameters
-    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.hotelOperatingType}-${projectInfo.hotelStarRating}-${projectInfo.hotelTotalKeys}-${projectInfo.hotelTotalBuildingBUA}`;
+    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.hotelOperatingType}-${projectInfo.hotelStarRating}-${projectInfo.hotelTotalKeys}-${projectInfo.hotelTotalBuildingBUA}`;
 
     const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
 
@@ -1297,15 +1581,30 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    // 2. Legacy Project Handler: AI data exists, but no fingerprint saved yet
-    if (cashOutflows?.aiResearchData && !savedFingerprint) {
-      console.log("⚠️ Legacy Hotel project detected. Injecting fingerprint silently...");
+    // 2. Legacy Project Handler: AI data exists but fingerprint doesn't match
+    if (cashOutflows?.aiResearchData && savedFingerprint !== researchKey) {
+      const savedVersion = savedFingerprint?.split(":")[0] || "v0.0";
+      const currentVersion = AI_CACHE_VERSION;
+
+      if (savedVersion === currentVersion) {
+        console.log("✅ Same cache version, updating fingerprint silently...");
+        const dataWithFingerprint = {
+          ...cashOutflows.aiResearchData,
+          _researchKey: researchKey,
+        };
+        updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+        return;
+      }
+
+      console.log(
+        `⚠️ Cache version changed from ${savedVersion} to ${currentVersion}. Checking if regeneration needed...`
+      );
       const dataWithFingerprint = {
         ...cashOutflows.aiResearchData,
         _researchKey: researchKey,
       };
       updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
-      return; // Stop here, do not trigger API
+      return;
     }
 
     const researchParams = {
@@ -1477,7 +1776,7 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.retailSegment}-${projectInfo.retailPositioning}-${projectInfo.retailGLA}-${projectInfo.retailTotalBuildingBUA}`;
+    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.retailSegment}-${projectInfo.retailPositioning}-${projectInfo.retailGLA}-${projectInfo.retailTotalBuildingBUA}`;
 
     const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
 
@@ -1486,8 +1785,23 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    if (cashOutflows?.aiResearchData && !savedFingerprint) {
-      console.log("⚠️ Legacy Retail project detected. Injecting fingerprint silently...");
+    if (cashOutflows?.aiResearchData && savedFingerprint !== researchKey) {
+      const savedVersion = savedFingerprint?.split(":")[0] || "v0.0";
+      const currentVersion = AI_CACHE_VERSION;
+
+      if (savedVersion === currentVersion) {
+        console.log("✅ Same cache version, updating fingerprint silently...");
+        const dataWithFingerprint = {
+          ...cashOutflows.aiResearchData,
+          _researchKey: researchKey,
+        };
+        updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+        return;
+      }
+
+      console.log(
+        `⚠️ Cache version changed from ${savedVersion} to ${currentVersion}. Checking if regeneration needed...`
+      );
       const dataWithFingerprint = {
         ...cashOutflows.aiResearchData,
         _researchKey: researchKey,
@@ -1654,7 +1968,7 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.officeSegment}-${projectInfo.officePositioning}-${projectInfo.officeGLA}-${projectInfo.officeTotalBuildingBUA}`;
+    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.officeSegment}-${projectInfo.officePositioning}-${projectInfo.officeGLA}-${projectInfo.officeTotalBuildingBUA}`;
 
     const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
 
@@ -1663,8 +1977,23 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    if (cashOutflows?.aiResearchData && !savedFingerprint) {
-      console.log("⚠️ Legacy Office project detected. Injecting fingerprint silently...");
+    if (cashOutflows?.aiResearchData && savedFingerprint !== researchKey) {
+      const savedVersion = savedFingerprint?.split(":")[0] || "v0.0";
+      const currentVersion = AI_CACHE_VERSION;
+
+      if (savedVersion === currentVersion) {
+        console.log("✅ Same cache version, updating fingerprint silently...");
+        const dataWithFingerprint = {
+          ...cashOutflows.aiResearchData,
+          _researchKey: researchKey,
+        };
+        updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+        return;
+      }
+
+      console.log(
+        `⚠️ Cache version changed from ${savedVersion} to ${currentVersion}. Checking if regeneration needed...`
+      );
       const dataWithFingerprint = {
         ...cashOutflows.aiResearchData,
         _researchKey: researchKey,
@@ -1833,7 +2162,7 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.residentialSegment}-${projectInfo.residentialPositioning}-${projectInfo.residentialGLA}-${projectInfo.residentialTotalBuildingBUA}`;
+    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.residentialSegment}-${projectInfo.residentialPositioning}-${projectInfo.residentialGLA}-${projectInfo.residentialTotalBuildingBUA}`;
 
     const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
 
@@ -1842,8 +2171,23 @@ function CashOutflowsPageContent() {
       return;
     }
 
-    if (cashOutflows?.aiResearchData && !savedFingerprint) {
-      console.log("⚠️ Legacy Residential project detected. Injecting fingerprint silently...");
+    if (cashOutflows?.aiResearchData && savedFingerprint !== researchKey) {
+      const savedVersion = savedFingerprint?.split(":")[0] || "v0.0";
+      const currentVersion = AI_CACHE_VERSION;
+
+      if (savedVersion === currentVersion) {
+        console.log("✅ Same cache version, updating fingerprint silently...");
+        const dataWithFingerprint = {
+          ...cashOutflows.aiResearchData,
+          _researchKey: researchKey,
+        };
+        updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+        return;
+      }
+
+      console.log(
+        `⚠️ Cache version changed from ${savedVersion} to ${currentVersion}. Checking if regeneration needed...`
+      );
       const dataWithFingerprint = {
         ...cashOutflows.aiResearchData,
         _researchKey: researchKey,
@@ -2536,23 +2880,24 @@ function CashOutflowsPageContent() {
   const RETAIL_BENCHMARK_EPS = 0.01;
 
   const retailCcRateOverrides = useMemo(() => {
-    if (!retailBenchmark || !isOperationalRetail) {
+    if (!isOperationalRetail) {
       return { building: false, parking: false, basement: false, any: false };
     }
-    const differs = (current: number, benchmark: number) =>
-      Math.abs(current - benchmark) > RETAIL_BENCHMARK_EPS;
-    const building = differs(
-      cashOutflows.buildingRate,
-      retailBenchmark.buildingRate
-    );
-    const parking = differs(
-      cashOutflows.parkingRate,
-      retailBenchmark.parkingRate
-    );
-    const basement = differs(
-      cashOutflows.basementRate,
-      retailBenchmark.basementRate
-    );
+
+    // Use AI data as the "benchmark" if available, otherwise fall back to legacy benchmark
+    const effectiveBuildingRate = aiBuildingRate ?? retailBenchmark?.buildingRate;
+    const effectiveParkingRate = aiParkingRate ?? retailBenchmark?.parkingRate;
+    const effectiveBasementRate = aiBasementRate ?? retailBenchmark?.basementRate;
+
+    const differs = (current: number, effective: number | undefined) => {
+      if (effective == null) return false;
+      return Math.abs(current - effective) > RETAIL_BENCHMARK_EPS;
+    };
+
+    const building = differs(cashOutflows.buildingRate, effectiveBuildingRate);
+    const parking = differs(cashOutflows.parkingRate, effectiveParkingRate);
+    const basement = differs(cashOutflows.basementRate, effectiveBasementRate);
+
     return {
       building,
       parking,
@@ -2560,8 +2905,11 @@ function CashOutflowsPageContent() {
       any: building || parking || basement,
     };
   }, [
-    retailBenchmark,
     isOperationalRetail,
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
+    retailBenchmark,
     cashOutflows.buildingRate,
     cashOutflows.parkingRate,
     cashOutflows.basementRate,
@@ -2676,28 +3024,28 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
+  const retailEffectiveBuildingRate =
+    aiBuildingRate ?? retailBenchmark?.buildingRate;
+  const retailEffectiveParkingRate =
+    aiParkingRate ?? retailBenchmark?.parkingRate;
+  const retailEffectiveBasementRate =
+    aiBasementRate ?? retailBenchmark?.basementRate;
+
   const resetRetailStep5RatesToAi = useCallback(() => {
-    if (!aiC1?.construction_rates) return;
-    const rates = aiC1.construction_rates;
     updateCashOutflowsForStream({
       buildingRate:
-        rates.building_rate_psf ??
-        (rates as { buildingRate?: number }).buildingRate ??
-        cashOutflows.buildingRate,
-      parkingRate:
-        rates.parking_rate_psf ??
-        (rates as { parkingRate?: number }).parkingRate ??
-        cashOutflows.parkingRate,
+        retailEffectiveBuildingRate ?? cashOutflows.buildingRate,
+      parkingRate: retailEffectiveParkingRate ?? cashOutflows.parkingRate,
       basementRate:
-        rates.basement_rate_psf ??
-        (rates as { basementRate?: number }).basementRate ??
-        cashOutflows.basementRate,
+        retailEffectiveBasementRate ?? cashOutflows.basementRate,
       operationalRetailBuildingRateManual: false,
       operationalRetailParkingRateManual: false,
       operationalRetailBasementRateManual: false,
     });
   }, [
-    aiC1,
+    retailEffectiveBuildingRate,
+    retailEffectiveParkingRate,
+    retailEffectiveBasementRate,
     cashOutflows.buildingRate,
     cashOutflows.parkingRate,
     cashOutflows.basementRate,
@@ -3020,24 +3368,35 @@ function CashOutflowsPageContent() {
 
   const OFFICE_BENCHMARK_EPS = 0.01;
 
+  const officeEffectiveBuildingRate =
+    aiBuildingRate ?? officeBenchmark?.buildingRate;
+  const officeEffectiveParkingRate =
+    aiParkingRate ?? officeBenchmark?.parkingRate;
+  const officeEffectiveBasementRate =
+    aiBasementRate ?? officeBenchmark?.basementRate;
+
   const officeCcRateOverrides = useMemo(() => {
-    if (!officeBenchmark || !isOperationalOffice) {
+    if (!isOperationalOffice) {
       return { building: false, parking: false, basement: false, any: false };
     }
-    const differs = (current: number, benchmark: number) =>
-      Math.abs(current - benchmark) > OFFICE_BENCHMARK_EPS;
-    const building = differs(
-      cashOutflows.buildingRate,
-      officeBenchmark.buildingRate
-    );
-    const parking = differs(
-      cashOutflows.parkingRate,
-      officeBenchmark.parkingRate
-    );
-    const basement = differs(
-      cashOutflows.basementRate,
-      officeBenchmark.basementRate
-    );
+
+    // Use AI data as the "benchmark" if available, otherwise fall back to legacy benchmark
+    const effectiveBuildingRate =
+      aiBuildingRate ?? officeBenchmark?.buildingRate;
+    const effectiveParkingRate =
+      aiParkingRate ?? officeBenchmark?.parkingRate;
+    const effectiveBasementRate =
+      aiBasementRate ?? officeBenchmark?.basementRate;
+
+    const differs = (current: number, effective: number | undefined) => {
+      if (effective == null) return false;
+      return Math.abs(current - effective) > OFFICE_BENCHMARK_EPS;
+    };
+
+    const building = differs(cashOutflows.buildingRate, effectiveBuildingRate);
+    const parking = differs(cashOutflows.parkingRate, effectiveParkingRate);
+    const basement = differs(cashOutflows.basementRate, effectiveBasementRate);
+
     return {
       building,
       parking,
@@ -3045,11 +3404,52 @@ function CashOutflowsPageContent() {
       any: building || parking || basement,
     };
   }, [
-    officeBenchmark,
     isOperationalOffice,
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
+    officeBenchmark,
     cashOutflows.buildingRate,
     cashOutflows.parkingRate,
     cashOutflows.basementRate,
+  ]);
+
+  const officeSoftPercentOverrides = useMemo(() => {
+    if (!isOperationalOffice) return false;
+    return (
+      !!cashOutflows.operationalOfficeScManual ||
+      !!cashOutflows.operationalOfficePowcManual ||
+      !!cashOutflows.operationalOfficeFfeManual ||
+      differsFromAi(cashOutflows.softCostPercent, aiScPct) ||
+      differsFromAi(cashOutflows.powcPercent, aiPowcPct) ||
+      (showsOperationalFfe &&
+        differsFromAi(cashOutflows.ffePercent, aiFfePct))
+    );
+  }, [
+    isOperationalOffice,
+    cashOutflows.operationalOfficeScManual,
+    cashOutflows.operationalOfficePowcManual,
+    cashOutflows.operationalOfficeFfeManual,
+    cashOutflows.softCostPercent,
+    cashOutflows.powcPercent,
+    cashOutflows.ffePercent,
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
+    showsOperationalFfe,
+  ]);
+
+  const officeLandRateOverride = useMemo(() => {
+    if (!isOperationalOffice) return false;
+    return (
+      !!cashOutflows.operationalOfficeLandRateManual ||
+      differsFromAi(cashOutflows.landRate, aiLandRate)
+    );
+  }, [
+    isOperationalOffice,
+    cashOutflows.operationalOfficeLandRateManual,
+    cashOutflows.landRate,
+    aiLandRate,
   ]);
 
   const handleOfficeCcRateChange = useCallback(
@@ -3095,72 +3495,179 @@ function CashOutflowsPageContent() {
       operationalOfficePowcManual: false,
       operationalOfficeFfeManual: false,
       operationalOfficeLandRateManual: false,
-      buildingRate: officeBenchmark.buildingRate,
-      parkingRate: officeBenchmark.parkingRate,
-      basementRate: officeBenchmark.basementRate,
-      softCostPercent: round2(officeBenchmark.softCostsPercent),
-      powcPercent: round2(officeBenchmark.powcPercent),
-      ffePercent: round2(officeBenchmark.ffePercent),
-      landRate: officeBenchmark.landRate,
+      buildingRate: aiBuildingRate ?? officeBenchmark.buildingRate,
+      parkingRate: aiParkingRate ?? officeBenchmark.parkingRate,
+      basementRate: aiBasementRate ?? officeBenchmark.basementRate,
+      softCostPercent: aiScPct ?? round2(officeBenchmark.softCostsPercent),
+      powcPercent: aiPowcPct ?? round2(officeBenchmark.powcPercent),
+      ffePercent: aiFfePct ?? round2(officeBenchmark.ffePercent),
+      landRate: aiLandRate ?? officeBenchmark.landRate,
     });
     operationalOfficeProfilePrevKeyRef.current = officeProfileKey;
-  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+  }, [
+    aiBasementRate,
+    aiBuildingRate,
+    aiFfePct,
+    aiLandRate,
+    aiParkingRate,
+    aiPowcPct,
+    aiScPct,
+    officeBenchmark,
+    officeProfileKey,
+    updateCashOutflowsForStream,
+  ]);
 
   // --- START: Office Step-Specific Resets ---
   const resetOfficeStep5Rates = useCallback(() => {
-    if (!officeBenchmark || !officeProfileKey) return;
-    updateCashOutflowsForStream({
-      operationalOfficeBuildingRateManual: false,
-      operationalOfficeParkingRateManual: false,
-      operationalOfficeBasementRateManual: false,
-      buildingRate: officeBenchmark.buildingRate,
-      parkingRate: officeBenchmark.parkingRate,
-      basementRate: officeBenchmark.basementRate,
-    });
-  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+    // Priority: AI data > legacy benchmark
+    if (aiC1?.construction_rates) {
+      updateCashOutflowsForStream({
+        buildingRate:
+          aiBuildingRate ??
+          officeBenchmark?.buildingRate ??
+          cashOutflows.buildingRate,
+        parkingRate:
+          aiParkingRate ??
+          officeBenchmark?.parkingRate ??
+          cashOutflows.parkingRate,
+        basementRate:
+          aiBasementRate ??
+          officeBenchmark?.basementRate ??
+          cashOutflows.basementRate,
+        operationalOfficeBuildingRateManual: false,
+        operationalOfficeParkingRateManual: false,
+        operationalOfficeBasementRateManual: false,
+      });
+    } else if (officeBenchmark && officeProfileKey) {
+      updateCashOutflowsForStream({
+        operationalOfficeBuildingRateManual: false,
+        operationalOfficeParkingRateManual: false,
+        operationalOfficeBasementRateManual: false,
+        buildingRate: officeBenchmark.buildingRate,
+        parkingRate: officeBenchmark.parkingRate,
+        basementRate: officeBenchmark.basementRate,
+      });
+    }
+  }, [
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
+    aiC1,
+    officeBenchmark,
+    officeProfileKey,
+    cashOutflows.buildingRate,
+    cashOutflows.parkingRate,
+    cashOutflows.basementRate,
+    updateCashOutflowsForStream,
+  ]);
 
   const resetOfficeStep7Percents = useCallback(() => {
-    if (!officeBenchmark || !officeProfileKey) return;
-    updateCashOutflowsForStream({
-      operationalOfficeScManual: false,
-      operationalOfficePowcManual: false,
-      operationalOfficeFfeManual: false,
-      softCostPercent: round2(officeBenchmark.softCostsPercent),
-      powcPercent: round2(officeBenchmark.powcPercent),
-      ffePercent: round2(officeBenchmark.ffePercent),
-    });
-  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+    // Priority: AI data > legacy benchmark
+    if (aiC1?.soft_costs) {
+      updateCashOutflowsForStream({
+        softCostPercent:
+          aiScPct ??
+          (officeBenchmark?.softCostsPercent != null
+            ? round2(officeBenchmark.softCostsPercent)
+            : cashOutflows.softCostPercent),
+        powcPercent:
+          aiPowcPct ??
+          (officeBenchmark?.powcPercent != null
+            ? round2(officeBenchmark.powcPercent)
+            : cashOutflows.powcPercent),
+        ffePercent:
+          aiFfePct ??
+          (officeBenchmark?.ffePercent != null
+            ? round2(officeBenchmark.ffePercent)
+            : cashOutflows.ffePercent),
+        operationalOfficeScManual: false,
+        operationalOfficePowcManual: false,
+        operationalOfficeFfeManual: false,
+      });
+    } else if (officeBenchmark && officeProfileKey) {
+      updateCashOutflowsForStream({
+        operationalOfficeScManual: false,
+        operationalOfficePowcManual: false,
+        operationalOfficeFfeManual: false,
+        softCostPercent: round2(officeBenchmark.softCostsPercent),
+        powcPercent: round2(officeBenchmark.powcPercent),
+        ffePercent: round2(officeBenchmark.ffePercent),
+      });
+    }
+  }, [
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
+    aiC1,
+    officeBenchmark,
+    officeProfileKey,
+    cashOutflows.softCostPercent,
+    cashOutflows.powcPercent,
+    cashOutflows.ffePercent,
+    updateCashOutflowsForStream,
+  ]);
 
   const resetOfficeStep8LandRate = useCallback(() => {
-    if (!officeBenchmark || !officeProfileKey) return;
-    updateCashOutflowsForStream({
-      operationalOfficeLandRateManual: false,
-      landRate: officeBenchmark.landRate,
-    });
-  }, [officeBenchmark, officeProfileKey, updateCashOutflowsForStream]);
+    // Priority: AI data > legacy benchmark
+    if (aiC1?.land_rate_psf != null) {
+      updateCashOutflowsForStream({
+        landRate: aiLandRate ?? cashOutflows.landRate,
+        operationalOfficeLandRateManual: false,
+      });
+    } else if (officeBenchmark && officeProfileKey) {
+      updateCashOutflowsForStream({
+        operationalOfficeLandRateManual: false,
+        landRate: officeBenchmark.landRate,
+      });
+    }
+  }, [
+    aiLandRate,
+    aiC1,
+    officeBenchmark,
+    officeProfileKey,
+    cashOutflows.landRate,
+    updateCashOutflowsForStream,
+  ]);
 
   const resetOfficeStep11Stages = useCallback(() => {
-    const aiScurve = cashOutflows.aiResearchData?.c1_development?.s_curve;
+    const curve = cashOutflows.aiResearchData?.c1_development?.s_curve;
     updateCashOutflowsForStream({
       stageAllocation: {
         stage1Label: "Enabling",
-        stage1Percent: aiScurve?.stage_1_pct ?? 10,
+        stage1Percent: curve?.stage_1_pct ?? 10,
         stage2Label: "Sub-Structure",
-        stage2Percent: aiScurve?.stage_2_pct ?? 20,
+        stage2Percent: curve?.stage_2_pct ?? 20,
         stage3Label: "Super Structure",
-        stage3Percent: aiScurve?.stage_3_pct ?? 40,
+        stage3Percent: curve?.stage_3_pct ?? 40,
         stage4Label: "Finishes",
-        stage4Percent: aiScurve?.stage_4_pct ?? 30,
+        stage4Percent: curve?.stage_4_pct ?? 30,
       },
     });
   }, [cashOutflows.aiResearchData, updateCashOutflowsForStream]);
 
   const resetOfficeStep12Allocations = useCallback(() => {
-    updateCashOutflowsForStream({
-      powcAllocation: { ...DEFAULT_POWC_ALLOCATION },
-      softCostAllocation: { ...DEFAULT_SOFT_COST_ALLOCATION },
-    });
-  }, [updateCashOutflowsForStream]);
+    if (!aiC1) return;
+    const patch: Partial<CashOutflows> = {};
+    if (aiC1.powc_breakdown) {
+      patch.powcAllocation = {
+        siteEstablishment: aiC1.powc_breakdown.site_establishment_pct,
+        overhead: aiC1.powc_breakdown.overhead_pct,
+        authorityFees: aiC1.powc_breakdown.authority_fees_pct,
+      };
+    }
+    if (aiC1.sc_breakdown) {
+      patch.softCostAllocation = {
+        architect: aiC1.sc_breakdown.architect_pct,
+        projectManagement: aiC1.sc_breakdown.pm_pct,
+        engineering: aiC1.sc_breakdown.engineering_pct,
+        geotechnical: aiC1.sc_breakdown.geotech_pct,
+        otherFees: aiC1.sc_breakdown.other_pct,
+      };
+    }
+    if (Object.keys(patch).length > 0) {
+      updateCashOutflowsForStream(patch);
+    }
+  }, [aiC1, updateCashOutflowsForStream]);
   // --- END: Office Step-Specific Resets ---
 
   const officeRateFieldClass = retailRateFieldClass;
@@ -3175,11 +3682,35 @@ function CashOutflowsPageContent() {
         ? "FFE % of CC incl. contingency (Co-Working Operator)"
         : "FFE % of CC incl. contingency (Office)";
 
+  const residentialAiRates = useMemo(() => {
+    if (!isOperationalResidential || !aiC1) return null;
+    return {
+      buildingRate: aiBuildingRate,
+      parkingRate: aiParkingRate,
+      basementRate: aiBasementRate,
+      softCostsPercent: aiScPct,
+      powcPercent: aiPowcPct,
+      ffePercent: aiFfePct,
+      landRate: aiLandRate,
+    };
+  }, [
+    isOperationalResidential,
+    aiC1,
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
+    aiLandRate,
+  ]);
+
   const residentialBenchmark = useResidentialCashOutflowBenchmark(
     projectInfo,
     cashOutflows,
     updateCashOutflowsForStream,
-    isOperationalResidential
+    isOperationalResidential,
+    residentialAiRates
   );
 
   useEffect(() => {
@@ -3200,16 +3731,16 @@ function CashOutflowsPageContent() {
         patch.operationalOfficeBuildingRateManual = false;
         patch.operationalOfficeParkingRateManual = false;
         patch.operationalOfficeBasementRateManual = false;
-        patch.buildingRate = officeBenchmark.buildingRate;
-        patch.parkingRate = officeBenchmark.parkingRate;
-        patch.basementRate = officeBenchmark.basementRate;
+        patch.buildingRate = aiBuildingRate ?? officeBenchmark.buildingRate;
+        patch.parkingRate = aiParkingRate ?? officeBenchmark.parkingRate;
+        patch.basementRate = aiBasementRate ?? officeBenchmark.basementRate;
       }
       if (!st?.operationalOfficeBuildingRateManual)
-        patch.buildingRate = officeBenchmark.buildingRate;
+        patch.buildingRate = aiBuildingRate ?? officeBenchmark.buildingRate;
       if (!st?.operationalOfficeParkingRateManual)
-        patch.parkingRate = officeBenchmark.parkingRate;
+        patch.parkingRate = aiParkingRate ?? officeBenchmark.parkingRate;
       if (!st?.operationalOfficeBasementRateManual)
-        patch.basementRate = officeBenchmark.basementRate;
+        patch.basementRate = aiBasementRate ?? officeBenchmark.basementRate;
     }
 
     if (currentStep === 7) {
@@ -3259,6 +3790,9 @@ function CashOutflowsPageContent() {
     projectInfo.officeSegment,
     projectInfo.officePositioning,
     officeCoworkingDeliveryForBenchmark,
+    aiBuildingRate,
+    aiParkingRate,
+    aiBasementRate,
     aiScPct,
     aiPowcPct,
     aiFfePct,
@@ -3493,13 +4027,35 @@ function CashOutflowsPageContent() {
     <div className="min-h-screen bg-slate-950 px-4 py-12 pb-32">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            FinModel App — Component 1
-          </h1>
-          <p className="text-slate-400">
-            Development Financials
-          </p>
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="mb-2 text-3xl font-bold text-white">
+              FinModel App — Component 1
+            </h1>
+            <p className="text-slate-400">Development Financials</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveProject}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
+              />
+            </svg>
+            Save Project
+          </button>
         </div>
 
         {/* Progress Bar */}
@@ -4663,7 +5219,10 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-6">
                 Construction Costs (CC)
               </h2>
-              {renderHotelBenchmarkBar(resetHotelStep5Rates)}
+              {renderHotelBenchmarkBar(
+                resetHotelStep5Rates,
+                hotelCcRateOverrides.any
+              )}
               {residentialBenchmark.benchmarkReady ? (
                 <ResidentialStep6Construction
                   projectInfo={projectInfo}
@@ -4673,31 +5232,37 @@ function CashOutflowsPageContent() {
                   onReset={residentialBenchmark.resetProfileDefaults}
                 />
               ) : (
-                renderRetailOfficeBenchmarkBar({
-                  hasManualOverride:
-                    retailCcRateOverrides.any || officeCcRateOverrides.any,
-                  onReset: () => {
-                    if (isOperationalRetail) {
-                      resetRetailStep5RatesToAi();
-                    } else if (isOperationalOffice) {
-                      updateCashOutflowsForStream({
-                        buildingRate: aiBuildingRate || 0,
-                        parkingRate: aiParkingRate || 0,
-                        basementRate: aiBasementRate || 0,
-                        operationalOfficeBuildingRateManual: false,
-                        operationalOfficeParkingRateManual: false,
-                        operationalOfficeBasementRateManual: false,
-                      });
-                    }
-                  },
-                })
+                <>
+                  {renderRetailBenchmarkBar({
+                    hasManualOverride: !!(
+                      cashOutflows.operationalRetailBuildingRateManual ||
+                      cashOutflows.operationalRetailParkingRateManual ||
+                      cashOutflows.operationalRetailBasementRateManual ||
+                      retailCcRateOverrides.any
+                    ),
+                    onReset:
+                      retailEffectiveBuildingRate != null ||
+                      retailEffectiveParkingRate != null ||
+                      retailEffectiveBasementRate != null
+                        ? resetRetailStep5RatesToAi
+                        : undefined,
+                  })}
+                  {renderOfficeBenchmarkHeader({
+                    hasManualOverride: !!(
+                      cashOutflows.operationalOfficeBuildingRateManual ||
+                      cashOutflows.operationalOfficeParkingRateManual ||
+                      cashOutflows.operationalOfficeBasementRateManual
+                    ),
+                    onReset: resetOfficeStep5Rates,
+                  })}
+                </>
               )}
               {!residentialBenchmark.benchmarkReady ? (
                 <p className="mb-4 text-sm text-slate-400">
-                  {retailBenchmarkReady
-                    ? "Building, parking, and basement rates are suggested from your segment, positioning, and country. Typed values count as overrides."
+                  {isOperationalRetail
+                    ? "Building, parking, and basement rates come from AI research when available, otherwise from your retail segment, positioning, and country. Typed values count as overrides."
                     : officeBenchmarkReady
-                      ? "Building, parking, and basement rates are suggested from your office segment, positioning, and country. Typed values count as overrides."
+                      ? "Building, parking, and basement rates come from AI research when available, otherwise from your office segment, positioning, and country. Typed values count as overrides."
                       : "Enter built-up areas (BUA) and benchmark construction rates for each component."}
                 </p>
               ) : null}
@@ -4763,19 +5328,28 @@ function CashOutflowsPageContent() {
                             v,
                             residentialBenchmark.benchmark.buildingRate
                           );
-                        } else if (isOperationalRetail && retailBenchmark) {
-                          handleRetailCcRateChange(
-                            "buildingRate",
-                            "operationalRetailBuildingRateManual",
-                            v,
-                            retailBenchmark.buildingRate
-                          );
+                        } else if (isOperationalRetail) {
+                          if (retailEffectiveBuildingRate != null) {
+                            handleRetailCcRateChange(
+                              "buildingRate",
+                              "operationalRetailBuildingRateManual",
+                              v,
+                              retailEffectiveBuildingRate
+                            );
+                          } else {
+                            updateCashOutflowsForStream({
+                              buildingRate: v,
+                              operationalRetailBuildingRateManual: true,
+                            });
+                            logOperationalCashOutflow("buildingRate", v, 6);
+                          }
                         } else if (isOperationalOffice && officeBenchmark) {
                           handleOfficeCcRateChange(
                             "buildingRate",
                             "operationalOfficeBuildingRateManual",
                             v,
-                            officeBenchmark.buildingRate
+                            officeEffectiveBuildingRate ??
+                              officeBenchmark.buildingRate
                           );
                         } else if (isOperationalHotel) {
                           updateCashOutflowsForStream({
@@ -4890,19 +5464,28 @@ function CashOutflowsPageContent() {
                               v,
                               residentialBenchmark.benchmark.parkingRate
                             );
-                          } else if (isOperationalRetail && retailBenchmark) {
-                            handleRetailCcRateChange(
-                              "parkingRate",
-                              "operationalRetailParkingRateManual",
-                              v,
-                              retailBenchmark.parkingRate
-                            );
+                          } else if (isOperationalRetail) {
+                            if (retailEffectiveParkingRate != null) {
+                              handleRetailCcRateChange(
+                                "parkingRate",
+                                "operationalRetailParkingRateManual",
+                                v,
+                                retailEffectiveParkingRate
+                              );
+                            } else {
+                              updateCashOutflowsForStream({
+                                parkingRate: v,
+                                operationalRetailParkingRateManual: true,
+                              });
+                              logOperationalCashOutflow("parkingRate", v, 6);
+                            }
                           } else if (isOperationalOffice && officeBenchmark) {
                             handleOfficeCcRateChange(
                               "parkingRate",
                               "operationalOfficeParkingRateManual",
                               v,
-                              officeBenchmark.parkingRate
+                              officeEffectiveParkingRate ??
+                                officeBenchmark.parkingRate
                             );
                           } else if (isOperationalHotel) {
                             updateCashOutflowsForStream({
@@ -5009,19 +5592,28 @@ function CashOutflowsPageContent() {
                               v,
                               residentialBenchmark.benchmark.basementRate
                             );
-                          } else if (isOperationalRetail && retailBenchmark) {
-                            handleRetailCcRateChange(
-                              "basementRate",
-                              "operationalRetailBasementRateManual",
-                              v,
-                              retailBenchmark.basementRate
-                            );
+                          } else if (isOperationalRetail) {
+                            if (retailEffectiveBasementRate != null) {
+                              handleRetailCcRateChange(
+                                "basementRate",
+                                "operationalRetailBasementRateManual",
+                                v,
+                                retailEffectiveBasementRate
+                              );
+                            } else {
+                              updateCashOutflowsForStream({
+                                basementRate: v,
+                                operationalRetailBasementRateManual: true,
+                              });
+                              logOperationalCashOutflow("basementRate", v, 6);
+                            }
                           } else if (isOperationalOffice && officeBenchmark) {
                             handleOfficeCcRateChange(
                               "basementRate",
                               "operationalOfficeBasementRateManual",
                               v,
-                              officeBenchmark.basementRate
+                              officeEffectiveBasementRate ??
+                                officeBenchmark.basementRate
                             );
                           } else if (isOperationalHotel) {
                             updateCashOutflowsForStream({
@@ -5261,7 +5853,10 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 SC, POWC & DC
               </h2>
-              {renderHotelBenchmarkBar(resetHotelStep7Percents)}
+              {renderHotelBenchmarkBar(
+                resetHotelStep7Percents,
+                hotelSoftPercentOverrides
+              )}
               {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                 <ResidentialStep8SoftCosts
                   projectInfo={projectInfo}
@@ -5290,39 +5885,27 @@ function CashOutflowsPageContent() {
                     });
                     logOperationalCashOutflow("ffePercent", v, 8);
                   }}
-                  percentFieldClass={residentialBenchmark.percentFieldClass}
                   fieldError={fieldError}
                   showFfe={showsOperationalFfe}
+                  aiScPct={aiScPct}
+                  aiPowcPct={aiPowcPct}
+                  aiFfePct={aiFfePct}
                 />
               ) : (
-                renderRetailOfficeBenchmarkBar({
-                  hasManualOverride:
-                    !!(
+                <>
+                  {renderRetailBenchmarkBar({
+                    hasManualOverride: !!(
                       cashOutflows.operationalRetailScManual ||
                       cashOutflows.operationalRetailPowcManual ||
                       cashOutflows.operationalRetailFfeManual
-                    ) ||
-                    !!(
-                      cashOutflows.operationalOfficeScManual ||
-                      cashOutflows.operationalOfficePowcManual ||
-                      cashOutflows.operationalOfficeFfeManual
                     ),
-                  onReset: () => {
-                    if (isOperationalRetail) {
-                      resetRetailStep7PercentsToAi();
-                    } else if (isOperationalOffice) {
-                      updateCashOutflowsForStream({
-                        softCostPercent:
-                          aiScPct ?? cashOutflows.softCostPercent,
-                        powcPercent: aiPowcPct ?? cashOutflows.powcPercent,
-                        ffePercent: aiFfePct ?? cashOutflows.ffePercent,
-                        operationalOfficeScManual: false,
-                        operationalOfficePowcManual: false,
-                        operationalOfficeFfeManual: false,
-                      });
-                    }
-                  },
-                })
+                    onReset: resetRetailStep7PercentsToAi,
+                  })}
+                  {renderOfficeBenchmarkHeader({
+                    hasManualOverride: officeSoftPercentOverrides,
+                    onReset: resetOfficeStep7Percents,
+                  })}
+                </>
               )}
               {isOperationalHotel && operationalHotelProfileUi ? (
                 <p className="text-sm text-slate-400 mb-4">
@@ -5331,17 +5914,17 @@ function CashOutflowsPageContent() {
                   <span className="text-slate-300">including contingency</span>{" "}
                   from the prior steps. Typed values count as overrides.
                 </p>
-              ) : retailBenchmarkReady ? (
+              ) : isOperationalRetail ? (
                 <p className="text-sm text-slate-400 mb-4">
-                  SC, POWC, and FFE are suggested from your mall segment, positioning,
-                  and country. Calculations use CC{" "}
+                  SC, POWC, and FFE come from AI research when available, otherwise from
+                  your mall segment, positioning, and country. Calculations use CC{" "}
                   <span className="text-slate-300">including contingency</span> from
                   prior steps. Typed values count as overrides.
                 </p>
               ) : officeBenchmarkReady ? (
                 <p className="text-sm text-slate-400 mb-4">
-                  SC, POWC, and FFE are suggested from your office segment, positioning,
-                  and country. Calculations use CC{" "}
+                  SC, POWC, and FFE come from AI research when available, otherwise from
+                  your office segment, positioning, and country. Calculations use CC{" "}
                   <span className="text-slate-300">including contingency</span> from
                   prior steps. Typed values count as overrides.
                 </p>
@@ -5619,7 +6202,10 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Land Costs (LC)
               </h2>
-              {renderHotelBenchmarkBar(resetHotelStep8LandRate)}
+              {renderHotelBenchmarkBar(
+                resetHotelStep8LandRate,
+                !!cashOutflows.operationalHotelLandRateManual
+              )}
               {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                 <ResidentialStep9LandCosts
                   projectInfo={projectInfo}
@@ -5635,30 +6221,24 @@ function CashOutflowsPageContent() {
                     });
                     logOperationalCashOutflow("landRate", v, 9);
                   }}
-                  percentFieldClass={residentialBenchmark.percentFieldClass}
                   fieldError={fieldError}
+                  aiLandRate={aiLandRate}
                 />
-              ) : retailBenchmarkReady || officeBenchmarkReady ? (
+              ) : isOperationalRetail || isOperationalOffice ? (
                 <>
-                  {renderRetailOfficeBenchmarkBar({
+                  {renderRetailBenchmarkBar({
                     hasManualOverride:
-                      !!cashOutflows.operationalRetailLandRateManual ||
-                      !!cashOutflows.operationalOfficeLandRateManual,
-                    onReset: () => {
-                      if (isOperationalRetail) {
-                        resetRetailStep8LandRateToAi();
-                      } else if (isOperationalOffice) {
-                        updateCashOutflowsForStream({
-                          landRate: aiLandRate ?? cashOutflows.landRate,
-                          operationalOfficeLandRateManual: false,
-                        });
-                      }
-                    },
+                      !!cashOutflows.operationalRetailLandRateManual,
+                    onReset: resetRetailStep8LandRateToAi,
+                  })}
+                  {renderOfficeBenchmarkHeader({
+                    hasManualOverride: officeLandRateOverride,
+                    onReset: resetOfficeStep8LandRate,
                   })}
                   <p className="mb-4 text-sm text-slate-400">
-                    {retailBenchmarkReady
+                    {isOperationalRetail
                       ? "Land rate is suggested from your segment, positioning, and country. Land area is entered manually."
-                      : "Land rate is suggested from your office segment, positioning, and country. Land area is entered manually."}
+                      : "Land rate comes from AI research when available, otherwise from your office segment, positioning, and country. Land area is entered manually."}
                   </p>
                 </>
               ) : isOperationalResidential ? (
@@ -6001,25 +6581,29 @@ function CashOutflowsPageContent() {
               <h2 className="text-xl font-semibold text-white mb-4">
                 Construction Stages (M0 to Finishes)
               </h2>
-              {renderHotelBenchmarkBar(resetHotelStep11Stages)}
+              {renderHotelBenchmarkBar(
+                resetHotelStep11Stages,
+                hasStageAllocationOverride
+              )}
               {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                 <ResidentialBenchmarkHeader
                   projectInfo={projectInfo}
-                  onUseDefaults={residentialBenchmark.resetProfileDefaults}
-                  isManualOverride={residentialBenchmark.hasManualOverride}
+                  onUseDefaults={resetStagesToAiBenchmark}
+                  isManualOverride={hasStageAllocationOverride}
+                  showResetButton
                 />
               ) : (
-                renderRetailOfficeBenchmarkBar({
-                  hasManualOverride:
-                    retailHasManualOverride || officeHasManualOverride,
-                  onReset: () => {
-                    if (isOperationalRetail) {
-                      resetRetailStep11StagesToAi();
-                    } else if (isOperationalOffice) {
-                      resetOfficeStep11Stages();
-                    }
-                  },
-                })
+                <>
+                  {renderRetailBenchmarkBar({
+                    hasManualOverride:
+                      isOperationalRetail && hasStageAllocationOverride,
+                    onReset: resetRetailStep11StagesToAi,
+                  })}
+                  {renderOfficeBenchmarkHeader({
+                    hasManualOverride: hasStageAllocationOverride,
+                    onReset: resetOfficeStep11Stages,
+                  })}
+                </>
               )}
               <p className="text-sm text-slate-400 mb-4">
                 Break down CC% (construction cost including contingency) into stages.
@@ -6078,6 +6662,10 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_1_pct}
+                        isManualOverride={differsFromAi(
+                          cashOutflows.stageAllocation.stage1Percent,
+                          aiC1?.s_curve?.stage_1_pct
+                        )}
                       />
                     </div>
                   </div>
@@ -6109,6 +6697,10 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_2_pct}
+                        isManualOverride={differsFromAi(
+                          cashOutflows.stageAllocation.stage2Percent,
+                          aiC1?.s_curve?.stage_2_pct
+                        )}
                       />
                     </div>
                   </div>
@@ -6140,6 +6732,10 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_3_pct}
+                        isManualOverride={differsFromAi(
+                          cashOutflows.stageAllocation.stage3Percent,
+                          aiC1?.s_curve?.stage_3_pct
+                        )}
                       />
                     </div>
                   </div>
@@ -6172,6 +6768,10 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_4_pct}
+                        isManualOverride={differsFromAi(
+                          cashOutflows.stageAllocation.stage4Percent,
+                          aiC1?.s_curve?.stage_4_pct
+                        )}
                       />
                     </div>
                   </div>
@@ -6212,25 +6812,29 @@ function CashOutflowsPageContent() {
                 <h2 className="text-xl font-semibold text-white mb-4">
                   Detailed Allocation & Summary
                 </h2>
-                {renderHotelBenchmarkBar(resetHotelStep12Allocations)}
+                {renderHotelBenchmarkBar(
+                  resetHotelStep12Allocations,
+                  hasDetailedAllocationOverride
+                )}
                 {isOperationalResidential && residentialBenchmark.benchmarkReady ? (
                   <ResidentialBenchmarkHeader
                     projectInfo={projectInfo}
-                    onUseDefaults={residentialBenchmark.resetProfileDefaults}
-                    isManualOverride={residentialBenchmark.hasManualOverride}
+                    onUseDefaults={resetDetailedAllocationsToAi}
+                    isManualOverride={hasDetailedAllocationOverride}
+                    showResetButton
                   />
                 ) : (
-                  renderRetailOfficeBenchmarkBar({
-                    hasManualOverride:
-                      retailHasManualOverride || officeHasManualOverride,
-                    onReset: () => {
-                      if (isOperationalRetail) {
-                        resetRetailStep12AllocationsToAi();
-                      } else if (isOperationalOffice) {
-                        resetOfficeStep12Allocations();
-                      }
-                    },
-                  })
+                  <>
+                    {renderRetailBenchmarkBar({
+                      hasManualOverride:
+                        isOperationalRetail && hasDetailedAllocationOverride,
+                      onReset: resetRetailStep12AllocationsToAi,
+                    })}
+                    {renderOfficeBenchmarkHeader({
+                      hasManualOverride: hasDetailedAllocationOverride,
+                      onReset: resetOfficeStep12Allocations,
+                    })}
+                  </>
                 )}
                 <p className="text-sm text-slate-400 mb-4">
                   Define how POWC is distributed over the programme, review standard SC
@@ -6275,19 +6879,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiPowcBreakdown &&
-                                    !cashOutflows.operationalHotelPowcManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiPowcBreakdown &&
-                                  !cashOutflows.operationalHotelPowcManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    powcAlloc.siteEstablishment,
+                                    aiPowcBreakdown?.site_establishment_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  powcAlloc.siteEstablishment,
+                                  aiPowcBreakdown?.site_establishment_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6315,19 +6915,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiPowcBreakdown &&
-                                    !cashOutflows.operationalHotelPowcManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiPowcBreakdown &&
-                                  !cashOutflows.operationalHotelPowcManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    powcAlloc.overhead,
+                                    aiPowcBreakdown?.overhead_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  powcAlloc.overhead,
+                                  aiPowcBreakdown?.overhead_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6355,19 +6951,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiPowcBreakdown &&
-                                    !cashOutflows.operationalHotelPowcManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiPowcBreakdown &&
-                                  !cashOutflows.operationalHotelPowcManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    powcAlloc.authorityFees,
+                                    aiPowcBreakdown?.authority_fees_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  powcAlloc.authorityFees,
+                                  aiPowcBreakdown?.authority_fees_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6433,19 +7025,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiScBreakdown &&
-                                    !cashOutflows.operationalHotelScManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiScBreakdown &&
-                                  !cashOutflows.operationalHotelScManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    softAlloc.architect,
+                                    aiScBreakdown?.architect_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  softAlloc.architect,
+                                  aiScBreakdown?.architect_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6473,19 +7061,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiScBreakdown &&
-                                    !cashOutflows.operationalHotelScManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiScBreakdown &&
-                                  !cashOutflows.operationalHotelScManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    softAlloc.projectManagement,
+                                    aiScBreakdown?.pm_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  softAlloc.projectManagement,
+                                  aiScBreakdown?.pm_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6513,19 +7097,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiScBreakdown &&
-                                    !cashOutflows.operationalHotelScManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiScBreakdown &&
-                                  !cashOutflows.operationalHotelScManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    softAlloc.engineering,
+                                    aiScBreakdown?.engineering_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  softAlloc.engineering,
+                                  aiScBreakdown?.engineering_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6553,19 +7133,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiScBreakdown &&
-                                    !cashOutflows.operationalHotelScManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiScBreakdown &&
-                                  !cashOutflows.operationalHotelScManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    softAlloc.geotechnical,
+                                    aiScBreakdown?.geotech_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  softAlloc.geotechnical,
+                                  aiScBreakdown?.geotech_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>
@@ -6593,19 +7169,15 @@ function CashOutflowsPageContent() {
                                         : {}),
                                     });
                                   }}
-                                  className={`w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                    aiScBreakdown &&
-                                    !cashOutflows.operationalHotelScManual
-                                      ? "border-2 border-blue-500"
-                                      : "border border-slate-600"
-                                  }`}
-                                />
-                                {aiScBreakdown &&
-                                  !cashOutflows.operationalHotelScManual && (
-                                    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-                                      AI
-                                    </span>
+                                  className={allocInputClass(
+                                    softAlloc.otherFees,
+                                    aiScBreakdown?.other_pct
                                   )}
+                                />
+                                {renderAllocBadge(
+                                  softAlloc.otherFees,
+                                  aiScBreakdown?.other_pct
+                                )}
                                 <span className="text-slate-400">%</span>
                                 <span className="text-sm text-emerald-400" title="Click to override">✏️</span>
                               </div>

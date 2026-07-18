@@ -249,6 +249,16 @@ export default function RetailRevenueStep({
     aiC2?.rentEscalation ??
     aiC2?.rent_escalation_pct;
 
+  const aiOpeningOccupancy =
+    aiC2?.step1_base_rent?.opening_occupancy_pct ??
+    (aiC2?.step1_base_rent as { opening_occupancy?: number } | undefined)
+      ?.opening_occupancy;
+  const aiStabilizedOccupancy =
+    aiC2?.step1_base_rent?.stabilized_occupancy_pct ??
+    (aiC2?.step1_base_rent as { stabilized_occupancy?: number } | undefined)
+      ?.stabilized_occupancy;
+  const aiLeaseUpYears = aiC2?.step1_base_rent?.lease_up_years;
+
   const hasPhase2Ai = !!cashOutflows?.aiResearchData?.c2_operational;
 
   const currencyCode = projectInfo.currency || "AED";
@@ -318,9 +328,9 @@ export default function RetailRevenueStep({
     }
   }, [defaultGlaSqft, glaSqft, projectInfo.retailGLA]);
 
-  const rentYear1ManualRef = useRef(false);
-  const occupancyYear1ManualRef = useRef(false);
-  const escalationManualRef = useRef(false);
+  const [rentYear1Manual, setRentYear1Manual] = useState(false);
+  const [occupancyYear1Manual, setOccupancyYear1Manual] = useState(false);
+  const [escalationManual, setEscalationManual] = useState(false);
 
   const [rentYear1, setRentYear1] = useState(() => {
     const snap = getOperationalRetailHoldSnapshot();
@@ -352,39 +362,47 @@ export default function RetailRevenueStep({
     }
   );
 
-  // Update state when AI data arrives (Phase 2 research)
+  // Apply AI research when it arrives (unless that field is manually overridden)
   useEffect(() => {
-    if (!aiBaseRent || rentYear1ManualRef.current) return;
-    const snap = getOperationalRetailHoldSnapshot();
-    if (snap?.baseRentPerSqftValues?.[0] != null) return;
+    if (!aiBaseRent || rentYear1Manual) return;
     setRentYear1(aiBaseRent);
-    setBaseRentPerSqftValues(
-      buildDefaultBaseRentSeries(aiBaseRent, rentEscalationPct)
-    );
-  }, [aiBaseRent, rentEscalationPct]);
+  }, [aiBaseRent, rentYear1Manual]);
 
   useEffect(() => {
-    if (!aiRentEscalation || escalationManualRef.current) return;
-    const snap = getOperationalRetailHoldSnapshot();
-    if (snap?.rentEscalationPct != null) return;
+    if (!aiRentEscalation || escalationManual) return;
     setRentEscalationPct(aiRentEscalation);
-    setBaseRentPerSqftValues(
-      buildDefaultBaseRentSeries(rentYear1, aiRentEscalation)
-    );
-  }, [aiRentEscalation, rentYear1]);
+  }, [aiRentEscalation, escalationManual]);
 
   const [occupancyYear1, setOccupancyYear1] = useState(() => {
     const snap = getOperationalRetailHoldSnapshot();
     if (snap?.occupancyValues?.[0] != null) return snap.occupancyValues[0];
+    if (aiOpeningOccupancy != null) return aiOpeningOccupancy;
     return resolvedBenchmark.openingOccupancy;
   });
 
-  const [stabilizedOccupancy, setStabilizedOccupancy] = useState(
-    resolvedBenchmark.stabilizedOccupancy
-  );
-  const [leaseUpYears, setLeaseUpYears] = useState(
-    resolvedBenchmark.leaseUpYears
-  );
+  const [stabilizedOccupancy, setStabilizedOccupancy] = useState(() => {
+    if (aiStabilizedOccupancy != null) return aiStabilizedOccupancy;
+    return resolvedBenchmark.stabilizedOccupancy;
+  });
+  const [leaseUpYears, setLeaseUpYears] = useState(() => {
+    if (aiLeaseUpYears != null) return aiLeaseUpYears;
+    return resolvedBenchmark.leaseUpYears;
+  });
+
+  useEffect(() => {
+    if (aiOpeningOccupancy == null || occupancyYear1Manual) return;
+    setOccupancyYear1(aiOpeningOccupancy);
+  }, [aiOpeningOccupancy, occupancyYear1Manual]);
+
+  useEffect(() => {
+    if (aiStabilizedOccupancy == null) return;
+    setStabilizedOccupancy(aiStabilizedOccupancy);
+  }, [aiStabilizedOccupancy]);
+
+  useEffect(() => {
+    if (aiLeaseUpYears == null) return;
+    setLeaseUpYears(aiLeaseUpYears);
+  }, [aiLeaseUpYears]);
 
   const [occupancyValues, setOccupancyValues] = useState<number[]>(() => {
     const snap = getOperationalRetailHoldSnapshot();
@@ -445,28 +463,35 @@ export default function RetailRevenueStep({
     if (hasPersisted && !profileChanged) return;
 
     const b = resolvedBenchmark;
-    rentYear1ManualRef.current = false;
-    occupancyYear1ManualRef.current = false;
-    escalationManualRef.current = false;
+    setRentYear1Manual(false);
+    setOccupancyYear1Manual(false);
+    setEscalationManual(false);
     setRentOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     setOccupancyOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
-    setRentYear1(b.baseRentPsf);
-    setRentEscalationPct(b.rentEscalation);
-    setOccupancyYear1(b.openingOccupancy);
-    setStabilizedOccupancy(b.stabilizedOccupancy);
-    setLeaseUpYears(b.leaseUpYears);
+    const rent = aiBaseRent ?? b.baseRentPsf;
+    const esc = aiRentEscalation ?? b.rentEscalation;
+    const openOcc = aiOpeningOccupancy ?? b.openingOccupancy;
+    const stabOcc = aiStabilizedOccupancy ?? b.stabilizedOccupancy;
+    const leaseYrs = aiLeaseUpYears ?? b.leaseUpYears;
+    setRentYear1(rent);
+    setRentEscalationPct(esc);
+    setOccupancyYear1(openOcc);
+    setStabilizedOccupancy(stabOcc);
+    setLeaseUpYears(leaseYrs);
     setFreeRentMonths(b.freeRentMonths);
-    setBaseRentPerSqftValues(
-      buildDefaultBaseRentSeries(b.baseRentPsf, b.rentEscalation)
-    );
+    setBaseRentPerSqftValues(buildDefaultBaseRentSeries(rent, esc));
     setOccupancyValues(
-      buildLeaseUpOccupancySeries(
-        b.openingOccupancy,
-        b.stabilizedOccupancy,
-        b.leaseUpYears
-      )
+      buildLeaseUpOccupancySeries(openOcc, stabOcc, leaseYrs)
     );
-  }, [resolvedBenchmark, profileKey]);
+  }, [
+    resolvedBenchmark,
+    profileKey,
+    aiBaseRent,
+    aiRentEscalation,
+    aiOpeningOccupancy,
+    aiStabilizedOccupancy,
+    aiLeaseUpYears,
+  ]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -571,8 +596,19 @@ export default function RetailRevenueStep({
   );
 
   const hasAnyOverride = useMemo(
-    () => rentOverrides.some(Boolean) || occupancyOverrides.some(Boolean),
-    [rentOverrides, occupancyOverrides]
+    () =>
+      rentYear1Manual ||
+      escalationManual ||
+      occupancyYear1Manual ||
+      rentOverrides.some(Boolean) ||
+      occupancyOverrides.some(Boolean),
+    [
+      rentYear1Manual,
+      escalationManual,
+      occupancyYear1Manual,
+      rentOverrides,
+      occupancyOverrides,
+    ]
   );
 
   const resetRentToAiBenchmark = useCallback(() => {
@@ -580,8 +616,8 @@ export default function RetailRevenueStep({
     const newRentEscalation =
       aiRentEscalation ?? resolvedBenchmark.rentEscalation;
 
-    rentYear1ManualRef.current = false;
-    escalationManualRef.current = false;
+    setRentYear1Manual(false);
+    setEscalationManual(false);
 
     setRentYear1(newRentYear1);
     setRentEscalationPct(newRentEscalation);
@@ -593,8 +629,8 @@ export default function RetailRevenueStep({
 
   const resetRentToFormula = useCallback(() => {
     const b = revenueBenchmark ?? resolvedBenchmark;
-    rentYear1ManualRef.current = false;
-    escalationManualRef.current = false;
+    setRentYear1Manual(false);
+    setEscalationManual(false);
     setRentOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     setRentYear1(b.baseRentPsf);
     setRentEscalationPct(b.rentEscalation);
@@ -605,7 +641,7 @@ export default function RetailRevenueStep({
 
   const resetLeaseUpToDefaults = useCallback(() => {
     if (!revenueBenchmark) return;
-    occupancyYear1ManualRef.current = false;
+    setOccupancyYear1Manual(false);
     setOccupancyOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     const b = revenueBenchmark;
     setOccupancyYear1(b.openingOccupancy);
@@ -623,9 +659,9 @@ export default function RetailRevenueStep({
 
   const applyProfileDefaults = useCallback(() => {
     const b = resolvedBenchmark;
-    rentYear1ManualRef.current = false;
-    occupancyYear1ManualRef.current = false;
-    escalationManualRef.current = false;
+    setRentYear1Manual(false);
+    setOccupancyYear1Manual(false);
+    setEscalationManual(false);
     setRentOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     setOccupancyOverrides(Array(OPERATIONAL_ROOM_REVENUE_YEARS).fill(false));
     setRentYear1(b.baseRentPsf);
@@ -652,7 +688,7 @@ export default function RetailRevenueStep({
         <h2 className="mb-2 text-xl font-semibold text-white">
           Step 1 — Base Rent &amp; Lease-Up
         </h2>
-        {retailBenchmarkReady ? (
+        {retailBenchmarkReady || hasPhase2Ai ? (
           <div className="mb-6 border-b border-slate-700 pb-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
@@ -683,13 +719,15 @@ export default function RetailRevenueStep({
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={resetRentToAiBenchmark}
-                className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
-              >
-                Reset to benchmark
-              </button>
+              {(rentYear1Manual || escalationManual) && (
+                <button
+                  type="button"
+                  onClick={resetRentToAiBenchmark}
+                  className="text-xs font-medium text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline"
+                >
+                  Reset to benchmark
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -730,14 +768,14 @@ export default function RetailRevenueStep({
             label={`Base rent Year 1 (${currencyCode}/sqft p.a.)`}
             value={rentYear1 || aiBaseRent || resolvedBenchmark.baseRentPsf || 0}
             onChange={(val) => {
-              rentYear1ManualRef.current = true;
+              setRentYear1Manual(true);
               setRentYear1(Math.max(0, Number(val) || 0));
             }}
             type="number"
             step={0.01}
             min={0}
-            isAiGenerated={hasPhase2Ai && !!aiBaseRent && !rentYear1ManualRef.current}
-            isManualOverride={rentYear1ManualRef.current}
+            isAiGenerated={!!aiBaseRent && !rentYear1Manual}
+            isManualOverride={rentYear1Manual}
           />
           {fieldError("rentYear1") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("rentYear1")}</p>
@@ -749,16 +787,14 @@ export default function RetailRevenueStep({
             label="Rent escalation (annual %)"
             value={rentEscalationPct || aiRentEscalation || resolvedBenchmark.rentEscalation || 0}
             onChange={(val) => {
-              escalationManualRef.current = true;
+              setEscalationManual(true);
               setRentEscalationPct(Number(val) || 0);
             }}
             type="percentage"
             step={0.1}
             min={0}
-            isAiGenerated={
-              hasPhase2Ai && !!aiRentEscalation && !escalationManualRef.current
-            }
-            isManualOverride={escalationManualRef.current}
+            isAiGenerated={!!aiRentEscalation && !escalationManual}
+            isManualOverride={escalationManual}
           />
         </div>
 
@@ -772,7 +808,7 @@ export default function RetailRevenueStep({
             max={100}
             value={occupancyYear1}
             onChange={(e) => {
-              occupancyYear1ManualRef.current = true;
+              setOccupancyYear1Manual(true);
               const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
               setOccupancyOverrides((o) => {
                 const n = [...o];
@@ -890,7 +926,7 @@ export default function RetailRevenueStep({
                     suppressHydrationWarning
                     onChange={(e) => {
                       const v = Number(e.target.value) || 0;
-                      rentYear1ManualRef.current = true;
+                      setRentYear1Manual(true);
                       setRentOverrides((o) => {
                         const n = [...o];
                         n[i] = i === 0 ? false : true;
@@ -923,7 +959,7 @@ export default function RetailRevenueStep({
                         100,
                         Math.max(0, Number(e.target.value) || 0)
                       );
-                      occupancyYear1ManualRef.current = true;
+                      setOccupancyYear1Manual(true);
                       setOccupancyOverrides((o) => {
                         const n = [...o];
                         n[i] = i === 0 ? false : true;

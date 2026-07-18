@@ -339,24 +339,25 @@ export function generateSuccessFactorsData(
   project: AggregatedProjectData
 ): SuccessFactorsData {
   const { city } = project.location;
+  const subMarket = project.location.subMarket?.trim() || city;
   return {
     marketOpportunities: [
       {
-        factor: "Sustained tourism growth and event calendar density",
-        effect: `Increases transient and group demand in ${city}. Supports ADR premium for well-located product. Extends peak season shoulder months.`,
+        factor: `Sustained tourism growth concentrated near ${subMarket}`,
+        effect: `Increases transient and group demand in ${subMarket}, ${city}. Supports ADR premium for well-located product. Extends peak season shoulder months.`,
       },
       {
-        factor: "Underserved upper-upscale room supply in target micro-market",
+        factor: `Underserved upper-upscale room supply in ${subMarket}`,
         effect: "Enables above-market occupancy during ramp-up. Reduces direct rate competition in the immediate catchment.",
       },
       {
         factor: "Visa liberalization and airline capacity expansion",
-        effect: "Broadens source markets. Improves last-minute booking depth. Supports higher F&B capture from international guests.",
+        effect: `Broadens source markets feeding ${subMarket}. Improves last-minute booking depth. Supports higher F&B capture from international guests.`,
       },
     ],
     projectStrengths: [
       {
-        strength: `${project.positioning} product specification aligned with market preferences`,
+        strength: `${project.positioning} product specification aligned with ${subMarket} preferences`,
         effect: "Supports premium ADR positioning. Attracts international brand affiliation interest.",
       },
       {
@@ -373,8 +374,8 @@ export function generateSuccessFactorsData(
       },
     ],
     mainOutcomes: [
-      `The project is positioned to capture ${city} upper-upscale RevPAR growth and achieve stabilized returns consistent with Component 4 underwriting.`,
-      "Differentiated design, location, and operating strategy mitigate direct competition from legacy supply.",
+      `The project is positioned to capture ${subMarket} upper-upscale RevPAR growth and achieve stabilized returns consistent with Component 4 underwriting.`,
+      `Differentiated design, ${subMarket} location, and operating strategy mitigate direct competition from legacy supply.`,
     ],
   };
 }
@@ -382,12 +383,13 @@ export function generateSuccessFactorsData(
 export function generateRiskFactorsData(
   project: AggregatedProjectData
 ): RiskFactorsData {
-  const { city, country } = project.location;
+  const { city } = project.location;
+  const subMarket = project.location.subMarket?.trim() || city;
   return {
     marketThreats: [
       {
-        risk: "Global economic slowdown reducing international travel",
-        effect: "Could compress occupancy and ADR in downturn years. May extend stabilization timeline.",
+        risk: `Global slowdown reducing international travel into ${city}`,
+        effect: `Could compress occupancy and ADR in ${subMarket} downturn years. May extend stabilization timeline.`,
         mitigatingFactors: [
           "Diversified source market mix",
           "Domestic and regional demand base",
@@ -395,10 +397,10 @@ export function generateRiskFactorsData(
         ],
       },
       {
-        risk: "Incremental competing supply in the luxury segment",
-        effect: "May pressure rate growth in oversupplied sub-markets. Could increase sales and marketing costs.",
+        risk: `Incremental competing supply in ${subMarket} luxury segment`,
+        effect: `May pressure rate growth if ${subMarket} becomes oversupplied. Could increase sales and marketing costs.`,
         mitigatingFactors: [
-          "Differentiated product and location",
+          `Differentiated product within ${subMarket}`,
           "Pre-opening account contracts",
           "Brand affiliation and loyalty program",
         ],
@@ -424,7 +426,7 @@ export function generateRiskFactorsData(
         ],
       },
       {
-        weakness: "Seasonality in leisure-dominated demand",
+        weakness: `Seasonality in ${subMarket} leisure-dominated demand`,
         effect: "Summer months may underperform annual averages. Increases working capital volatility.",
         mitigatingFactors: [
           "MICE and corporate segment targeting",
@@ -434,7 +436,7 @@ export function generateRiskFactorsData(
       },
       {
         weakness: "Construction and delivery timeline risk",
-        effect: "Delays could push opening and debt service commencement.",
+        effect: `Delays could push opening in ${subMarket} and debt service commencement.`,
         mitigatingFactors: [
           "Fixed-price EPC where applicable",
           "Experienced contractor selection",

@@ -12,17 +12,26 @@ import {
   YAxis,
 } from "recharts";
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   estimatedUnitsFromGla,
   parkingSpacesFromBua,
   resolveResidentialOtherIncomeBenchmark,
 } from "@/lib/benchmarks/residential-other-income";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import {
   defaultOperationalResidentialHoldSnapshot,
   type OperationalResidentialHoldSnapshot,
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
+
+const AI_EPS = 0.01;
+function differsFromAi(current: number, ai?: number | null): boolean {
+  return (
+    ai != null && Number.isFinite(ai) && Math.abs(current - ai) > AI_EPS
+  );
+}
 
 const inputBase =
   "w-full rounded bg-slate-900 p-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500";
@@ -211,6 +220,40 @@ export default function ResidentialOtherIncomeStep() {
     ]
   );
 
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step2_other_income ||
+      !!raw.c2_operational?.other_income_btr ||
+      !!raw.c1_development?.construction_rates;
+    if (!hasNested) {
+      return (normalizeAiResearchData(raw) as { c2_operational?: typeof raw.c2_operational })
+        ?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep2 = aiC2?.step2_other_income;
+  const aiBtrIncome = aiC2?.other_income_btr;
+  const aiParkingFee =
+    aiStep2?.parking_fee_per_space ?? aiBtrIncome?.parking_fee_per_space;
+  const aiParkingUptake =
+    aiStep2?.parking_uptake_pct ?? aiBtrIncome?.parking_uptake_pct;
+  const aiAmenityFee =
+    aiStep2?.amenity_fee_per_unit ?? aiBtrIncome?.amenity_fee_per_unit;
+  const aiAmenityUptake =
+    aiStep2?.amenity_uptake_pct ?? aiBtrIncome?.amenity_uptake_pct;
+  const aiUtilityFee =
+    aiStep2?.utility_recovery_per_unit ??
+    aiBtrIncome?.utility_recovery_per_unit;
+  const aiUtilityUptake =
+    aiStep2?.utility_uptake_pct ?? aiBtrIncome?.utility_uptake_pct;
+  const aiOtherFee =
+    aiStep2?.other_fee_per_unit ?? aiBtrIncome?.other_fee_per_unit;
+  const aiOtherUptake =
+    aiStep2?.other_fee_uptake_pct ?? aiBtrIncome?.other_fee_uptake_pct;
+
   const defaultSpaces = parkingSpacesFromBua(
     cashOutflows.parkingBUA ?? 0,
     cashOutflows.basementBUA ?? 0
@@ -260,6 +303,49 @@ export default function ResidentialOtherIncomeStep() {
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
   >(() => step1?.otherIncomeManualYearValues ?? {});
+
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!overrides.parking && !overrides.parkingFeePerMonth && aiParkingFee != null) {
+      setParkingFeePerMonth(aiParkingFee);
+    }
+    if (!overrides.parking && !overrides.parkingUptake && aiParkingUptake != null) {
+      setParkingUptake(aiParkingUptake);
+    }
+    if (!overrides.amenity && !overrides.amenityFeePerUnit && aiAmenityFee != null) {
+      setAmenityFeePerUnit(aiAmenityFee);
+    }
+    if (!overrides.amenity && !overrides.amenityUptake && aiAmenityUptake != null) {
+      setAmenityUptake(aiAmenityUptake);
+    }
+    if (
+      !overrides.utility &&
+      !overrides.utilityRecoveryPerUnit &&
+      aiUtilityFee != null
+    ) {
+      setUtilityRecoveryPerUnit(aiUtilityFee);
+    }
+    if (!overrides.utility && !overrides.utilityUptake && aiUtilityUptake != null) {
+      setUtilityUptake(aiUtilityUptake);
+    }
+    if (!overrides.other && !overrides.otherFeesPerUnit && aiOtherFee != null) {
+      setOtherFeesPerUnit(aiOtherFee);
+    }
+    if (!overrides.other && !overrides.otherFeesUptake && aiOtherUptake != null) {
+      setOtherFeesUptake(aiOtherUptake);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-apply when AI payload changes
+  }, [
+    aiC2,
+    aiParkingFee,
+    aiParkingUptake,
+    aiAmenityFee,
+    aiAmenityUptake,
+    aiUtilityFee,
+    aiUtilityUptake,
+    aiOtherFee,
+    aiOtherUptake,
+  ]);
 
   useEffect(() => {
     if (defaultSpaces > 0 && totalParkingSpaces <= 0) {
@@ -358,15 +444,32 @@ export default function ResidentialOtherIncomeStep() {
     setOverrides({});
     setManualYearValues({});
     setTotalParkingSpaces(defaultSpaces);
-    setParkingFeePerMonth(incomeBenchmark.parkingFeePerMonth);
-    setParkingUptake(incomeBenchmark.parkingUptakePct);
-    setAmenityFeePerUnit(incomeBenchmark.amenityFeePerUnitMonth);
-    setAmenityUptake(incomeBenchmark.amenityUptakePct);
-    setUtilityRecoveryPerUnit(incomeBenchmark.utilityRecoveryPerUnitMonth);
-    setUtilityUptake(incomeBenchmark.utilityUptakePct);
-    setOtherFeesPerUnit(incomeBenchmark.otherFeesPerUnitAnnual);
-    setOtherFeesUptake(incomeBenchmark.otherFeesUptakePct);
-  }, [defaultSpaces, incomeBenchmark]);
+    setParkingFeePerMonth(aiParkingFee ?? incomeBenchmark.parkingFeePerMonth);
+    setParkingUptake(aiParkingUptake ?? incomeBenchmark.parkingUptakePct);
+    setAmenityFeePerUnit(
+      aiAmenityFee ?? incomeBenchmark.amenityFeePerUnitMonth
+    );
+    setAmenityUptake(aiAmenityUptake ?? incomeBenchmark.amenityUptakePct);
+    setUtilityRecoveryPerUnit(
+      aiUtilityFee ?? incomeBenchmark.utilityRecoveryPerUnitMonth
+    );
+    setUtilityUptake(aiUtilityUptake ?? incomeBenchmark.utilityUptakePct);
+    setOtherFeesPerUnit(
+      aiOtherFee ?? incomeBenchmark.otherFeesPerUnitAnnual
+    );
+    setOtherFeesUptake(aiOtherUptake ?? incomeBenchmark.otherFeesUptakePct);
+  }, [
+    defaultSpaces,
+    incomeBenchmark,
+    aiParkingFee,
+    aiParkingUptake,
+    aiAmenityFee,
+    aiAmenityUptake,
+    aiUtilityFee,
+    aiUtilityUptake,
+    aiOtherFee,
+    aiOtherUptake,
+  ]);
 
   const handleFieldChange = useCallback(
     (section: string, field: string, value: number) => {
@@ -468,9 +571,18 @@ export default function ResidentialOtherIncomeStep() {
           <button
             type="button"
             onClick={() => {
-              setParkingFeePerMonth(incomeBenchmark.parkingFeePerMonth);
-              setParkingUptake(incomeBenchmark.parkingUptakePct);
-              setOverrides((p) => ({ ...p, parking: false }));
+              setParkingFeePerMonth(
+                aiParkingFee ?? incomeBenchmark.parkingFeePerMonth
+              );
+              setParkingUptake(
+                aiParkingUptake ?? incomeBenchmark.parkingUptakePct
+              );
+              setOverrides((p) => ({
+                ...p,
+                parking: false,
+                parkingFeePerMonth: false,
+                parkingUptake: false,
+              }));
             }}
             className="text-xs text-emerald-400 hover:text-emerald-300"
           >
@@ -479,37 +591,45 @@ export default function ResidentialOtherIncomeStep() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Monthly parking fee per space ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Monthly parking fee per space (${currencyCode})`}
               value={parkingFeePerMonth}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "parking",
                   "parkingFeePerMonth",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.parking)}
+              type="number"
+              isAiGenerated={
+                aiParkingFee != null &&
+                !overrides.parking &&
+                !overrides.parkingFeePerMonth
+              }
+              isManualOverride={
+                !!(overrides.parking || overrides.parkingFeePerMonth) ||
+                differsFromAi(parkingFeePerMonth, aiParkingFee)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Parking uptake (% of units renting a space)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Parking uptake (% of units renting a space)"
               value={parkingUptake}
-              onChange={(e) =>
-                handleFieldChange(
-                  "parking",
-                  "parkingUptake",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("parking", "parkingUptake", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.parking)}
+              type="percentage"
+              isAiGenerated={
+                aiParkingUptake != null &&
+                !overrides.parking &&
+                !overrides.parkingUptake
+              }
+              isManualOverride={
+                !!(overrides.parking || overrides.parkingUptake) ||
+                differsFromAi(parkingUptake, aiParkingUptake)
+              }
             />
           </div>
           <div className="flex items-end text-xs text-slate-500">
@@ -526,9 +646,18 @@ export default function ResidentialOtherIncomeStep() {
           <button
             type="button"
             onClick={() => {
-              setAmenityFeePerUnit(incomeBenchmark.amenityFeePerUnitMonth);
-              setAmenityUptake(incomeBenchmark.amenityUptakePct);
-              setOverrides((p) => ({ ...p, amenity: false }));
+              setAmenityFeePerUnit(
+                aiAmenityFee ?? incomeBenchmark.amenityFeePerUnitMonth
+              );
+              setAmenityUptake(
+                aiAmenityUptake ?? incomeBenchmark.amenityUptakePct
+              );
+              setOverrides((p) => ({
+                ...p,
+                amenity: false,
+                amenityFeePerUnit: false,
+                amenityUptake: false,
+              }));
             }}
             className="text-xs text-emerald-400 hover:text-emerald-300"
           >
@@ -537,37 +666,45 @@ export default function ResidentialOtherIncomeStep() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Monthly amenity fee per unit ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Monthly amenity fee per unit (${currencyCode})`}
               value={amenityFeePerUnit}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "amenity",
                   "amenityFeePerUnit",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.amenity)}
+              type="number"
+              isAiGenerated={
+                aiAmenityFee != null &&
+                !overrides.amenity &&
+                !overrides.amenityFeePerUnit
+              }
+              isManualOverride={
+                !!(overrides.amenity || overrides.amenityFeePerUnit) ||
+                differsFromAi(amenityFeePerUnit, aiAmenityFee)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Amenity uptake (% of tenants paying)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Amenity uptake (% of tenants paying)"
               value={amenityUptake}
-              onChange={(e) =>
-                handleFieldChange(
-                  "amenity",
-                  "amenityUptake",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("amenity", "amenityUptake", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.amenity)}
+              type="percentage"
+              isAiGenerated={
+                aiAmenityUptake != null &&
+                !overrides.amenity &&
+                !overrides.amenityUptake
+              }
+              isManualOverride={
+                !!(overrides.amenity || overrides.amenityUptake) ||
+                differsFromAi(amenityUptake, aiAmenityUptake)
+              }
             />
           </div>
         </div>
@@ -582,10 +719,17 @@ export default function ResidentialOtherIncomeStep() {
             type="button"
             onClick={() => {
               setUtilityRecoveryPerUnit(
-                incomeBenchmark.utilityRecoveryPerUnitMonth
+                aiUtilityFee ?? incomeBenchmark.utilityRecoveryPerUnitMonth
               );
-              setUtilityUptake(incomeBenchmark.utilityUptakePct);
-              setOverrides((p) => ({ ...p, utility: false }));
+              setUtilityUptake(
+                aiUtilityUptake ?? incomeBenchmark.utilityUptakePct
+              );
+              setOverrides((p) => ({
+                ...p,
+                utility: false,
+                utilityRecoveryPerUnit: false,
+                utilityUptake: false,
+              }));
             }}
             className="text-xs text-emerald-400 hover:text-emerald-300"
           >
@@ -594,37 +738,45 @@ export default function ResidentialOtherIncomeStep() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Monthly utility recovery per unit ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Monthly utility recovery per unit (${currencyCode})`}
               value={utilityRecoveryPerUnit}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "utility",
                   "utilityRecoveryPerUnit",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.utility)}
+              type="number"
+              isAiGenerated={
+                aiUtilityFee != null &&
+                !overrides.utility &&
+                !overrides.utilityRecoveryPerUnit
+              }
+              isManualOverride={
+                !!(overrides.utility || overrides.utilityRecoveryPerUnit) ||
+                differsFromAi(utilityRecoveryPerUnit, aiUtilityFee)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Utility uptake (% of units with sub-meter)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Utility uptake (% of units with sub-meter)"
               value={utilityUptake}
-              onChange={(e) =>
-                handleFieldChange(
-                  "utility",
-                  "utilityUptake",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("utility", "utilityUptake", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.utility)}
+              type="percentage"
+              isAiGenerated={
+                aiUtilityUptake != null &&
+                !overrides.utility &&
+                !overrides.utilityUptake
+              }
+              isManualOverride={
+                !!(overrides.utility || overrides.utilityUptake) ||
+                differsFromAi(utilityUptake, aiUtilityUptake)
+              }
             />
           </div>
         </div>
@@ -638,9 +790,18 @@ export default function ResidentialOtherIncomeStep() {
           <button
             type="button"
             onClick={() => {
-              setOtherFeesPerUnit(incomeBenchmark.otherFeesPerUnitAnnual);
-              setOtherFeesUptake(incomeBenchmark.otherFeesUptakePct);
-              setOverrides((p) => ({ ...p, other: false }));
+              setOtherFeesPerUnit(
+                aiOtherFee ?? incomeBenchmark.otherFeesPerUnitAnnual
+              );
+              setOtherFeesUptake(
+                aiOtherUptake ?? incomeBenchmark.otherFeesUptakePct
+              );
+              setOverrides((p) => ({
+                ...p,
+                other: false,
+                otherFeesPerUnit: false,
+                otherFeesUptake: false,
+              }));
             }}
             className="text-xs text-emerald-400 hover:text-emerald-300"
           >
@@ -649,37 +810,41 @@ export default function ResidentialOtherIncomeStep() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Annual other fees per unit ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Annual other fees per unit (${currencyCode})`}
               value={otherFeesPerUnit}
-              onChange={(e) =>
-                handleFieldChange(
-                  "other",
-                  "otherFeesPerUnit",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("other", "otherFeesPerUnit", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.other)}
+              type="number"
+              isAiGenerated={
+                aiOtherFee != null &&
+                !overrides.other &&
+                !overrides.otherFeesPerUnit
+              }
+              isManualOverride={
+                !!(overrides.other || overrides.otherFeesPerUnit) ||
+                differsFromAi(otherFeesPerUnit, aiOtherFee)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Other fee uptake (% of units)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Other fee uptake (% of units)"
               value={otherFeesUptake}
-              onChange={(e) =>
-                handleFieldChange(
-                  "other",
-                  "otherFeesUptake",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("other", "otherFeesUptake", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.other)}
+              type="percentage"
+              isAiGenerated={
+                aiOtherUptake != null &&
+                !overrides.other &&
+                !overrides.otherFeesUptake
+              }
+              isManualOverride={
+                !!(overrides.other || overrides.otherFeesUptake) ||
+                differsFromAi(otherFeesUptake, aiOtherUptake)
+              }
             />
           </div>
         </div>

@@ -21,10 +21,15 @@ import ImplicationsOnProjectSlide from "./slides/ImplicationsOnProjectSlide";
 import KeySuccessFactorsSlide from "./slides/KeySuccessFactorsSlide";
 import KeyRiskFactorsSlide from "./slides/KeyRiskFactorsSlide";
 import TitleSlide from "./slides/TitleSlide";
+import ProjectLocationSlide from "./slides/ProjectLocationSlide";
 import {
   buildTitleSlideData,
   isTitleSlideData,
 } from "@/lib/feasibility/generate-title-slide";
+import {
+  buildProjectLocationSlideData,
+  isProjectLocationSlideData,
+} from "@/lib/feasibility/generate-project-location-slide";
 import {
   generateTravelTourismDemandData,
   generateTravelTourismOutlookData,
@@ -132,6 +137,13 @@ export default function FeasibilitySlideView({
       ? slide.data
       : buildTitleSlideData(projectData);
     return <TitleSlide data={data} {...editProps} />;
+  }
+
+  if (slide.id === "project-location") {
+    const data = isProjectLocationSlideData(slide.data)
+      ? slide.data
+      : buildProjectLocationSlideData(projectData);
+    return <ProjectLocationSlide data={data} {...editProps} />;
   }
 
   if (slide.id === "hosp-demand") {

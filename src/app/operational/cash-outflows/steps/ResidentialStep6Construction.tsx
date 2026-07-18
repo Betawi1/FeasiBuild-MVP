@@ -35,9 +35,9 @@ export default function ResidentialStep6Construction({
         isManualOverride={ccOverrides.any || hasManualOverride}
       />
       <p className="mb-4 text-sm text-slate-400">
-        Building, parking, and basement rates are suggested from your residential
-        segment, positioning, furnishing level, and country. Typed values count as
-        overrides.
+        Building, parking, and basement rates come from AI research when available,
+        otherwise from your residential segment, positioning, furnishing level, and
+        country. Typed values count as overrides.
       </p>
     </>
   );

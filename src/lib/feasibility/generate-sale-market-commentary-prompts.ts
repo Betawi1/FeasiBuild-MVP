@@ -5,10 +5,12 @@ import type { SaleCommentarySection } from "@/lib/feasibility/sale/generate-sale
 
 function projectBlock(bundle: SaleFeasibilityBundle, config: SaleStreamConfig): string {
   const m = bundle.saleMetrics;
+  const subMarket = bundle.location.subMarket?.trim() || bundle.location.city;
   return `
 PROJECT:
 - Asset: ${config.assetLabel}
 - Location: ${bundle.location.city}, ${bundle.location.country}
+- Sub-Market: ${subMarket}
 - Currency: ${bundle.currency}
 - Saleable BUA: ${m.saleableArea.toLocaleString()} sqft
 - Avg PSF: ${m.avgPricePsf} ${bundle.currency}
@@ -17,6 +19,8 @@ PROJECT:
 - Project IRR: ${bundle.component4.projectIRR}%
 - Equity Multiple: ${bundle.component4.equityMultiple.toFixed(2)}x
 - Construction: ${m.constructionMonths} months
+
+CRITICAL: ALWAYS reference ${subMarket} when discussing location, competition, or market dynamics. DO NOT include thinking process or prompt instructions in output.
 `.trim();
 }
 

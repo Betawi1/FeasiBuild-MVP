@@ -16,9 +16,11 @@ import {
   resolveOfficeDepreciationBases,
   type OfficeDepreciationYearRow,
 } from "@/lib/benchmarks/office-depreciation";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import type { OperationalOfficeHoldSnapshot } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { OfficeDepreciationConfig } from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import { getOperationalOfficeHoldSnapshot } from "./OfficeRevenueStep";
 
 export type OfficeDepreciationStepErrors = Record<string, string>;
@@ -206,6 +208,32 @@ export default function OfficeDepreciationStep() {
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
   const officeOpex = projectInfo.officeOpex;
   const currencyCode = projectInfo.currency || "AED";
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step6_useful_life_working_capital ||
+      !!raw.c2_operational?.step1_base_rent;
+    if (!hasNested) {
+      return (
+        normalizeAiResearchData(raw) as {
+          c2_operational?: typeof raw.c2_operational;
+        }
+      )?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep6 = aiC2?.step6_useful_life_working_capital;
+  const aiConstructionLife = aiStep6?.construction_useful_life_years;
+  const aiFfeLife = aiStep6?.ffe_useful_life_years;
+  const aiFfeRenovationPct = aiStep6?.ffe_renovation_pct_year_6;
+  const aiOfficeTiLife = aiStep6?.ti_useful_life_years;
+  const aiRetailTiLife = aiStep6?.retail_ti_useful_life_years;
+  const aiLeasingCommLife = aiStep6?.leasing_commissions_life_years;
+  const aiArMonths = aiStep6?.accounts_receivable_months_revenue;
+  const aiApMonths = aiStep6?.accounts_payable_months_opex;
 
   const coworkingDelivery =
     projectInfo.officeSegment === "co_working"
@@ -465,15 +493,21 @@ export default function OfficeDepreciationStep() {
   useEffect(() => {
     if (Object.keys(overrides).length > 0) return;
     if (snap?.constructionLife != null) return;
-    setConstructionLife(resolved.constructionLife);
-    setFfeLife(resolved.ffeLife);
-    setFfeRenovationPctYear6(resolved.ffeRenovationPctYear6);
-    setOfficeTiLife(resolved.officeTiLife);
-    setRetailTiLife(resolved.retailTiLife);
-    setOfficeLeasingCommLife(resolved.officeLeasingCommLife);
-    setRetailLeasingCommLife(resolved.retailLeasingCommLife);
-    setArMonths(resolved.arMonths);
-    setApMonths(resolved.apMonths);
+    setConstructionLife(aiConstructionLife ?? resolved.constructionLife);
+    setFfeLife(aiFfeLife ?? resolved.ffeLife);
+    setFfeRenovationPctYear6(
+      aiFfeRenovationPct ?? resolved.ffeRenovationPctYear6
+    );
+    setOfficeTiLife(aiOfficeTiLife ?? resolved.officeTiLife);
+    setRetailTiLife(aiRetailTiLife ?? resolved.retailTiLife);
+    setOfficeLeasingCommLife(
+      aiLeasingCommLife ?? resolved.officeLeasingCommLife
+    );
+    setRetailLeasingCommLife(
+      aiLeasingCommLife ?? resolved.retailLeasingCommLife
+    );
+    setArMonths(aiArMonths ?? resolved.arMonths);
+    setApMonths(aiApMonths ?? resolved.apMonths);
   }, [
     overrides,
     snap?.constructionLife,
@@ -486,27 +520,99 @@ export default function OfficeDepreciationStep() {
     resolved.retailLeasingCommLife,
     resolved.arMonths,
     resolved.apMonths,
+    aiConstructionLife,
+    aiFfeLife,
+    aiFfeRenovationPct,
+    aiOfficeTiLife,
+    aiRetailTiLife,
+    aiLeasingCommLife,
+    aiArMonths,
+    aiApMonths,
+  ]);
+
+  // Apply AI when it arrives (unless that field overridden)
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!overrides.constructionLife && aiConstructionLife != null) {
+      setConstructionLife(aiConstructionLife);
+    }
+    if (!overrides.ffeLife && aiFfeLife != null) setFfeLife(aiFfeLife);
+    if (!overrides.ffeRenovationPctYear6 && aiFfeRenovationPct != null) {
+      setFfeRenovationPctYear6(aiFfeRenovationPct);
+    }
+    if (!overrides.officeTiLife && aiOfficeTiLife != null) {
+      setOfficeTiLife(aiOfficeTiLife);
+    }
+    if (!overrides.retailTiLife && aiRetailTiLife != null) {
+      setRetailTiLife(aiRetailTiLife);
+    }
+    if (!overrides.officeLeasingCommLife && aiLeasingCommLife != null) {
+      setOfficeLeasingCommLife(aiLeasingCommLife);
+    }
+    if (!overrides.retailLeasingCommLife && aiLeasingCommLife != null) {
+      setRetailLeasingCommLife(aiLeasingCommLife);
+    }
+    if (!overrides.arMonths && aiArMonths != null) setArMonths(aiArMonths);
+    if (!overrides.apMonths && aiApMonths != null) setApMonths(aiApMonths);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    aiC2,
+    aiConstructionLife,
+    aiFfeLife,
+    aiFfeRenovationPct,
+    aiOfficeTiLife,
+    aiRetailTiLife,
+    aiLeasingCommLife,
+    aiArMonths,
+    aiApMonths,
   ]);
 
   const handleResetDeprec = () => {
-    setConstructionLife(resolved.constructionLife);
-    setFfeLife(resolved.ffeLife);
-    setFfeRenovationPctYear6(resolved.ffeRenovationPctYear6);
-    setOverrides((prev) => ({ ...prev, depreciations: false }));
+    setConstructionLife(aiConstructionLife ?? resolved.constructionLife);
+    setFfeLife(aiFfeLife ?? resolved.ffeLife);
+    setFfeRenovationPctYear6(
+      aiFfeRenovationPct ?? resolved.ffeRenovationPctYear6
+    );
+    setOverrides((prev) => {
+      const next = { ...prev };
+      delete next.depreciations;
+      delete next.constructionLife;
+      delete next.ffeLife;
+      delete next.ffeRenovationPctYear6;
+      return next;
+    });
   };
 
   const handleResetTiComm = () => {
-    setOfficeTiLife(resolved.officeTiLife);
-    setRetailTiLife(resolved.retailTiLife);
-    setOfficeLeasingCommLife(resolved.officeLeasingCommLife);
-    setRetailLeasingCommLife(resolved.retailLeasingCommLife);
-    setOverrides((prev) => ({ ...prev, tiComm: false }));
+    setOfficeTiLife(aiOfficeTiLife ?? resolved.officeTiLife);
+    setRetailTiLife(aiRetailTiLife ?? resolved.retailTiLife);
+    setOfficeLeasingCommLife(
+      aiLeasingCommLife ?? resolved.officeLeasingCommLife
+    );
+    setRetailLeasingCommLife(
+      aiLeasingCommLife ?? resolved.retailLeasingCommLife
+    );
+    setOverrides((prev) => {
+      const next = { ...prev };
+      delete next.tiComm;
+      delete next.officeTiLife;
+      delete next.retailTiLife;
+      delete next.officeLeasingCommLife;
+      delete next.retailLeasingCommLife;
+      return next;
+    });
   };
 
   const handleResetWc = () => {
-    setArMonths(resolved.arMonths);
-    setApMonths(resolved.apMonths);
-    setOverrides((prev) => ({ ...prev, wc: false }));
+    setArMonths(aiArMonths ?? resolved.arMonths);
+    setApMonths(aiApMonths ?? resolved.apMonths);
+    setOverrides((prev) => {
+      const next = { ...prev };
+      delete next.wc;
+      delete next.arMonths;
+      delete next.apMonths;
+      return next;
+    });
   };
 
   const handleResetAll = () => {
@@ -530,7 +636,8 @@ export default function OfficeDepreciationStep() {
       apMonths: setApMonths,
     };
     setters[field](value);
-    setOverrides((prev) => ({ ...prev, [section]: true }));
+    // Field-specific override only (not section-wide)
+    setOverrides((prev) => ({ ...prev, [field]: true }));
   };
 
   const handleCellOverride = (year: number, stream: string, value: number) => {
@@ -554,11 +661,6 @@ export default function OfficeDepreciationStep() {
   const positioningLabel = (
     projectInfo?.officePositioning || "grade_a"
   ).replace(/_/g, " ");
-
-  const sectionBorder = (section: string) =>
-    overrides[section]
-      ? "border-2 border-amber-500"
-      : "border border-slate-600";
 
   return (
     <div className="animate-in fade-in space-y-8 duration-500">
@@ -646,179 +748,202 @@ export default function OfficeDepreciationStep() {
             )}
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
-            <button
-              type="button"
-              onClick={handleResetDeprec}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset deprec
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={handleResetTiComm}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset TI/comm
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={handleResetWc}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset WC
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={handleResetAll}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset all
-            </button>
+            {Object.values(overrides).some(Boolean) && (
+              <button
+                type="button"
+                onClick={handleResetAll}
+                className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
+              >
+                Reset to benchmark
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Useful Life &amp; Working Capital Assumptions
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Useful Life &amp; Working Capital Assumptions
+          </h3>
+          <div className="flex flex-wrap gap-3 text-xs">
+            <button
+              type="button"
+              onClick={handleResetDeprec}
+              className={`font-medium transition-colors ${
+                overrides.constructionLife ||
+                overrides.ffeLife ||
+                overrides.ffeRenovationPctYear6
+                  ? "text-emerald-400 hover:text-emerald-300"
+                  : "cursor-default text-slate-500"
+              }`}
+              disabled={
+                !overrides.constructionLife &&
+                !overrides.ffeLife &&
+                !overrides.ffeRenovationPctYear6
+              }
+            >
+              Reset deprec
+            </button>
+            <button
+              type="button"
+              onClick={handleResetTiComm}
+              className={`font-medium transition-colors ${
+                overrides.officeTiLife ||
+                overrides.retailTiLife ||
+                overrides.officeLeasingCommLife ||
+                overrides.retailLeasingCommLife
+                  ? "text-emerald-400 hover:text-emerald-300"
+                  : "cursor-default text-slate-500"
+              }`}
+              disabled={
+                !overrides.officeTiLife &&
+                !overrides.retailTiLife &&
+                !overrides.officeLeasingCommLife &&
+                !overrides.retailLeasingCommLife
+              }
+            >
+              Reset TI/comm
+            </button>
+            <button
+              type="button"
+              onClick={handleResetWc}
+              className={`font-medium transition-colors ${
+                overrides.arMonths || overrides.apMonths
+                  ? "text-emerald-400 hover:text-emerald-300"
+                  : "cursor-default text-slate-500"
+              }`}
+              disabled={!overrides.arMonths && !overrides.apMonths}
+            >
+              Reset WC
+            </button>
+          </div>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.constructionLife}
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={LIFE_FIELD_LABELS.constructionLife}
               value={constructionLife}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "depreciations",
                   "constructionLife",
-                  Number(e.target.value)
+                  Number(val)
                 )
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("depreciations")}`}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.ffeLife}
-            </label>
-            <input
               type="number"
-              value={ffeLife}
-              onChange={(e) =>
-                handleFieldChange("depreciations", "ffeLife", Number(e.target.value))
+              isAiGenerated={
+                aiConstructionLife != null && !overrides.constructionLife
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("depreciations")}`}
+              isManualOverride={!!overrides.constructionLife}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.ffeRenovationPctYear6}
-            </label>
-            <input
+            <AiInput
+              label={LIFE_FIELD_LABELS.ffeLife}
+              value={ffeLife}
+              onChange={(val) =>
+                handleFieldChange("depreciations", "ffeLife", Number(val))
+              }
               type="number"
+              isAiGenerated={aiFfeLife != null && !overrides.ffeLife}
+              isManualOverride={!!overrides.ffeLife}
+            />
+          </div>
+          <div>
+            <AiInput
+              label={LIFE_FIELD_LABELS.ffeRenovationPctYear6}
               value={ffeRenovationPctYear6}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "depreciations",
                   "ffeRenovationPctYear6",
-                  Number(e.target.value)
+                  Number(val)
                 )
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("depreciations")}`}
+              type="percentage"
+              isAiGenerated={
+                aiFfeRenovationPct != null && !overrides.ffeRenovationPctYear6
+              }
+              isManualOverride={!!overrides.ffeRenovationPctYear6}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.officeTiLife}
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={LIFE_FIELD_LABELS.officeTiLife}
               value={officeTiLife}
-              onChange={(e) =>
-                handleFieldChange("tiComm", "officeTiLife", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("tiComm", "officeTiLife", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("tiComm")}`}
+              type="number"
+              isAiGenerated={aiOfficeTiLife != null && !overrides.officeTiLife}
+              isManualOverride={!!overrides.officeTiLife}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.retailTiLife}
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={LIFE_FIELD_LABELS.retailTiLife}
               value={retailTiLife}
-              onChange={(e) =>
-                handleFieldChange("tiComm", "retailTiLife", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("tiComm", "retailTiLife", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("tiComm")}`}
+              type="number"
+              isAiGenerated={aiRetailTiLife != null && !overrides.retailTiLife}
+              isManualOverride={!!overrides.retailTiLife}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.officeLeasingCommLife}
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={LIFE_FIELD_LABELS.officeLeasingCommLife}
               value={officeLeasingCommLife}
-              onChange={(e) =>
-                handleFieldChange(
-                  "tiComm",
-                  "officeLeasingCommLife",
-                  Number(e.target.value)
-                )
+              onChange={(val) =>
+                handleFieldChange("tiComm", "officeLeasingCommLife", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("tiComm")}`}
+              type="number"
+              isAiGenerated={
+                aiLeasingCommLife != null && !overrides.officeLeasingCommLife
+              }
+              isManualOverride={!!overrides.officeLeasingCommLife}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.retailLeasingCommLife}
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={LIFE_FIELD_LABELS.retailLeasingCommLife}
               value={retailLeasingCommLife}
-              onChange={(e) =>
-                handleFieldChange(
-                  "tiComm",
-                  "retailLeasingCommLife",
-                  Number(e.target.value)
-                )
+              onChange={(val) =>
+                handleFieldChange("tiComm", "retailLeasingCommLife", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("tiComm")}`}
+              type="number"
+              isAiGenerated={
+                aiLeasingCommLife != null && !overrides.retailLeasingCommLife
+              }
+              isManualOverride={!!overrides.retailLeasingCommLife}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.arMonths}
-            </label>
-            <input
-              type="number"
-              step={0.5}
+            <AiInput
+              label={LIFE_FIELD_LABELS.arMonths}
               value={arMonths}
-              onChange={(e) =>
-                handleFieldChange("wc", "arMonths", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("wc", "arMonths", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("wc")}`}
+              type="number"
+              step={0.5}
+              isAiGenerated={aiArMonths != null && !overrides.arMonths}
+              isManualOverride={!!overrides.arMonths}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              {LIFE_FIELD_LABELS.apMonths}
-            </label>
-            <input
+            <AiInput
+              label={LIFE_FIELD_LABELS.apMonths}
+              value={apMonths}
+              onChange={(val) =>
+                handleFieldChange("wc", "apMonths", Number(val))
+              }
               type="number"
               step={0.5}
-              value={apMonths}
-              onChange={(e) =>
-                handleFieldChange("wc", "apMonths", Number(e.target.value))
-              }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${sectionBorder("wc")}`}
+              isAiGenerated={aiApMonths != null && !overrides.apMonths}
+              isManualOverride={!!overrides.apMonths}
             />
           </div>
         </div>

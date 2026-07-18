@@ -6,6 +6,12 @@ import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParag
 import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailMarketMetricsData } from "@/types/feasibility";
 import {
+  BarValueLabelList,
+  CHART_MARGIN_WITH_LABELS,
+  LineValueLabelList,
+  formatChartNumber,
+} from "@/components/feasibility/charts/chart-data-labels";
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -43,14 +49,22 @@ export default function RetailMarketMetricsSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Footfall index — {city} malls
           </h3>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 pt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.chartData}>
+              <BarChart data={data.chartData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
                 <Tooltip />
-                <Bar dataKey="footfall" fill="#4c1d95" name="Footfall (m)" />
+                <Bar dataKey="footfall" fill="#4c1d95" name="Footfall (m)">
+                  <BarValueLabelList
+                    fill="#4c1d95"
+                    fontSize={10}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 0, compact: false })
+                    }
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -63,9 +77,9 @@ export default function RetailMarketMetricsSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Tenant sales PSF trend
           </h3>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 pt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.chartData}>
+              <LineChart data={data.chartData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
@@ -77,13 +91,24 @@ export default function RetailMarketMetricsSlide({
                   stroke="#0d9488"
                   name="Sales PSF"
                   strokeWidth={2}
-                />
+                  dot={{ r: 3 }}
+                >
+                  <LineValueLabelList
+                    fill="#0f766e"
+                    fontSize={10}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 0, compact: false })
+                    }
+                  />
+                </Line>
+                {/* Occupancy labels omitted — scale is too small vs Sales PSF */}
                 <Line
                   type="monotone"
                   dataKey="occupancy"
                   stroke="#3b82f6"
                   name="Occupancy %"
                   strokeWidth={2}
+                  dot={{ r: 2 }}
                 />
               </LineChart>
             </ResponsiveContainer>

@@ -29,8 +29,12 @@ function MapController({ country, city }: { country: string; city: string }) {
         if (data && data.length > 0) {
           const lat = parseFloat(data[0].lat);
           const lon = parseFloat(data[0].lon);
-          if (!isNaN(lat) && !isNaN(lon)) {
-            map.flyTo([lat, lon], 11, { duration: 1.5 });
+          if (!isNaN(lat) && !isNaN(lon) && map && map.getContainer()) {
+            // Defer to next frame to ensure DOM is fully ready
+            requestAnimationFrame(() => {
+              map.invalidateSize(); // Recalculate container dimensions
+              map.flyTo([lat, lon], 11, { duration: 1.5 });
+            });
           }
         }
       } catch (error) {

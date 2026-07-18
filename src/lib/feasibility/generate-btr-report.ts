@@ -1,6 +1,7 @@
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import { buildMacroSlides } from "@/lib/feasibility/generate-market-slides";
 import { generateTitleSlide } from "@/lib/feasibility/generate-title-slide";
+import { generateProjectLocationSlide } from "@/lib/feasibility/generate-project-location-slide";
 import { generateFinancialSlides } from "@/lib/feasibility/generate-financial-slides";
 import {
   generateBTRCommentaryFallback,
@@ -127,7 +128,8 @@ export async function generateBTRCommentary(
       forceRegenerate: options?.forceRegenerate,
       section,
     });
-    return cleanAIContent(raw);
+    // generateCommentary already returns cleaned paragraphs
+    return raw;
   } catch (error) {
     console.error(`Failed to generate commentary for ${section}:`, error);
     return [`Content generation failed for ${section}. Please try again.`];
@@ -420,6 +422,7 @@ export function generateBTRSlides(
   return [
     generateTitleSlide(bundle),
     ...generateBTRExecutiveSlides(bundle),
+    generateProjectLocationSlide(bundle),
     generateBTRProjectSlide(bundle),
     ...generateBTRMarketSlides(bundle),
     ...generateBTRFinancialSlides(bundle),

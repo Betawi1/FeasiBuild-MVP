@@ -15,6 +15,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  BarValueLabelList,
+  CHART_MARGIN_WITH_LABELS,
+  formatChartNumber,
+} from "@/components/feasibility/charts/chart-data-labels";
 
 type HistoricalGuestsDataWithBullets = HistoricalGuestsData & {
   summaryBullets?: string[];
@@ -66,14 +71,28 @@ export default function HistoricalHotelGuestsSlide({
               Number of hotel guests &amp; guest nights, {country}
             </h3>
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={data.yearlyData}>
+              <BarChart data={data.yearlyData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: "9px" }} />
-                <Bar dataKey="totalGuests" fill="#4c1d95" name="Total Guests (M)" />
-                <Bar dataKey="guestNights" fill="#92400e" name="Guest Nights (M)" />
+                <Bar dataKey="totalGuests" fill="#4c1d95" name="Total Guests (M)">
+                  <BarValueLabelList
+                    fontSize={9}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
+                <Bar dataKey="guestNights" fill="#92400e" name="Guest Nights (M)">
+                  <BarValueLabelList
+                    fontSize={9}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
             {isEditing ? (

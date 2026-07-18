@@ -127,7 +127,12 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
 
   return {
     stream: "sale",
-    location: { city, country },
+    location: {
+      city,
+      country,
+      subMarket: projectInfo.subMarket?.trim() || undefined,
+      coordinates: projectInfo.coordinates ?? null,
+    },
     assetType: config.assetLabel,
     segment: projectInfo.buildingSubType ?? "sale",
     currency,
@@ -175,7 +180,12 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
       idcAmount: financing.idcAmount ?? 0,
     },
     aggregate: {
-      location: { city, country },
+      location: {
+        city,
+        country,
+        subMarket: projectInfo.subMarket?.trim() || undefined,
+        coordinates: projectInfo.coordinates ?? null,
+      },
       assetType: config.assetLabel,
       segment: projectInfo.buildingSubType ?? "sale",
       positioning: config.assetLabel,

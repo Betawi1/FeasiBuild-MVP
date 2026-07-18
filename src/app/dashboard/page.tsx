@@ -22,7 +22,7 @@ export default async function DashboardPage() {
         <DashboardNewStudyButtons />
       </div>
 
-      <DashboardProjects />
+      <DashboardProjects userId={user?.id} />
     </div>
   );
 }

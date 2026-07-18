@@ -6,6 +6,10 @@ import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParag
 import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailSupplyPipelineData } from "@/types/feasibility";
 import {
+  BarValueLabelList,
+  CHART_MARGIN_WITH_LABELS,
+} from "@/components/feasibility/charts/chart-data-labels";
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -29,10 +33,11 @@ export default function RetailSupplyPipelineSlide({
   isEditing = false,
   onParagraphChange,
 }: Props) {
+  // Keep 2-decimal precision so small pipeline figures (e.g. 0.15) are visible
   const chartData = data.chartData.map((d) => ({
     ...d,
-    existingM: Math.round(d.existingGla / 1_000_000),
-    pipelineM: Math.round(d.pipelineGla / 1_000_000),
+    existingM: Math.round((d.existingGla / 1_000_000) * 100) / 100,
+    pipelineM: Math.round((d.pipelineGla / 1_000_000) * 100) / 100,
   }));
 
   return (
@@ -47,16 +52,38 @@ export default function RetailSupplyPipelineSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Retail GLA stock & pipeline — {city} (m sqft)
           </h3>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 pt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
+              <BarChart data={chartData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: "9px" }} />
-                <Bar dataKey="existingM" stackId="a" fill="#0d9488" name="Existing" />
-                <Bar dataKey="pipelineM" stackId="a" fill="#8b5cf6" name="Pipeline" />
+                <Bar
+                  dataKey="existingM"
+                  fill="#0d9488"
+                  name="Existing"
+                  radius={[2, 2, 0, 0]}
+                >
+                  <BarValueLabelList
+                    fill="#1e293b"
+                    fontSize={10}
+                    formatter={(v) => v.toFixed(2)}
+                  />
+                </Bar>
+                <Bar
+                  dataKey="pipelineM"
+                  fill="#8b5cf6"
+                  name="Pipeline"
+                  radius={[2, 2, 0, 0]}
+                >
+                  <BarValueLabelList
+                    fill="#1e293b"
+                    fontSize={10}
+                    formatter={(v) => v.toFixed(2)}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

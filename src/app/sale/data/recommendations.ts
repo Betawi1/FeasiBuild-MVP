@@ -121,19 +121,40 @@ export function interpolateSCurveProfile(
   template: ConstructionSCurveProfile,
   targetMonths: number
 ): number[] {
+  console.log("🔍 [interpolateSCurveProfile] Input:", {
+    template,
+    targetMonths,
+    templateType: template.peakMonth ? "has-peak" : "unknown",
+  });
+
   const templateMonths = template.monthlyPercentages.length;
   if (targetMonths <= 0) return [];
 
   // Exact match: still enforce sum == 100%
   if (targetMonths === templateMonths) {
     const sum = template.monthlyPercentages.reduce((a, b) => a + b, 0) || 1;
-    if (Math.abs(sum - 100) <= 0.01) return [...template.monthlyPercentages];
-    const normalized = template.monthlyPercentages.map((p) => (p / sum) * 100);
-    const finalSum = normalized.reduce((a, b) => a + b, 0);
-    if (Math.abs(finalSum - 100) > 0.001) {
-      normalized[normalized.length - 1] += 100 - finalSum;
-    }
-    return normalized;
+    const exact =
+      Math.abs(sum - 100) <= 0.01
+        ? [...template.monthlyPercentages]
+        : (() => {
+            const normalized = template.monthlyPercentages.map(
+              (p) => (p / sum) * 100
+            );
+            const finalSum = normalized.reduce((a, b) => a + b, 0);
+            if (Math.abs(finalSum - 100) > 0.001) {
+              normalized[normalized.length - 1] += 100 - finalSum;
+            }
+            return normalized;
+          })();
+
+    console.log("🔍 [interpolateSCurveProfile] Output:", {
+      length: exact.length,
+      sum: exact.reduce((a, b) => a + b, 0),
+      first5: exact.slice(0, 5),
+      last5: exact.slice(-5),
+      path: "exact-match",
+    });
+    return exact;
   }
 
   // Linear interpolation
@@ -164,6 +185,14 @@ export function interpolateSCurveProfile(
     targetMonths,
     rawSum: rawSum.toFixed(4),
     normalizedSum: normalized.reduce((a, b) => a + b, 0).toFixed(4),
+  });
+
+  console.log("🔍 [interpolateSCurveProfile] Output:", {
+    length: normalized.length,
+    sum: normalized.reduce((a, b) => a + b, 0),
+    first5: normalized.slice(0, 5),
+    last5: normalized.slice(-5),
+    path: "interpolated",
   });
 
   return normalized;

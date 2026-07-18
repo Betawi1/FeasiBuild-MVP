@@ -9,10 +9,137 @@ export function removeJsonArtifacts(content: string): string {
   return cleaned.trim();
 }
 
+const MAX_CLEAN_CACHE = 800;
+const stripCache = new Map<string, string>();
+const paragraphCache = new Map<string, string>();
+const arrayCleanCache = new Map<string, string[]>();
+
+function cacheGet<T>(cache: Map<string, T>, key: string): T | undefined {
+  const hit = cache.get(key);
+  if (hit === undefined) return undefined;
+  // Refresh LRU order
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit;
+}
+
+function cacheSet<T>(cache: Map<string, T>, key: string, value: T): T {
+  if (cache.size >= MAX_CLEAN_CACHE) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+  return value;
+}
+
+/** Clear in-memory cleanAIContent / strip caches (e.g. after force regenerate). */
+export function clearContentCache(): void {
+  stripCache.clear();
+  paragraphCache.clear();
+  arrayCleanCache.clear();
+  if (typeof console !== "undefined") {
+    console.log("[AI Service] Content clean cache cleared");
+  }
+}
+
+/**
+ * Aggressively strip thinking-process blocks, prompt echo, and placeholder
+ * warnings from raw AI output before paragraph parsing.
+ */
+export function stripThinkingAndPromptArtifacts(content: string): string {
+  if (!content) return "";
+
+  const cached = cacheGet(stripCache, content);
+  if (cached !== undefined) return cached;
+
+  let cleaned = content;
+
+  // XML-style / markdown reasoning blocks (Qwen chain-of-thought)
+  cleaned = cleaned.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "");
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  cleaned = cleaned.replace(/```(?:reasoning|thinking)[\s\S]*?```/gi, "");
+
+  // Labeled thinking / prompt-instruction sections
+  cleaned = cleaned.replace(/Thinking Process:[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Analyze the Request:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Project Details:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Critical Requirements:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Role:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Context:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Requirements:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(/\*\*Constraints.*Rules:\*\*[\s\S]*?(?=\n\n|\*\*|##|$)/gi, "");
+  cleaned = cleaned.replace(
+    /(?:^|\n)\s*(?:Analyze the Request|Project Details|Critical Requirements|Role|Context|Requirements|Constraints)\s*:[\s\S]*?(?=\n\n|\*\*|##|$)/gi,
+    "\n"
+  );
+
+  // Placeholder / UI warnings that should never appear in slides
+  cleaned = cleaned.replace(/\[?WARNING:?[^\n]*placeholder[^\n]*\]?/gi, "");
+  cleaned = cleaned.replace(/Some content may need refinement[^\n]*Regenerate[^\n]*/gi, "");
+  cleaned = cleaned.replace(/⚠️\s*\[WARNING:[^\]]*\]/gi, "");
+
+  // Markdown noise common in leaked prompt echo
+  cleaned = cleaned.replace(/#{4,}/g, "");
+  cleaned = cleaned.replace(/^\s*-\s*\*\*/gm, "- ");
+
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned.trim();
+
+  return cacheSet(stripCache, content, cleaned);
+}
+
+/** Validate slide copy for thinking leakage, placeholders, and generic table labels. */
+export function validateSlideContent(content: string): {
+  isValid: boolean;
+  issues: string[];
+} {
+  const issues: string[] = [];
+  if (!content?.trim()) {
+    return { isValid: false, issues: ["Empty content"] };
+  }
+
+  if (
+    /Thinking Process:/i.test(content) ||
+    /\*\*Analyze the Request:\*\*/i.test(content) ||
+    /Analyze the Request:/i.test(content) ||
+    /<reasoning>/i.test(content)
+  ) {
+    issues.push("Contains thinking process or prompt instructions");
+  }
+
+  if (
+    /\bWARNING\b/i.test(content) ||
+    /\bplaceholder\b/i.test(content) ||
+    /charts and visualizations are included/i.test(content)
+  ) {
+    issues.push("Contains placeholder text or warnings");
+  }
+
+  if (
+    /\bMarket threat\b/i.test(content) ||
+    /\bExternal risk\b/i.test(content) ||
+    /\bProject weakness\b/i.test(content)
+  ) {
+    if (!/\bSpecific\b/i.test(content) && content.length < 80) {
+      issues.push("Table contains generic labels instead of specific analysis");
+    }
+  }
+
+  return {
+    isValid: issues.length === 0,
+    issues,
+  };
+}
+
 /** Aggressively strip quotes and JSON fragments from a single paragraph. */
 export function aggressiveCleanParagraph(text: string): string {
-  let cleaned = removeJsonArtifacts(text).trim();
-  if (!cleaned) return "";
+  if (!text) return "";
+
+  const cached = cacheGet(paragraphCache, text);
+  if (cached !== undefined) return cached;
+
+  let cleaned = stripThinkingAndPromptArtifacts(removeJsonArtifacts(text)).trim();
+  if (!cleaned) return cacheSet(paragraphCache, text, "");
 
   cleaned = cleaned.replace(/\\"/g, "").replace(/\\'/g, "").replace(/\\`/g, "");
 
@@ -33,13 +160,17 @@ export function aggressiveCleanParagraph(text: string): string {
   cleaned = cleaned.replace(/^\{.*?\}\s*/, "");
   cleaned = cleaned.replace(/\s*\{.*?\}$/, "");
 
+  // Soften leftover bold markers without destroying prose
+  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, "$1");
+  cleaned = cleaned.replace(/\*\*/g, "");
+
   cleaned = cleaned.replace(/(\d+\.?\d*%?)\s*,\s*/g, "$1, ");
   cleaned = cleaned.replace(/(\d+\.?\d*\s*million)\s*\.\s*/gi, "$1. ");
   cleaned = cleaned.replace(/\s+\./g, ".");
   cleaned = cleaned.replace(/\s{2,}/g, " ");
   cleaned = cleaned.replace(/,\s*$/, ".");
 
-  return cleaned.trim();
+  return cacheSet(paragraphCache, text, cleaned.trim());
 }
 
 /** Remove wrapping quotation marks from AI-generated text. */
@@ -53,7 +184,8 @@ export function fixSentenceBreakages(paragraphs: string[]): string[] {
   let current = "";
 
   for (const raw of paragraphs) {
-    const p = aggressiveCleanParagraph(raw);
+    // Input is expected to already be aggressively cleaned by callers.
+    const p = raw?.trim() ?? "";
     if (!p) continue;
 
     const endsWithBreak =
@@ -74,7 +206,7 @@ export function fixSentenceBreakages(paragraphs: string[]): string[] {
 
   if (current) fixed.push(current);
 
-  return fixed.map((p) => aggressiveCleanParagraph(p)).filter((p) => p.length > 10);
+  return fixed.filter((p) => p.length > 10);
 }
 
 function parseJsonParagraphArray(content: string): string[] | null {
@@ -113,7 +245,7 @@ function parseJsonParagraphArray(content: string): string[] | null {
 
 /** Parse raw AI text into clean paragraph bullets. */
 export function parseAIParagraphs(raw: string): string[] {
-  const content = removeJsonArtifacts(raw);
+  const content = stripThinkingAndPromptArtifacts(removeJsonArtifacts(raw));
   const jsonParagraphs = parseJsonParagraphArray(content);
 
   let paragraphs: string[] = jsonParagraphs ?? content
@@ -136,10 +268,17 @@ export function parseAIParagraphs(raw: string): string[] {
 }
 
 /**
- * Clean AI-generated content by removing quotation marks and formatting issues.
+ * Clean AI-generated content by removing quotation marks, thinking leakage,
+ * and formatting issues. Memoized — identical inputs reuse prior results.
  */
 export function cleanAIContent(content: string[]): string[] {
-  return fixSentenceBreakages(
+  if (!content?.length) return [];
+
+  const cacheKey = content.join("\u0001");
+  const cached = cacheGet(arrayCleanCache, cacheKey);
+  if (cached !== undefined) return cached;
+
+  const cleaned = fixSentenceBreakages(
     content
       .map((paragraph) => {
         if (!paragraph || typeof paragraph !== "string") return "";
@@ -147,6 +286,8 @@ export function cleanAIContent(content: string[]): string[] {
       })
       .filter((p) => p.length > 0)
   );
+
+  return cacheSet(arrayCleanCache, cacheKey, cleaned);
 }
 
 /** Clean text for display in slide UI (tables, bullets, outcomes). */
@@ -160,6 +301,7 @@ CRITICAL FORMATTING RULES:
 2. DO NOT return JSON — no { "paragraphs": [ ... ] } wrappers
 3. Write plain text only — one bullet per line, no leading or trailing quotes
 4. Each bullet point should be plain prose, not quoted speech
+5. DO NOT include thinking process, analysis steps, or prompt instructions in output
 
 CORRECT: The market demonstrates strong fundamentals with 15% annual growth.
 INCORRECT: "The market demonstrates strong fundamentals with 15% annual growth."

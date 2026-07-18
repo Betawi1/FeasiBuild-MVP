@@ -18,10 +18,10 @@ interface Props extends SlideEditingProps {
 function EffectList({ effect }: { effect: string }) {
   const sentences = splitEffectSentences(effect);
   return (
-    <ul className="space-y-0 text-[10px] text-slate-800 leading-snug">
+    <ul className="space-y-1 text-sm text-slate-700 leading-snug">
       {sentences.map((e, j) => (
         <li key={j} className="flex items-start">
-          <span className="text-emerald-500 mr-1 shrink-0">•</span>
+          <span className="text-emerald-500 mr-1.5 shrink-0">•</span>
           <span>
             {cleanDisplayText(e)}
             {!e.endsWith(".") ? "." : ""}
@@ -73,47 +73,50 @@ export default function KeySuccessFactorsSlide({
       <SlideHeader
         title="Key success and risk factors"
         subtitle="Potential success factors and their impact on the project"
-        className="!mb-2"
+        className="mb-4"
       />
 
-      <div className="flex-1 grid grid-cols-3 gap-2 min-h-0 overflow-hidden">
-        <div className="col-span-2 min-h-0 overflow-hidden space-y-1">
-          <div className="grid grid-cols-2 gap-2 mb-0.5">
-            <h3 className="text-xs font-bold text-slate-800">
+      <div className="flex-1 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4 min-h-0 overflow-hidden">
+        <div className="min-h-0 overflow-y-auto space-y-2 pr-1">
+          <div className="grid grid-cols-[minmax(0,40%)_minmax(0,60%)] gap-3 mb-1">
+            <h3 className="text-sm font-bold text-slate-800">
               Potential success factors
             </h3>
-            <h3 className="text-xs font-bold text-slate-800">
+            <h3 className="text-sm font-bold text-slate-800">
               Possible effects on the Project
             </h3>
           </div>
 
-          <div className="space-y-1">
-            <div className="bg-slate-800 text-white p-1 rounded text-[10px] font-bold">
+          <div className="space-y-2">
+            <div className="bg-slate-800 text-white px-2 py-1.5 rounded text-xs font-bold">
               Market opportunities
             </div>
             {data.marketOpportunities.map((item, i) => (
-              <div key={i} className="grid grid-cols-2 gap-2 text-[10px]">
-                <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
+              <div
+                key={i}
+                className="grid grid-cols-[minmax(0,40%)_minmax(0,60%)] gap-3 text-sm"
+              >
+                <div className="bg-slate-100 p-2 rounded border-l-4 border-slate-800 leading-snug text-slate-800 font-medium">
                   {isEditing ? (
                     <textarea
                       value={item.factor}
                       onChange={(e) =>
                         updateOpportunity(i, { factor: e.target.value })
                       }
-                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                      className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                     />
                   ) : (
                     cleanDisplayText(item.factor)
                   )}
                 </div>
-                <div className="bg-slate-50 p-1 rounded border border-slate-300">
+                <div className="bg-slate-50 p-2 rounded border border-slate-300">
                   {isEditing ? (
                     <textarea
                       value={item.effect}
                       onChange={(e) =>
                         updateOpportunity(i, { effect: e.target.value })
                       }
-                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                      className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                     />
                   ) : (
                     <EffectList effect={item.effect} />
@@ -123,33 +126,36 @@ export default function KeySuccessFactorsSlide({
             ))}
           </div>
 
-          <div className="space-y-1">
-            <div className="bg-slate-800 text-white p-1 rounded text-[10px] font-bold">
+          <div className="space-y-2">
+            <div className="bg-slate-800 text-white px-2 py-1.5 rounded text-xs font-bold">
               Project&apos;s strengths
             </div>
             {data.projectStrengths.map((item, i) => (
-              <div key={i} className="grid grid-cols-2 gap-2 text-[10px]">
-                <div className="bg-slate-100 p-1 rounded border-l-4 border-slate-800 leading-snug text-slate-900 font-medium">
+              <div
+                key={i}
+                className="grid grid-cols-[minmax(0,40%)_minmax(0,60%)] gap-3 text-sm"
+              >
+                <div className="bg-slate-100 p-2 rounded border-l-4 border-slate-800 leading-snug text-slate-800 font-medium">
                   {isEditing ? (
                     <textarea
                       value={item.strength}
                       onChange={(e) =>
                         updateStrength(i, { strength: e.target.value })
                       }
-                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                      className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                     />
                   ) : (
                     cleanDisplayText(item.strength)
                   )}
                 </div>
-                <div className="bg-slate-50 p-1 rounded border border-slate-300">
+                <div className="bg-slate-50 p-2 rounded border border-slate-300">
                   {isEditing ? (
                     <textarea
                       value={item.effect}
                       onChange={(e) =>
                         updateStrength(i, { effect: e.target.value })
                       }
-                      className="w-full p-1 bg-white border border-emerald-500/50 rounded resize-y min-h-[40px] text-[10px]"
+                      className="w-full p-1.5 bg-white border border-emerald-500/50 rounded resize-y min-h-[48px] text-sm"
                     />
                   ) : (
                     <EffectList effect={item.effect} />
@@ -160,22 +166,20 @@ export default function KeySuccessFactorsSlide({
           </div>
         </div>
 
-        <div className="flex flex-col justify-center min-h-0">
-          <div className="bg-slate-800 text-white p-2 rounded-lg">
-            <h4 className="text-[10px] font-bold mb-1 text-center">
+        <div className="flex flex-col justify-center min-h-0 overflow-hidden">
+          <div className="bg-slate-800 text-white p-3 rounded-lg overflow-hidden max-h-full">
+            <h4 className="text-xs font-bold mb-2 text-center">
               Main outcomes for the project
             </h4>
-            <ul className="space-y-1 text-[10px]">
+            <ul className="space-y-2 text-sm">
               {data.mainOutcomes.map((outcome, i) => (
-                <li key={i} className="flex items-start">
-                  <span className="text-emerald-400 mr-2 font-bold shrink-0">
-                    ✓
-                  </span>
+                <li key={i} className="flex items-start gap-2">
+                  <span className="text-emerald-400 font-bold shrink-0">✓</span>
                   <EditableTextBlock
                     text={cleanDisplayText(outcome)}
                     isEditing={isEditing}
                     onChange={(text) => updateOutcome(i, text)}
-                    className="text-emerald-100 leading-snug flex-1"
+                    className="text-emerald-100 leading-snug flex-1 text-sm"
                   />
                 </li>
               ))}

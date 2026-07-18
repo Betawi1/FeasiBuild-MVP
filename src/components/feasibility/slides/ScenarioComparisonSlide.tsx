@@ -19,6 +19,10 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
+import {
+  HorizontalBarValueLabelList,
+  formatChartNumber,
+} from "@/components/feasibility/charts/chart-data-labels";
 
 interface Props extends SlideEditingProps {
   data: ScenarioComparisonData;
@@ -71,7 +75,7 @@ export default function ScenarioComparisonSlide({
               <BarChart
                 layout="vertical"
                 data={sortedTornadoData}
-                margin={{ top: 5, right: 20, left: 60, bottom: 5 }}
+                margin={{ top: 5, right: 36, left: 60, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
@@ -98,13 +102,33 @@ export default function ScenarioComparisonSlide({
                   fill="#ef4444"
                   name="Downside Impact"
                   radius={[0, 4, 4, 0]}
-                />
+                >
+                  <HorizontalBarValueLabelList
+                    formatter={(v) =>
+                      formatChartNumber(v, {
+                        decimals: 1,
+                        compact: false,
+                        suffix: "%",
+                      })
+                    }
+                  />
+                </Bar>
                 <Bar
                   dataKey="high"
                   fill="#10b981"
                   name="Upside Impact"
                   radius={[4, 0, 0, 4]}
-                />
+                >
+                  <HorizontalBarValueLabelList
+                    formatter={(v) =>
+                      formatChartNumber(v, {
+                        decimals: 1,
+                        compact: false,
+                        suffix: "%",
+                      })
+                    }
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

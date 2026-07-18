@@ -53,12 +53,15 @@ const MACRO_SECTION_MAP: Record<
 const HOTEL_ANTI_PLACEHOLDER = `
 CRITICAL REQUIREMENTS — READ CAREFULLY:
 1. DO NOT use phrases like "Charts and visualizations are included in the interactive version"
-2. DO NOT use generic statements — be SPECIFIC to the city and country
+2. DO NOT use generic statements — be SPECIFIC to the city, country, and sub-market
 3. MUST include actual numbers, percentages, and market metrics
-4. MUST reference real hotels or developments in the city
+4. MUST reference real hotels or developments in the city and sub-market
 5. Generate 5-6 detailed bullet points with location-specific facts
 6. NO placeholder text, TBD, or template language
 7. DO NOT wrap bullet points in quotation marks — write plain text only
+8. ALWAYS reference the specific sub-market when discussing location, competition, or market dynamics
+9. DO NOT include thinking process, analysis steps, or prompt instructions in output
+10. For risk and success factors, provide DETAILED analysis — never generic labels like "Market threat"
 `.trim();
 
 export const HOTEL_WTDC_STRICT_CONSTRAINT = `
@@ -93,13 +96,23 @@ export function buildHotelBenchmarkTitleLabel(
 function hotelContext(bundle: FeasibilityProjectBundle) {
   const agg = bundle.aggregate;
   const { city, country } = bundle.location;
+  const subMarket =
+    bundle.location.subMarket?.trim() ||
+    agg.location.subMarket?.trim() ||
+    city;
   const starRating = agg.starRating?.trim() || agg.positioning?.trim() || "5-Star";
   const businessType = agg.segment?.trim() || "Business";
   const assetType = agg.assetType || "Hotel";
+  const landCost = bundle.component1.landCost || 0;
+  const bua = bundle.component1.bua || agg.bua || 0;
+  const landRatePsf =
+    bua > 0 && landCost > 0 ? Math.round(landCost / bua) : undefined;
 
   return {
     city,
     country,
+    subMarket,
+    landRatePsf,
     starRating,
     businessType,
     assetType,
@@ -126,23 +139,33 @@ export function buildHotelCommentaryPrompt(
   const {
     city,
     country,
+    subMarket,
+    landRatePsf,
     starRating,
     businessType,
     assetType,
     keys,
     currency,
+    adrYear1,
     adrYear3,
+    occYear1,
     occYear3,
     tdc,
     gdv,
     projectIrr,
   } = ctx;
 
+  const landRateLabel =
+    landRatePsf != null
+      ? `${currency} ${landRatePsf.toLocaleString()} per sqft (based on allowable GFA)`
+      : "market rate";
+
   const macroSection = MACRO_SECTION_MAP[section as keyof typeof MACRO_SECTION_MAP];
   if (macroSection) {
     const macroCtx: MacroCommentaryContext = {
       city,
       country,
+      subMarket,
       assetType: `${businessType} ${assetType}`,
       projectIRR: projectIrr,
       constructionMonths: ctx.constructionMonths,
@@ -152,12 +175,14 @@ export function buildHotelCommentaryPrompt(
   }
 
   const projectBlock = `
-PROJECT:
+PROJECT CONTEXT:
 - Asset: ${starRating} ${businessType} ${assetType}
 - Location: ${city}, ${country}
+- Sub-Market: ${subMarket}
+- Land Rate: ${landRateLabel}
 - Keys: ${keys.toLocaleString()}
-- Stabilized ADR: ${currency} ${adrYear3}
-- Stabilized Occupancy: ${occYear3}%
+- ADR (Y1 / Stabilized): ${currency} ${adrYear1} / ${currency} ${adrYear3}
+- Occupancy (Y1 / Stabilized): ${occYear1}% / ${occYear3}%
 - TDC: ${currency} ${Math.round(tdc).toLocaleString()}
 - GDV: ${currency} ${Math.round(gdv).toLocaleString()}
 - Project IRR: ${projectIrr}%
@@ -284,7 +309,7 @@ Include ALOS by segment (business vs leisure), regional comparisons, and impact 
 `.trim(),
 
     "Market - Competition": `
-Analyze competition for a ${starRating} ${businessType} Hotel in ${city}, ${country}.
+Analyze competition for a ${starRating} ${businessType} Hotel in ${subMarket}, ${city}, ${country}.
 
 ${projectBlock}
 
@@ -292,11 +317,11 @@ ${HOTEL_ANTI_PLACEHOLDER}
 
 ${HOTEL_WTDC_STRICT_CONSTRAINT}
 
-MUST name at least 3-5 specific competing hotels in ${city} with room counts, positioning, and ADR/occupancy benchmarks.
+MUST name at least 3-5 specific competing hotels in or near ${subMarket} with room counts, positioning, and ADR/occupancy benchmarks.
 `.trim(),
 
     "Market - Hospitality Summary": `
-Synthesize hospitality market findings for ${city}, ${country}.
+Synthesize hospitality market findings for ${subMarket}, ${city}, ${country}.
 
 ${projectBlock}
 
@@ -304,11 +329,11 @@ ${HOTEL_ANTI_PLACEHOLDER}
 
 ${HOTEL_WTDC_STRICT_CONSTRAINT}
 
-Include key market metrics, demand/supply balance, investment outlook, and GDV/TDC validation for the ${keys}-key subject hotel.
+Include key market metrics, demand/supply balance, investment outlook, and GDV/TDC validation for the ${keys}-key subject hotel in ${subMarket}.
 `.trim(),
 
     "Market - Implications": `
-Analyze market implications for this ${keys}-key ${starRating} ${businessType} Hotel in ${city}.
+Analyze market implications for this ${keys}-key ${starRating} ${businessType} Hotel in ${subMarket}, ${city}.
 
 ${projectBlock}
 
@@ -316,11 +341,11 @@ ${HOTEL_ANTI_PLACEHOLDER}
 
 ${HOTEL_WTDC_STRICT_CONSTRAINT}
 
-Connect market conditions to GDV of ${currency} ${Math.round(gdv).toLocaleString()}, ADR/occupancy underwriting, and ${projectIrr}% project IRR achievability.
+Connect ${subMarket} market conditions to GDV of ${currency} ${Math.round(gdv).toLocaleString()}, ADR/occupancy underwriting, and ${projectIrr}% project IRR achievability.
 `.trim(),
 
     "Market - Success Factors": `
-Identify success factors for ${starRating} ${businessType} hotels in ${city}, ${country}.
+Identify success factors for a ${starRating} ${businessType} hotel in ${subMarket}, ${city}, ${country}.
 
 ${projectBlock}
 
@@ -328,11 +353,17 @@ ${HOTEL_ANTI_PLACEHOLDER}
 
 ${HOTEL_WTDC_STRICT_CONSTRAINT}
 
-Include location advantages, brand/positioning, MICE capability, and demand catalysts with quantified impact.
+OUTPUT FORMAT — one bullet per line, use this structure:
+Opportunity Title: detailed effect with quantified metrics for ${subMarket}.
+Project Strength Title: detailed effect with quantified metrics.
+
+Generate 5-6 bullets covering market opportunities AND project strengths.
+DO NOT use generic labels like "Market opportunity" or "Project strength".
+Provide SPECIFIC factors relevant to a ${starRating} hotel in ${subMarket}.
 `.trim(),
 
     "Market - Risk Factors": `
-Identify risk factors for ${starRating} ${businessType} hotels in ${city}, ${country}.
+Identify risk factors for a ${starRating} ${businessType} hotel in ${subMarket}, ${city}, ${country}.
 
 ${projectBlock}
 
@@ -340,7 +371,13 @@ ${HOTEL_ANTI_PLACEHOLDER}
 
 ${HOTEL_WTDC_STRICT_CONSTRAINT}
 
-Include supply risk, rate sensitivity, construction cost escalation, regulatory changes, and mitigations.
+OUTPUT FORMAT — one bullet per line, use this structure:
+Specific Threat Title: detailed effect with data/metrics. Mitigation: concrete action.
+Project Weakness Title: quantified impact in ${subMarket}. Mitigation: actionable solution.
+
+Generate 5-6 bullets covering market threats AND project weaknesses.
+DO NOT use generic labels like "Market threat", "External risk", or "Project weakness".
+Provide SPECIFIC factors relevant to a ${starRating} hotel in ${subMarket}, ${city}.
 `.trim(),
   };
 
@@ -394,7 +431,7 @@ export async function generateHotelCommentary(
   }
 ): Promise<string[]> {
   const prompt = buildHotelCommentaryPrompt(section, bundle);
-  const { aiProvider, cleanAIContent } = await import("@/lib/ai-service");
+  const { aiProvider } = await import("@/lib/ai-service");
 
   const hashes = buildOperationalBundleHashes(bundle);
   const cacheKey =
@@ -408,7 +445,8 @@ export async function generateHotelCommentary(
     forceRegenerate: options?.forceRegenerate,
     section,
   });
-  return cleanAIContent(raw);
+  // generateCommentary already returns cleaned paragraphs
+  return raw;
 }
 
 /** Generate hotel deck with localStorage-cached Puter AI commentary. */

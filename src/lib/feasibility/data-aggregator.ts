@@ -162,6 +162,8 @@ export function getProjectData(): AggregatedProjectData {
     location: {
       country: projectInfo.country?.trim() || "—",
       city: projectInfo.city?.trim() || "—",
+      subMarket: projectInfo.subMarket?.trim() || undefined,
+      coordinates: projectInfo.coordinates ?? null,
     },
     assetType: report.projectInfo.assetType || "Hotel",
     segment: String(segment),

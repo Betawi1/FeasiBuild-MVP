@@ -1,6 +1,7 @@
 "use client";
 
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import type { CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
 
 type ResidentialStep9LandCostsProps = {
@@ -11,8 +12,9 @@ type ResidentialStep9LandCostsProps = {
   onReset: () => void;
   onLandAreaChange: (value: number) => void;
   onLandRateChange: (value: number) => void;
-  percentFieldClass: (manual?: boolean) => string;
   fieldError: (name: string) => string | undefined;
+  /** AI land rate when research has completed */
+  aiLandRate?: number;
 };
 
 /** UI Step 9 — Land costs benchmark header and land rate input. */
@@ -24,8 +26,8 @@ export default function ResidentialStep9LandCosts({
   onReset,
   onLandAreaChange: _onLandAreaChange,
   onLandRateChange,
-  percentFieldClass,
   fieldError,
+  aiLandRate,
 }: ResidentialStep9LandCostsProps) {
   if (!benchmarkReady) return null;
 
@@ -44,8 +46,9 @@ export default function ResidentialStep9LandCosts({
         isManualOverride={landManual}
       />
       <p className="mb-4 text-sm text-slate-400">
-        Land rate is suggested from your residential segment, positioning, and
-        country. Plot area is defined in Step 5 Building Configuration.
+        Land rate comes from AI research when available, otherwise from your
+        residential segment, positioning, and country. Plot area is defined in
+        Step 5 Building Configuration.
       </p>
 
       <div className="mb-6 grid grid-cols-1 items-end gap-4 md:grid-cols-3">
@@ -68,19 +71,13 @@ export default function ResidentialStep9LandCosts({
           )}
         </div>
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            Land rate ({projectInfo.currency}/sqft)
-            {landManual ? (
-              <span className="ml-2 text-xs font-normal text-amber-400">
-                (override)
-              </span>
-            ) : null}
-          </label>
-          <input
+          <AiInput
+            label={`Land rate (${projectInfo.currency}/sqft)`}
+            value={cashOutflows.landRate || aiLandRate || 0}
+            onChange={(value) => onLandRateChange(Number(value) || 0)}
             type="number"
-            value={cashOutflows.landRate}
-            onChange={(e) => onLandRateChange(Number(e.target.value) || 0)}
-            className={percentFieldClass(landManual)}
+            isAiGenerated={!!aiLandRate && !landManual}
+            isManualOverride={landManual}
           />
           {fieldError("landRate") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("landRate")}</p>

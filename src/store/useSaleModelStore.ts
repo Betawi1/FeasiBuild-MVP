@@ -85,52 +85,96 @@ export type SaleCashOutflowProfile = {
   stages: CashOutflowStageHeader[];
 };
 
-function allocateContinuousSCurve(totalCost: number, totalMonths: number): number[] {
-  const allocation = Array(totalMonths + 1).fill(0); // index 0 = M0
-  if (totalCost <= 0 || totalMonths <= 0) return allocation;
+function buildProfileFromStageAllocation(
+  sa: CashOutflows["stageAllocation"],
+  constructionPeriod: number
+): ConstructionSCurveProfile {
+  const stage1Pct = sa.stage1Percent ?? 0;
+  const stage2Pct = sa.stage2Percent ?? 0;
+  const stage3Pct = sa.stage3Percent ?? 0;
+  const stage4Pct = sa.stage4Percent ?? 0;
 
-  for (let m = 1; m <= totalMonths; m++) {
-    const progress = m / totalMonths;
-    const sCurveValue = 1 / (1 + Math.exp(-12 * (progress - 0.5)));
+  const total = stage1Pct + stage2Pct + stage3Pct + stage4Pct || 100;
+  const s1 = (stage1Pct / total) * 100;
+  const s2 = (stage2Pct / total) * 100;
+  const s3 = (stage3Pct / total) * 100;
+  const s4 = (stage4Pct / total) * 100;
 
-    const prevProgress = (m - 1) / totalMonths;
-    const prevSCurveValue = 1 / (1 + Math.exp(-12 * (prevProgress - 0.5)));
+  const stage1Months = Math.round(constructionPeriod * (s1 / 100));
+  const stage2Months = Math.round(constructionPeriod * (s2 / 100));
+  const peakMonth = Math.max(
+    1,
+    stage1Months + Math.floor(stage2Months / 2)
+  );
 
-    const monthShare = Math.max(0, sCurveValue - prevSCurveValue);
-    allocation[m] = totalCost * monthShare;
-  }
+  // Bell-curve monthly shape (uniform stage spread is always ~flat)
+  const baseTemplate =
+    constructionPeriod <= 24 ? HIRISE_RESIDENTIAL_18M : HIRISE_RESIDENTIAL_36M;
+  const monthlyPercentages = interpolateSCurveProfile(
+    baseTemplate,
+    constructionPeriod
+  );
 
-  return allocation;
+  return {
+    monthlyPercentages,
+    stageDistribution: {
+      stage1Percent: s1,
+      stage2Percent: s2,
+      stage3Percent: s3,
+      stage4Percent: s4,
+    },
+    peakMonth,
+    typicalDuration: constructionPeriod,
+  };
 }
 
 function pickTemplateForSale(
   projectInfo: ProjectInfo,
-  constructionPeriod: number
-): ConstructionSCurveProfile | null {
+  constructionPeriod: number,
+  cashOutflows: CashOutflows
+): ConstructionSCurveProfile {
+  // 1. PRIMARY: Build profile dynamically from AI-researched stage allocations
+  const sa = cashOutflows.stageAllocation;
+  if (sa && sa.stage1Percent != null && sa.stage2Percent != null) {
+    console.log("✅ PickTemplate: Using AI-researched construction stages.");
+    return buildProfileFromStageAllocation(sa, constructionPeriod);
+  }
+
+  // 2. FALLBACK: If AI stages are missing, try the hardcoded recommendation database
   const params = buildRecommendationQuery(
     projectInfo.countryCode,
     projectInfo.buildingSubType,
-    projectInfo.buildingConfig.towerFloors
+    projectInfo.buildingConfig?.towerFloors
   );
-  if (!params) return null;
 
-  const bt = params.buildingTypeDB as SaleRecommendationBuildingType;
-  const floorsOrRange =
-    bt === "residential-hi-rise" || bt === "commercial-strata-office"
-      ? params.heightRange ?? projectInfo.buildingConfig.towerFloors
-      : undefined;
+  if (params) {
+    const bt = params.buildingTypeDB as SaleRecommendationBuildingType;
+    const floorsOrRange =
+      bt === "residential-hi-rise" || bt === "commercial-strata-office"
+        ? params.heightRange ?? projectInfo.buildingConfig?.towerFloors
+        : undefined;
 
-  const rec = getRecommendations(params.countryCode, bt, floorsOrRange as never);
-  console.log("🔍 PickTemplate:", {
-    countryCode: params.countryCode,
-    buildingType: bt,
-    floors: floorsOrRange,
-    foundProfile: !!rec?.sCurveProfile,
-    peakMonth: rec?.sCurveProfile?.peakMonth,
-  });
-  if (rec?.sCurveProfile) return rec.sCurveProfile;
+    const rec = getRecommendations(
+      params.countryCode,
+      bt,
+      floorsOrRange as never
+    );
+    if (rec?.sCurveProfile) {
+      console.log(
+        "✅ PickTemplate: Found fallback match in hardcoded recommendations."
+      );
+      return rec.sCurveProfile;
+    }
+  }
 
-  if (projectInfo.buildingSubType?.includes("landed")) return LANDED_G2_ESTATE_24M;
+  // 3. FINAL FALLBACK: Safe defaults based on building type
+  console.warn(
+    "⚠️ PickTemplate: No AI stages or recommendations found. Using safe default."
+  );
+  if (projectInfo.buildingSubType?.toLowerCase().includes("landed")) {
+    return LANDED_G2_ESTATE_24M;
+  }
+
   return HIRISE_RESIDENTIAL_36M;
 }
 
@@ -156,15 +200,18 @@ export function buildSaleCashOutflowProfile(
   const months = [0, ...Array.from({ length: constructionPeriod }, (_, i) => i + 1)];
 
   const constructionFinal = cashOutflows.constructionCost || 0;
-  // 🚀 FORCE S-Curve: Ignore Stage Allocation for construction distribution
+  // 🚀 FORCE S-Curve: Prefer AI-researched stage allocation for construction distribution
   const construction = (() => {
-    const template = pickTemplateForSale(projectInfo, constructionPeriod);
-    if (!template) {
-      console.error("❌ NO TEMPLATE FOUND! Using fallback.");
-      return allocateContinuousSCurve(constructionFinal, constructionPeriod);
-    }
+    const template = pickTemplateForSale(
+      projectInfo,
+      constructionPeriod,
+      cashOutflows
+    );
 
-    const monthlyPercentages = interpolateSCurveProfile(template, constructionPeriod);
+    const monthlyPercentages = interpolateSCurveProfile(
+      template,
+      constructionPeriod
+    );
     const out = Array(constructionPeriod + 1).fill(0);
     for (let m = 1; m <= constructionPeriod; m++) {
       out[m] = constructionFinal * ((monthlyPercentages[m - 1] || 0) / 100);
@@ -174,7 +221,7 @@ export function buildSaleCashOutflowProfile(
     const diff = constructionFinal - sum;
     if (Math.abs(diff) > 1) out[out.length - 1] += diff;
 
-    console.log("✅ S-Curve Applied:", {
+    console.log("✅ S-Curve Applied (AI Researched or Fallback):", {
       M1: out[1],
       M2: out[2],
       M3: out[3],

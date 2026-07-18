@@ -192,10 +192,73 @@ export function allocateConstructionCostByStages(
   return normalizeToTarget(out, totalCost);
 }
 
-function pickTemplateForSale(
-  projectInfo: any,
+/**
+ * Convert AI/user stage cost shares into a full ConstructionSCurveProfile.
+ * Monthly cash uses an industry S-curve shape (bell); stageDistribution keeps AI stages.
+ */
+function convertStageAllocationToProfile(
+  stage1Pct: number,
+  stage2Pct: number,
+  stage3Pct: number,
+  stage4Pct: number,
   constructionPeriod: number
 ): ConstructionSCurveProfile {
+  const total = stage1Pct + stage2Pct + stage3Pct + stage4Pct || 100;
+  const s1 = (stage1Pct / total) * 100;
+  const s2 = (stage2Pct / total) * 100;
+  const s3 = (stage3Pct / total) * 100;
+  const s4 = (stage4Pct / total) * 100;
+
+  // Approximate peak month (middle of stage 2)
+  const stage1Months = Math.round(constructionPeriod * (s1 / 100));
+  const stage2Months = Math.round(constructionPeriod * (s2 / 100));
+  const peakMonth = Math.max(
+    1,
+    stage1Months + Math.floor(stage2Months / 2)
+  );
+
+  // Bell-curve monthly shape from industry templates (not flat stage-uniform spread)
+  const baseTemplate =
+    constructionPeriod <= 24 ? HIRISE_RESIDENTIAL_18M : HIRISE_RESIDENTIAL_36M;
+  const monthlyPercentages = interpolateSCurveProfile(
+    baseTemplate,
+    constructionPeriod
+  );
+
+  return {
+    monthlyPercentages,
+    stageDistribution: {
+      stage1Percent: s1,
+      stage2Percent: s2,
+      stage3Percent: s3,
+      stage4Percent: s4,
+    },
+    peakMonth,
+    typicalDuration: constructionPeriod,
+  };
+}
+
+function pickTemplateForSale(
+  projectInfo: any,
+  constructionPeriod: number,
+  cashOutflows?: CashOutflows
+): ConstructionSCurveProfile {
+  // 1. PRIMARY: Build profile dynamically from AI-researched stage allocations
+  const sa = cashOutflows?.stageAllocation;
+  if (sa && sa.stage1Percent != null && sa.stage2Percent != null) {
+    console.log(
+      "✅ [Preview Profile] Using AI-researched construction stages."
+    );
+    return convertStageAllocationToProfile(
+      sa.stage1Percent,
+      sa.stage2Percent,
+      sa.stage3Percent || 0,
+      sa.stage4Percent || 0,
+      constructionPeriod
+    );
+  }
+
+  // 2. FALLBACK: Hardcoded template lookup
   if (!projectInfo) return HIRISE_RESIDENTIAL_36M;
 
   const { buildingSubType, countryCode, buildingConfig } = projectInfo;
@@ -213,7 +276,9 @@ function pickTemplateForSale(
 
   if (!buildingTypeRec) {
     if (bt.includes("landed")) return LANDED_G2_ESTATE_24M;
-    return constructionPeriod <= 24 ? HIRISE_RESIDENTIAL_18M : HIRISE_RESIDENTIAL_36M;
+    return constructionPeriod <= 24
+      ? HIRISE_RESIDENTIAL_18M
+      : HIRISE_RESIDENTIAL_36M;
   }
 
   // If it's a record of ranges (Hi-Rise/Strata) - USE towerFloors NUMBER for lookup
@@ -341,7 +406,11 @@ export function buildSaleCashflowDetailProfile(
 
   const constructionFinal = cashOutflows.constructionCost || 0;
   // --- CONSTRUCTION COST S-CURVE CALCULATION ---
-  const templateProfile = pickTemplateForSale(projectInfo, constructionPeriod);
+  const templateProfile = pickTemplateForSale(
+    projectInfo,
+    constructionPeriod,
+    cashOutflows
+  );
   const monthlyPercentages = interpolateSCurveProfile(
     templateProfile,
     constructionPeriod
@@ -365,7 +434,41 @@ export function buildSaleCashflowDetailProfile(
     const monthlyValue = constructionFinal * (pct / 100);
     construction.push(monthlyValue);
     runningTotal += monthlyValue;
+
+    // 🔍 DEBUG: Log first 3 months to verify distribution
+    if (m <= 3) {
+      console.log(`🔍 [Month ${m}]:`, {
+        percentage: pct,
+        constructionFinal,
+        calculatedValue: monthlyValue,
+        formula: `${constructionFinal} × (${pct} / 100) = ${monthlyValue}`,
+      });
+    }
   }
+
+  // 🔍 DEBUG: Verify if values are flat or varied
+  const firstValue = construction[1] || 0;
+  const isFlat = construction
+    .slice(1, constructionPeriod + 1)
+    .every((v) => Math.abs(v - firstValue) < 1);
+  console.log("🔍 [Construction Distribution Check]:", {
+    constructionFinal,
+    firstValue,
+    isFlat,
+    sampleValues: construction.slice(1, 6),
+    shouldBeVaried: !isFlat,
+  });
+
+  // 🔍 DEBUG: Log first 5 months of construction distribution
+  console.log("🔍 [Construction Distribution Debug]:", {
+    constructionFinal,
+    first5Months: construction.slice(0, 6).map((v, i) => ({
+      month: `M${i}`,
+      percentage: monthlyPercentages[i - 1] || 0,
+      calculatedValue: v,
+    })),
+    sumBeforePlug: runningTotal,
+  });
 
   // AGGRESSIVE PLUG: Force exact match
   const diff = constructionFinal - runningTotal;

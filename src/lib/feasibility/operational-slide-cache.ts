@@ -3,12 +3,13 @@
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import { getCachedContent } from "@/lib/cache-service";
 import { hasPlaceholderContent } from "@/lib/ai-service";
-import { cleanAIContent } from "@/lib/feasibility/clean-ai-content";
 import { enrichStructuredSlideData } from "@/lib/feasibility/enrich-structured-slide-data";
 import {
   buildOperationalBundleHashes,
   buildOperationalCommentaryCacheKey,
   getOperationalSlideDependencySection,
+  hashesAreEqual,
+  resetDependencyChangeLog,
   shouldRegenerateSlide,
 } from "@/lib/slide-dependencies";
 
@@ -29,9 +30,9 @@ type CommentaryGenerator = (
 ) => Promise<string[]>;
 
 /**
- * Enrich slides with Puter commentary using two-layer localStorage caching:
- * Layer 1 — localStorage keyed by slide + dependency hashes (via ai-service)
- * Layer 2 — cache keys change automatically when component hashes change
+ * Enrich slides with Puter commentary using two-layer caching:
+ * Layer 1 — KV/localStorage keyed by slide + dependency hashes (via ai-service)
+ * Layer 2 — skip regeneration entirely when component hashes are unchanged
  */
 export async function enrichOperationalSlidesWithCache(
   slides: FeasibilitySlide[],
@@ -41,8 +42,28 @@ export async function enrichOperationalSlidesWithCache(
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
   const { forceRegenerate = false, oldHashes = {} } = options;
+  resetDependencyChangeLog();
   const hashes = buildOperationalBundleHashes(bundle);
   const enriched = [...slides];
+
+  const inputsUnchanged =
+    Object.keys(oldHashes).length > 0 && hashesAreEqual(oldHashes, hashes);
+
+  if (!forceRegenerate && inputsUnchanged) {
+    console.log(
+      "[Cache] ✓ Inputs unchanged - using cached feasibility commentary where available"
+    );
+  } else if (forceRegenerate) {
+    console.log("[Cache] Force regenerate requested");
+  } else if (Object.keys(oldHashes).length > 0) {
+    console.log(
+      "[Cache] Inputs changed vs stored hashes - selective regeneration by dependency"
+    );
+  } else {
+    console.log(
+      "[Cache] No previous hash baseline - will use per-slide cache keys if present"
+    );
+  }
 
   for (const { slideId, section } of sections) {
     const idx = enriched.findIndex((s) => s.id === slideId);
@@ -50,18 +71,20 @@ export async function enrichOperationalSlidesWithCache(
 
     const depSection = getOperationalSlideDependencySection(slideId);
     const cacheKey = buildOperationalCommentaryCacheKey(slideId, hashes);
-    const inputsChanged = shouldRegenerateSlide(depSection, oldHashes, hashes);
+    const inputsChanged =
+      !inputsUnchanged &&
+      shouldRegenerateSlide(depSection, oldHashes, hashes);
     const skipCache = forceRegenerate || inputsChanged;
 
     if (!skipCache) {
       const cached = await getCachedContent<string[]>(cacheKey);
       if (cached?.length) {
-        const paragraphs = cleanAIContent(cached);
-        if (!hasPlaceholderContent(paragraphs)) {
+        // Cached commentary is stored already-cleaned by generateCommentary
+        if (!hasPlaceholderContent(cached)) {
           console.log(`[Operational Cache HIT] ${slideId} (${cacheKey})`);
           enriched[idx] = {
             ...enriched[idx]!,
-            paragraphs,
+            paragraphs: cached,
           };
           continue;
         }
@@ -75,7 +98,7 @@ export async function enrichOperationalSlidesWithCache(
       console.log(`[Operational Cache] Force regenerate: ${slideId}`);
     } else if (inputsChanged) {
       console.log(
-        `[Operational Cache] Inputs changed, regenerating: ${slideId} (${cacheKey})`
+        `[Operational Cache] Dependency inputs changed, regenerating: ${slideId} (${cacheKey})`
       );
     }
 
@@ -85,7 +108,7 @@ export async function enrichOperationalSlidesWithCache(
     });
     enriched[idx] = {
       ...enriched[idx]!,
-      paragraphs: cleanAIContent(paragraphs),
+      paragraphs,
     };
   }
 

@@ -24,6 +24,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  BarValueLabelList,
+  CHART_MARGIN_WITH_LABELS,
+  LineValueLabelList,
+  formatChartNumber,
+} from "@/components/feasibility/charts/chart-data-labels";
 
 interface Props {
   slide: FeasibilitySlide;
@@ -72,9 +78,44 @@ function ParagraphBlock({
 function ChartBlock({ chart }: { chart: NonNullable<FeasibilitySlide["charts"]>[number] }) {
   const heightClass = chart.height ?? "flex-1";
   const widthClass = chart.width ?? "w-full";
+  const titleLower = chart.title.toLowerCase();
+  const isVolumeMetric =
+    titleLower.includes("population") ||
+    titleLower.includes("arrivals") ||
+    titleLower.includes("keys") ||
+    titleLower.includes("guests");
+  const isAdr =
+    titleLower.includes("adr") ||
+    chart.yKeys.some((k) => k.toLowerCase() === "adr");
+  const isPercentLike =
+    !isVolumeMetric &&
+    !isAdr &&
+    (titleLower.includes("%") ||
+      titleLower.includes("inflation") ||
+      titleLower.includes("gdp") ||
+      titleLower.includes("occupancy") ||
+      chart.yKeys.some((k) =>
+        ["rate", "occupancy", "growth"].includes(k.toLowerCase())
+      ) ||
+      (chart.yKeys.includes("value") && titleLower.includes("gdp")));
+
+  const formatLabel = (v: number) => {
+    if (isAdr) {
+      return formatChartNumber(v, { decimals: 0, compact: true });
+    }
+    if (isPercentLike) {
+      return formatChartNumber(v, { decimals: 1, compact: false, suffix: "%" });
+    }
+    if (isVolumeMetric) {
+      return formatChartNumber(v, { decimals: 1, compact: false });
+    }
+    return formatChartNumber(v, { decimals: 1, compact: true });
+  };
+
+  const isStackedBar = chart.type === "bar" && chart.stacked === true;
 
   return (
-    <div className={`flex ${heightClass} ${widthClass} min-h-[200px] flex-col`}>
+    <div className={`flex ${heightClass} ${widthClass} min-h-[200px] flex-col pt-1`}>
       <h4 className="mb-2 shrink-0 text-center text-xs font-semibold text-slate-500">
         {chart.title}
       </h4>
@@ -101,7 +142,7 @@ function ChartBlock({ chart }: { chart: NonNullable<FeasibilitySlide["charts"]>[
               <Legend />
             </PieChart>
           ) : chart.type === "line" ? (
-            <LineChart data={chart.data}>
+            <LineChart data={chart.data} margin={CHART_MARGIN_WITH_LABELS}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey={chart.xKey} fontSize={10} />
               <YAxis fontSize={10} />
@@ -114,11 +155,14 @@ function ChartBlock({ chart }: { chart: NonNullable<FeasibilitySlide["charts"]>[
                   dataKey={key}
                   stroke={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
                   strokeWidth={2}
-                />
+                  dot={{ r: 3 }}
+                >
+                  <LineValueLabelList formatter={formatLabel} />
+                </Line>
               ))}
             </LineChart>
           ) : (
-            <BarChart data={chart.data}>
+            <BarChart data={chart.data} margin={CHART_MARGIN_WITH_LABELS}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey={chart.xKey} fontSize={10} />
               <YAxis fontSize={10} />
@@ -129,7 +173,12 @@ function ChartBlock({ chart }: { chart: NonNullable<FeasibilitySlide["charts"]>[
                   key={key}
                   dataKey={key}
                   fill={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
-                />
+                  {...(isStackedBar ? { stackId: "a" } : {})}
+                >
+                  {!isStackedBar ? (
+                    <BarValueLabelList formatter={formatLabel} />
+                  ) : null}
+                </Bar>
               ))}
             </BarChart>
           )}

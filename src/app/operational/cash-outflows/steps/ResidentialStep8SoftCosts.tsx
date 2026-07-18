@@ -1,6 +1,7 @@
 "use client";
 
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import { getOperationalFfeAssetLabel } from "@/lib/operational-ffe-validation";
 import type { CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
 
@@ -13,9 +14,12 @@ type ResidentialStep8SoftCostsProps = {
   onSoftCostChange: (value: number) => void;
   onPowcChange: (value: number) => void;
   onFfeChange: (value: number) => void;
-  percentFieldClass: (manual?: boolean) => string;
   fieldError: (name: string) => string | undefined;
   showFfe: boolean;
+  /** AI soft-cost % when research has completed */
+  aiScPct?: number;
+  aiPowcPct?: number;
+  aiFfePct?: number;
 };
 
 /** UI Step 8 — SC, POWC & FFE benchmark-driven percentages. */
@@ -28,9 +32,11 @@ export default function ResidentialStep8SoftCosts({
   onSoftCostChange,
   onPowcChange,
   onFfeChange,
-  percentFieldClass,
   fieldError,
   showFfe,
+  aiScPct,
+  aiPowcPct,
+  aiFfePct,
 }: ResidentialStep8SoftCostsProps) {
   if (!benchmarkReady) return null;
 
@@ -57,27 +63,22 @@ export default function ResidentialStep8SoftCosts({
         isManualOverride={scManual || powcManual || ffeManual || hasManualOverride}
       />
       <p className="mb-4 text-sm text-slate-400">
-        SC, POWC, and FFE are suggested from your residential profile. Calculations
-        use CC{" "}
+        SC, POWC, and FFE come from AI research when available, otherwise from your
+        residential profile. Calculations use CC{" "}
         <span className="text-slate-300">including contingency</span> from prior
         steps. Typed values count as overrides.
       </p>
 
       <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-3">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            Soft costs % of CC incl. contingency (SC%)
-            {scManual ? (
-              <span className="ml-2 text-xs font-normal text-amber-400">
-                (override)
-              </span>
-            ) : null}
-          </label>
-          <input
-            type="number"
-            value={cashOutflows.softCostPercent}
-            onChange={(e) => onSoftCostChange(Number(e.target.value) || 0)}
-            className={percentFieldClass(scManual)}
+          <AiInput
+            label="Soft costs % of CC incl. contingency (SC%)"
+            value={cashOutflows.softCostPercent || aiScPct || 0}
+            onChange={(value) => onSoftCostChange(Number(value) || 0)}
+            type="percentage"
+            isAiGenerated={!!aiScPct && !scManual}
+            isManualOverride={scManual}
+            helperText="SC amount = CC incl. contingency × SC% ÷ 100"
           />
           {fieldError("softCostPercent") && (
             <p className="mt-1 text-sm text-red-400">
@@ -86,19 +87,14 @@ export default function ResidentialStep8SoftCosts({
           )}
         </div>
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
-            POWC % of CC incl. contingency (POWC%)
-            {powcManual ? (
-              <span className="ml-2 text-xs font-normal text-amber-400">
-                (override)
-              </span>
-            ) : null}
-          </label>
-          <input
-            type="number"
-            value={cashOutflows.powcPercent}
-            onChange={(e) => onPowcChange(Number(e.target.value) || 0)}
-            className={percentFieldClass(powcManual)}
+          <AiInput
+            label="POWC % of CC incl. contingency (POWC%)"
+            value={cashOutflows.powcPercent || aiPowcPct || 0}
+            onChange={(value) => onPowcChange(Number(value) || 0)}
+            type="percentage"
+            isAiGenerated={!!aiPowcPct && !powcManual}
+            isManualOverride={powcManual}
+            helperText="POWC amount = CC incl. contingency × POWC% ÷ 100"
           />
           {fieldError("powcPercent") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("powcPercent")}</p>
@@ -106,19 +102,17 @@ export default function ResidentialStep8SoftCosts({
         </div>
         {showFfe ? (
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-300">
-              FFE % of CC incl. contingency
-              {ffeManual ? (
-                <span className="ml-2 text-xs font-normal text-amber-400">
-                  (override)
-                </span>
-              ) : null}
-            </label>
-            <input
-              type="number"
-              value={cashOutflows.ffePercent}
-              onChange={(e) => onFfeChange(Number(e.target.value) || 0)}
-              className={percentFieldClass(ffeManual)}
+            <AiInput
+              label="FFE % of CC incl. contingency (Residential)"
+              value={
+                ffeManual
+                  ? cashOutflows.ffePercent || 0
+                  : (aiFfePct ?? cashOutflows.ffePercent ?? 0)
+              }
+              onChange={(value) => onFfeChange(Number(value) || 0)}
+              type="percentage"
+              isAiGenerated={!!aiFfePct && !ffeManual}
+              isManualOverride={ffeManual}
             />
             {fieldError("ffePercent") && (
               <p className="mt-1 text-sm text-red-400">{fieldError("ffePercent")}</p>

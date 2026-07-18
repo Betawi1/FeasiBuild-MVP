@@ -12,10 +12,12 @@ import {
   YAxis,
 } from "recharts";
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   estimatedUnitsFromGla,
 } from "@/lib/benchmarks/residential-other-income";
 import { resolveResidentialOpexBenchmark } from "@/lib/benchmarks/residential-opex";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import {
   blendedResidentialLeasedPct,
   utilitiesBaseSqft,
@@ -28,6 +30,13 @@ import {
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { ResidentialOpexConfig } from "@/store/useFinModelStore";
+
+const AI_EPS = 0.01;
+function differsFromAi(current: number, ai?: number | null): boolean {
+  return (
+    ai != null && Number.isFinite(ai) && Math.abs(current - ai) > AI_EPS
+  );
+}
 
 export function getOperationalResidentialHoldSnapshot():
   | OperationalResidentialHoldSnapshot
@@ -166,6 +175,47 @@ export default function ResidentialOpexStep() {
   const netRentValues = stepData?.residentialRentValues ?? [];
   const otherIncomeValues = stepData?.otherIncomeTotalValues ?? [];
   const grossRentValues = stepData?.totalBaseRentValues ?? netRentValues;
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step3_operating_expenses ||
+      !!raw.c2_operational?.operating_expenses_btr ||
+      !!raw.c1_development?.construction_rates;
+    if (!hasNested) {
+      return (normalizeAiResearchData(raw) as { c2_operational?: typeof raw.c2_operational })
+        ?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep3 = aiC2?.step3_operating_expenses;
+  const aiBtrOpex = aiC2?.operating_expenses_btr;
+  const aiMgmtFee =
+    aiStep3?.management_fee_pct_revenue ??
+    aiC2?.operating_expenses?.management_fee_pct_revenue;
+  const aiMaintenancePct =
+    aiStep3?.maintenance_pct_of_residential_gla ??
+    aiBtrOpex?.maintenance_pct_of_residential_gla;
+  const aiUtilitiesPct =
+    aiStep3?.utilities_pct_of_common_vacant_gla ??
+    aiBtrOpex?.utilities_pct_of_common_vacant_gla;
+  const aiPropertyTaxPct =
+    aiStep3?.property_tax_pct_of_revenue ??
+    aiBtrOpex?.property_tax_pct_of_revenue;
+  const aiInsurancePct =
+    aiStep3?.insurance_pct_of_revenue ?? aiBtrOpex?.insurance_pct_of_revenue;
+  const aiMarketingPct =
+    aiStep3?.marketing_pct_of_EGI ??
+    aiStep3?.marketing_pct_revenue ??
+    aiBtrOpex?.marketing_pct_of_EGI;
+  const aiGAndAPct =
+    aiStep3?.g_and_a_pct_of_revenue ??
+    aiStep3?.g_and_a_pct_revenue ??
+    aiBtrOpex?.g_and_a_pct_of_revenue;
+  const aiCapexReservePct =
+    aiStep3?.capex_reserve_pct_of_gla ?? aiBtrOpex?.capex_reserve_pct_of_gla;
 
   const benchmark = useMemo(() => {
     if (
@@ -327,6 +377,43 @@ export default function ResidentialOpexStep() {
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
   >(stepData?.opexManualYearValues ?? {});
+
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!overrides.mgmtFeePct && aiMgmtFee != null) setMgmtFeePct(aiMgmtFee);
+    if (!overrides.maintenancePct && aiMaintenancePct != null) {
+      setMaintenancePct(roundPct2(aiMaintenancePct));
+    }
+    if (!overrides.utilitiesPct && aiUtilitiesPct != null) {
+      setUtilitiesPct(roundPct2(aiUtilitiesPct));
+    }
+    if (!overrides.propertyTaxPct && aiPropertyTaxPct != null) {
+      setPropertyTaxPct(roundPct2(aiPropertyTaxPct));
+    }
+    if (!overrides.insurancePct && aiInsurancePct != null) {
+      setInsurancePct(roundPct2(aiInsurancePct));
+    }
+    if (!overrides.marketingPct && aiMarketingPct != null) {
+      setMarketingPct(aiMarketingPct);
+    }
+    if (!overrides.gAndAPct && aiGAndAPct != null) {
+      setGAndAPct(roundPct2(aiGAndAPct));
+    }
+    if (!overrides.capexReservePct && aiCapexReservePct != null) {
+      setCapexReservePct(roundPct2(aiCapexReservePct));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-apply when AI payload changes
+  }, [
+    aiC2,
+    aiMgmtFee,
+    aiMaintenancePct,
+    aiUtilitiesPct,
+    aiPropertyTaxPct,
+    aiInsurancePct,
+    aiMarketingPct,
+    aiGAndAPct,
+    aiCapexReservePct,
+  ]);
 
   const tableData = useMemo(() => {
     const rows: OpexRow[] = [];
@@ -516,14 +603,24 @@ export default function ResidentialOpexStep() {
 
   const handleResetAll = () => {
     if (!benchmark) return;
-    setMgmtFeePct(benchmark.mgmtFeePctOfEgi);
-    setMaintenancePct(roundPct2(benchmark.maintenancePctOfResidentialGla));
-    setUtilitiesPct(roundPct2(benchmark.utilitiesPctOfCommonVacantGla));
-    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
-    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
-    setMarketingPct(benchmark.marketingPctOfEgi);
-    setGAndAPct(roundPct2(benchmark.gAndAPctOfGrossRent));
-    setCapexReservePct(roundPct2(benchmark.capexReservePctOfTotalGla));
+    setMgmtFeePct(aiMgmtFee ?? benchmark.mgmtFeePctOfEgi);
+    setMaintenancePct(
+      roundPct2(aiMaintenancePct ?? benchmark.maintenancePctOfResidentialGla)
+    );
+    setUtilitiesPct(
+      roundPct2(aiUtilitiesPct ?? benchmark.utilitiesPctOfCommonVacantGla)
+    );
+    setPropertyTaxPct(
+      roundPct2(aiPropertyTaxPct ?? benchmark.propertyTaxPctOfGrossRent)
+    );
+    setInsurancePct(
+      roundPct2(aiInsurancePct ?? benchmark.insurancePctOfGrossRent)
+    );
+    setMarketingPct(aiMarketingPct ?? benchmark.marketingPctOfEgi);
+    setGAndAPct(roundPct2(aiGAndAPct ?? benchmark.gAndAPctOfGrossRent));
+    setCapexReservePct(
+      roundPct2(aiCapexReservePct ?? benchmark.capexReservePctOfTotalGla)
+    );
     setOverrides({});
     setManualYearValues({});
   };
@@ -609,21 +706,18 @@ export default function ResidentialOpexStep() {
           Property Management
         </h3>
         <div className="max-w-xs">
-          <label className="mb-1 block text-xs text-slate-400">
-            Property Management Fee (% of EGI)
-          </label>
-          <input
-            type="number"
-            step="0.1"
+          <AiInput
+            label="Property Management Fee (% of EGI)"
             value={mgmtFeePct}
-            onChange={(e) =>
-              handleFieldChange("mgmtFeePct", Number(e.target.value))
+            onChange={(val) => handleFieldChange("mgmtFeePct", Number(val))}
+            type="percentage"
+            step={0.1}
+            isAiGenerated={aiMgmtFee != null && !overrides.mgmtFeePct}
+            isManualOverride={
+              !!overrides.mgmtFeePct || differsFromAi(mgmtFeePct, aiMgmtFee)
             }
-            className={overrideFieldClass(!!overrides.mgmtFeePct)}
+            helperText="EGI = Net Rent (Step 1) + Other Income (Step 2)"
           />
-          <p className="mt-1 text-[10px] text-slate-500">
-            EGI = Net Rent (Step 1) + Other Income (Step 2)
-          </p>
         </div>
       </div>
 
@@ -632,25 +726,25 @@ export default function ResidentialOpexStep() {
           Maintenance &amp; Repairs
         </h3>
         <div className="max-w-md">
-          <label className="mb-1 block text-xs text-slate-400">
-            Maintenance &amp; Repairs (% of Residential GLA/year)
-          </label>
-          <input
-            type="number"
+          <AiInput
+            label="Maintenance & Repairs (% of Residential GLA/year)"
+            value={maintenancePct}
+            onChange={(val) =>
+              handleFieldChange("maintenancePct", Number(val))
+            }
+            type="percentage"
             step={0.01}
             min={0}
             max={100}
-            placeholder="e.g., 2.5"
-            value={maintenancePct}
-            onChange={(e) =>
-              handleFieldChange("maintenancePct", Number(e.target.value))
+            isAiGenerated={
+              aiMaintenancePct != null && !overrides.maintenancePct
             }
-            className={overrideFieldClass(!!overrides.maintenancePct)}
+            isManualOverride={
+              !!overrides.maintenancePct ||
+              differsFromAi(maintenancePct, aiMaintenancePct)
+            }
+            helperText={`Applied to Residential GLA from Step 1 (${residentialGla.toLocaleString()} sqft)`}
           />
-          <p className="mt-1 text-sm text-slate-500">
-            Applied to Residential GLA from Step 1 (
-            {residentialGla.toLocaleString()} sqft)
-          </p>
         </div>
       </div>
 
@@ -659,26 +753,21 @@ export default function ResidentialOpexStep() {
           Utilities (Common Areas + Vacant Units)
         </h3>
         <div className="max-w-md">
-          <label className="mb-1 block text-xs text-slate-400">
-            Utilities (% of Common Area + Vacant GLA/year)
-          </label>
-          <input
-            type="number"
+          <AiInput
+            label="Utilities (% of Common Area + Vacant GLA/year)"
+            value={utilitiesPct}
+            onChange={(val) => handleFieldChange("utilitiesPct", Number(val))}
+            type="percentage"
             step={0.01}
             min={0}
             max={100}
-            placeholder="e.g., 15"
-            value={utilitiesPct}
-            onChange={(e) =>
-              handleFieldChange("utilitiesPct", Number(e.target.value))
+            isAiGenerated={aiUtilitiesPct != null && !overrides.utilitiesPct}
+            isManualOverride={
+              !!overrides.utilitiesPct ||
+              differsFromAi(utilitiesPct, aiUtilitiesPct)
             }
-            className={overrideFieldClass(!!overrides.utilitiesPct)}
+            helperText={`Applied to: ((BUA - GLA) + (GLA × (100% - Leased %))) — includes retail area and vacant units. BUA: ${totalBua.toLocaleString()} sqft, Total GLA: ${totalGla.toLocaleString()} sqft.`}
           />
-          <p className="mt-1 text-sm text-slate-500">
-            Applied to: ((BUA - GLA) + (GLA × (100% - Leased %))) — includes
-            retail area and vacant units. BUA: {totalBua.toLocaleString()} sqft,
-            Total GLA: {totalGla.toLocaleString()} sqft.
-          </p>
         </div>
       </div>
 
@@ -688,44 +777,46 @@ export default function ResidentialOpexStep() {
         </h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Property Tax (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Property Tax (% of Gross Rental Revenue)"
+              value={propertyTaxPct}
+              onChange={(val) =>
+                handleFieldChange("propertyTaxPct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 5"
-              value={propertyTaxPct}
-              onChange={(e) =>
-                handleFieldChange("propertyTaxPct", Number(e.target.value))
+              isAiGenerated={
+                aiPropertyTaxPct != null && !overrides.propertyTaxPct
               }
-              className={overrideFieldClass(!!overrides.propertyTaxPct)}
+              isManualOverride={
+                !!overrides.propertyTaxPct ||
+                differsFromAi(propertyTaxPct, aiPropertyTaxPct)
+              }
+              helperText="Applied to Step 1 residential + retail rent revenue each year"
             />
-            <p className="mt-1 text-sm text-slate-500">
-              Applied to Step 1 residential + retail rent revenue each year
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Insurance (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Insurance (% of Gross Rental Revenue)"
+              value={insurancePct}
+              onChange={(val) =>
+                handleFieldChange("insurancePct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 1.5"
-              value={insurancePct}
-              onChange={(e) =>
-                handleFieldChange("insurancePct", Number(e.target.value))
+              isAiGenerated={
+                aiInsurancePct != null && !overrides.insurancePct
               }
-              className={overrideFieldClass(!!overrides.insurancePct)}
+              isManualOverride={
+                !!overrides.insurancePct ||
+                differsFromAi(insurancePct, aiInsurancePct)
+              }
+              helperText="Applied to Step 1 residential + retail rent revenue each year"
             />
-            <p className="mt-1 text-sm text-slate-500">
-              Applied to Step 1 residential + retail rent revenue each year
-            </p>
           </div>
         </div>
       </div>
@@ -735,21 +826,19 @@ export default function ResidentialOpexStep() {
           Marketing &amp; Leasing
         </h3>
         <div className="max-w-xs">
-          <label className="mb-1 block text-xs text-slate-400">
-            Marketing (% of EGI)
-          </label>
-          <input
-            type="number"
-            step="0.1"
+          <AiInput
+            label="Marketing (% of EGI)"
             value={marketingPct}
-            onChange={(e) =>
-              handleFieldChange("marketingPct", Number(e.target.value))
+            onChange={(val) => handleFieldChange("marketingPct", Number(val))}
+            type="percentage"
+            step={0.1}
+            isAiGenerated={aiMarketingPct != null && !overrides.marketingPct}
+            isManualOverride={
+              !!overrides.marketingPct ||
+              differsFromAi(marketingPct, aiMarketingPct)
             }
-            className={overrideFieldClass(!!overrides.marketingPct)}
+            helperText="Advertising, leasing staff, tenant acquisition"
           />
-          <p className="mt-1 text-[10px] text-slate-500">
-            Advertising, leasing staff, tenant acquisition
-          </p>
         </div>
       </div>
 
@@ -758,24 +847,20 @@ export default function ResidentialOpexStep() {
           G&amp;A (General &amp; Administrative)
         </h3>
         <div className="max-w-md">
-          <label className="mb-1 block text-xs text-slate-400">
-            G&amp;A (% of Annual Gross Rental Revenue)
-          </label>
-          <input
-            type="number"
+          <AiInput
+            label="G&A (% of Annual Gross Rental Revenue)"
+            value={gAndAPct}
+            onChange={(val) => handleFieldChange("gAndAPct", Number(val))}
+            type="percentage"
             step={0.01}
             min={0}
             max={100}
-            placeholder="e.g., 3"
-            value={gAndAPct}
-            onChange={(e) =>
-              handleFieldChange("gAndAPct", Number(e.target.value))
+            isAiGenerated={aiGAndAPct != null && !overrides.gAndAPct}
+            isManualOverride={
+              !!overrides.gAndAPct || differsFromAi(gAndAPct, aiGAndAPct)
             }
-            className={overrideFieldClass(!!overrides.gAndAPct)}
+            helperText="Applied to Step 1 residential + retail rent revenue each year"
           />
-          <p className="mt-1 text-sm text-slate-500">
-            Applied to Step 1 residential + retail rent revenue each year
-          </p>
         </div>
       </div>
 
@@ -784,25 +869,25 @@ export default function ResidentialOpexStep() {
           Renovation / Capex Reserve
         </h3>
         <div className="max-w-md">
-          <label className="mb-1 block text-xs text-slate-400">
-            Renovation / Capex Reserve (% of Total GLA/year)
-          </label>
-          <input
-            type="number"
+          <AiInput
+            label="Renovation / Capex Reserve (% of Total GLA/year)"
+            value={capexReservePct}
+            onChange={(val) =>
+              handleFieldChange("capexReservePct", Number(val))
+            }
+            type="percentage"
             step={0.01}
             min={0}
             max={100}
-            placeholder="e.g., 5"
-            value={capexReservePct}
-            onChange={(e) =>
-              handleFieldChange("capexReservePct", Number(e.target.value))
+            isAiGenerated={
+              aiCapexReservePct != null && !overrides.capexReservePct
             }
-            className={overrideFieldClass(!!overrides.capexReservePct)}
+            isManualOverride={
+              !!overrides.capexReservePct ||
+              differsFromAi(capexReservePct, aiCapexReservePct)
+            }
+            helperText={`Applied to Total GLA (Residential + Retail) from Step 1 — for unit turnover, appliance replacement (${totalGla.toLocaleString()} sqft)`}
           />
-          <p className="mt-1 text-sm text-slate-500">
-            Applied to Total GLA (Residential + Retail) from Step 1 — for unit
-            turnover, appliance replacement ({totalGla.toLocaleString()} sqft)
-          </p>
         </div>
       </div>
 

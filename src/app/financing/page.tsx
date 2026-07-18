@@ -1411,22 +1411,6 @@ function FinancingPageContent() {
     });
   };
 
-  const saveStep7 = () => {
-    updateFinancing({
-      dscrTarget: debtCovenantsData.dscrTarget,
-      dscrFrequency: debtCovenantsData.dscrFrequency,
-      cureProvisions: debtCovenantsData.cureProvisions,
-      maxLtvRatio: debtCovenantsData.maxLtvRatio,
-      minDebtYield: debtCovenantsData.minDebtYield,
-      exitStrategy: exitStrategyData.exitStrategy,
-      exitYear: exitStrategyData.exitYear,
-      refinanceLtc: exitStrategyData.refinanceLtc,
-      refinanceRate: exitStrategyData.refinanceRate,
-      saleCapRate: exitStrategyData.saleCapRate,
-      saleCosts: exitStrategyData.saleCosts,
-    });
-  };
-
   const monthlyDebtServiceWithIDC = useMemo(() => {
     const loanAmount = loanAtCompletion;
     const annualRate = effectiveInterestRate / 100;
@@ -1870,6 +1854,27 @@ function FinancingPageContent() {
     formData.hasPreferenceShares,
     formData.prefAmount,
   ]);
+
+  const saveStep7 = () => {
+    updateFinancing({
+      dscrTarget: debtCovenantsData.dscrTarget,
+      dscrFrequency: debtCovenantsData.dscrFrequency,
+      cureProvisions: debtCovenantsData.cureProvisions,
+      maxLtvRatio: debtCovenantsData.maxLtvRatio,
+      minDebtYield: debtCovenantsData.minDebtYield,
+      exitStrategy: exitStrategyData.exitStrategy,
+      exitYear: exitStrategyData.exitYear,
+      refinanceLtc: exitStrategyData.refinanceLtc,
+      refinanceRate: exitStrategyData.refinanceRate,
+      saleCapRate: exitStrategyData.saleCapRate,
+      saleCosts: exitStrategyData.saleCosts,
+      dscrSchedule: dscrDataStep8.map((row) => ({
+        year: row.year,
+        dscr: row.dscr,
+        adjustedDSCR: row.adjustedDSCR,
+      })),
+    });
+  };
 
   const dscrStep8ChartData = useMemo(
     () =>

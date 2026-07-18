@@ -55,6 +55,9 @@ const LocationMapPicker = dynamic(() => import("@/components/LocationMapPicker")
   ssr: false,
 });
 
+/** Bump only when AI research output schema changes (not model name). */
+const AI_CACHE_VERSION = "v1.0";
+
 type Errors = Record<string, string>;
 
 /** Pre–Phase-2 wizard defaults; treat as “not yet building-profiled” for Step 12 auto-fill. */
@@ -379,25 +382,51 @@ function CashOutflowsPageContent() {
     const saleAiAssetType = SALE_SUBTYPE_TO_AI_ASSET[projectInfo.buildingSubType];
     if (!saleAiAssetType) return;
 
+    // SAFEGUARD: Do not trigger AI if map is still geocoding
     if (projectInfo.coordinates && !projectInfo.subMarket) {
-      console.log("⏳ Sales AI Research paused: Waiting for map neighborhood lookup...");
+      console.log(
+        "⏳ Sales AI Research paused: Waiting for map neighborhood lookup..."
+      );
       return;
     }
 
-    const researchKey = `${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.buildingSubType}-${projectInfo.salesMarketPositioning || "unspecified"}-${projectInfo.salesFinishingStandard || "unspecified"}-${
+    // Create the unique fingerprint with version prefix
+    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.buildingSubType}-${projectInfo.salesMarketPositioning || "unspecified"}-${projectInfo.salesFinishingStandard || "unspecified"}-${
       isSaleLandedProduct
         ? `${projectInfo.salesLandedNumUnits}-${projectInfo.salesLandedBUAperUnit}-${salesLandedTotalLandArea}-${projectInfo.salesLandedSaleableRatio}`
         : `${projectInfo.salesHighRiseTotalBUA}-${projectInfo.salesHighRiseBasementBUA}-${projectInfo.salesHighRiseLandArea}-${projectInfo.salesHighRiseSaleableRatio}`
     }`;
 
     const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
+
+    // 1. Perfect Match: Skip research
     if (savedFingerprint === researchKey) {
-      console.log("✅ Sales AI Research skipped: Parameters match saved fingerprint.");
+      console.log(
+        "✅ Sales AI Research skipped: Parameters match saved fingerprint."
+      );
       return;
     }
 
-    if (cashOutflows?.aiResearchData && !savedFingerprint) {
-      console.log("⚠️ Legacy Sales project detected. Injecting fingerprint silently...");
+    // 2. Legacy Project Handler: AI data exists but fingerprint doesn't match
+    if (cashOutflows?.aiResearchData && savedFingerprint !== researchKey) {
+      const savedVersion = savedFingerprint?.split(":")[0] || "v0.0";
+      const currentVersion = AI_CACHE_VERSION;
+
+      if (savedVersion === currentVersion) {
+        console.log("✅ Same cache version, updating fingerprint silently...");
+        const dataWithFingerprint = {
+          ...cashOutflows.aiResearchData,
+          _researchKey: researchKey,
+        };
+        updateCashOutflowsForStream({ aiResearchData: dataWithFingerprint });
+        return;
+      }
+
+      console.log(
+        `⚠️ Cache version changed from ${savedVersion} to ${currentVersion}. Checking if regeneration needed...`
+      );
+      // For now, just update the fingerprint and keep old data
+      // Only regenerate if user explicitly changes parameters
       const dataWithFingerprint = {
         ...cashOutflows.aiResearchData,
         _researchKey: researchKey,
@@ -444,43 +473,50 @@ function CashOutflowsPageContent() {
         setIsAiResearching(true);
         console.log("🤖 Triggering Sales AI research...");
         console.log("📍 Location & Building Payload:", researchParams);
-
         const rawAiData = await performResearch(researchParams);
-
         if (rawAiData) {
           const researchData = rawAiData as unknown as AiResearchData;
           console.log(
             "🤖 Sales AI Research Data:",
             JSON.stringify(researchData, null, 2)
           );
-
-          const dataWithFingerprint = { ...researchData, _researchKey: researchKey };
+          const dataWithFingerprint = {
+            ...researchData,
+            _researchKey: researchKey,
+          };
           const c1 = researchData.c1_development;
           const rates = c1?.construction_rates;
           const soft = c1?.soft_costs;
-          const patch: Partial<CashOutflows> = { aiResearchData: dataWithFingerprint };
-
+          const patch: Partial<CashOutflows> = {
+            aiResearchData: dataWithFingerprint,
+          };
           if (rates?.building_rate_psf) patch.buildingRate = rates.building_rate_psf;
           if (rates?.parking_rate_psf) patch.parkingRate = rates.parking_rate_psf;
           if (rates?.basement_rate_psf) patch.basementRate = rates.basement_rate_psf;
           if (isSaleLandedProduct && rates?.infrastructure_rate_psf) {
             patch.infrastructureRate = rates.infrastructure_rate_psf;
           }
-          if (soft?.sc_percentage != null) patch.softCostPercent = soft.sc_percentage;
-          if (soft?.powc_percentage != null) patch.powcPercent = soft.powc_percentage;
+          if (soft?.sc_percentage != null)
+            patch.softCostPercent = soft.sc_percentage;
+          if (soft?.powc_percentage != null)
+            patch.powcPercent = soft.powc_percentage;
           if (c1?.land_rate_psf) patch.landRate = c1.land_rate_psf;
           if (c1?.construction_period?.months) {
             patch.constructionPeriod = c1.construction_period.months;
           }
           if (c1?.s_curve) {
             patch.stageAllocation = {
-              stage1Label: cashOutflows.stageAllocation.stage1Label || "Enabling",
+              stage1Label:
+                cashOutflows.stageAllocation.stage1Label || "Enabling",
               stage1Percent: c1.s_curve.stage_1_pct || 10,
-              stage2Label: cashOutflows.stageAllocation.stage2Label || "Sub-Structure",
+              stage2Label:
+                cashOutflows.stageAllocation.stage2Label || "Sub-Structure",
               stage2Percent: c1.s_curve.stage_2_pct || 20,
-              stage3Label: cashOutflows.stageAllocation.stage3Label || "Super Structure",
+              stage3Label:
+                cashOutflows.stageAllocation.stage3Label || "Super Structure",
               stage3Percent: c1.s_curve.stage_3_pct || 40,
-              stage4Label: cashOutflows.stageAllocation.stage4Label || "Finishes",
+              stage4Label:
+                cashOutflows.stageAllocation.stage4Label || "Finishes",
               stage4Percent: c1.s_curve.stage_4_pct || 30,
             };
           }
@@ -500,9 +536,7 @@ function CashOutflowsPageContent() {
               otherFees: c1.sc_breakdown.other_pct,
             };
           }
-
           updateCashOutflowsForStream(patch);
-
           const c2 = researchData.c2_sales;
           if (c2?.avg_sales_price_psf || c2?.deductions) {
             const existingInflows =
@@ -538,9 +572,10 @@ function CashOutflowsPageContent() {
                 : {}),
             });
           }
-
-          console.log("📊 Auto-populated fields from Sales AI research:", patch);
-
+          console.log(
+            "📊 Auto-populated fields from Sales AI research:",
+            patch
+          );
           hasResearchedForSalesRef.current = researchKey;
         }
       } catch (error) {
@@ -549,7 +584,6 @@ function CashOutflowsPageContent() {
         setIsAiResearching(false);
       }
     };
-
     void triggerResearch();
   }, [
     currentStep,
@@ -797,6 +831,40 @@ function CashOutflowsPageContent() {
     projectInfo.currency,
     projectInfo.salesFinishingStandard,
     projectInfo.salesMarketPositioning,
+  ]);
+
+  // Auto-zero basement rate when basement BUA is 0
+  useEffect(() => {
+    const basementBua = isSaleLandedProduct
+      ? 0 // Landed products don't have basements
+      : projectInfo.salesHighRiseBasementBUA || 0;
+
+    if (basementBua === 0 && cashOutflows.basementRate !== 0) {
+      updateCashOutflowsForStream({ basementRate: 0 });
+      console.log("🔧 [Sale] Auto-zeroed basement rate (BUA is 0)");
+    }
+  }, [
+    isSaleLandedProduct,
+    projectInfo.salesHighRiseBasementBUA,
+    cashOutflows.basementRate,
+    updateCashOutflowsForStream,
+  ]);
+
+  // Auto-zero parking rate when parking BUA is 0
+  useEffect(() => {
+    const parkingBua = isSaleLandedProduct
+      ? 0 // Landed products don't have parking podiums
+      : projectInfo.salesHighRisePodiumBUA || 0;
+
+    if (parkingBua === 0 && cashOutflows.parkingRate !== 0) {
+      updateCashOutflowsForStream({ parkingRate: 0 });
+      console.log("🔧 [Sale] Auto-zeroed parking rate (BUA is 0)");
+    }
+  }, [
+    isSaleLandedProduct,
+    projectInfo.salesHighRisePodiumBUA,
+    cashOutflows.parkingRate,
+    updateCashOutflowsForStream,
   ]);
 
   const updateFormData = (field: string, value: unknown) => {
@@ -2627,12 +2695,40 @@ function CashOutflowsPageContent() {
                   </div>
                   <AiInput
                     label={`Parking Rate (${projectInfo.currency}/sqft)`}
-                    value={cashOutflows.parkingRate || benchParkingRate || 0}
-                    onChange={(v) =>
-                      updateFormData("parkingRate", Number(v) || 0)
+                    value={
+                      isSaleLandedProduct ||
+                      (projectInfo.salesHighRisePodiumBUA || 0) === 0
+                        ? 0
+                        : cashOutflows.parkingRate || benchParkingRate || 0
                     }
-                    isAiGenerated={!!aiParkingRate}
-                    isManualOverride={isParkingManual}
+                    onChange={(v) => {
+                      if (
+                        isSaleLandedProduct ||
+                        (projectInfo.salesHighRisePodiumBUA || 0) === 0
+                      ) {
+                        return; // Don't allow changes when BUA is 0
+                      }
+                      updateFormData("parkingRate", Number(v) || 0);
+                    }}
+                    disabled={
+                      isSaleLandedProduct ||
+                      (projectInfo.salesHighRisePodiumBUA || 0) === 0
+                    }
+                    helperText={
+                      isSaleLandedProduct ||
+                      (projectInfo.salesHighRisePodiumBUA || 0) === 0
+                        ? "Rate is 0 because Parking/Podium BUA is 0"
+                        : undefined
+                    }
+                    isAiGenerated={
+                      !!aiParkingRate &&
+                      !isSaleLandedProduct &&
+                      (projectInfo.salesHighRisePodiumBUA || 0) > 0
+                    }
+                    isManualOverride={
+                      isParkingManual &&
+                      (projectInfo.salesHighRisePodiumBUA || 0) > 0
+                    }
                   />
                   {fieldError("parkingRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -2655,27 +2751,81 @@ function CashOutflowsPageContent() {
                   </div>
                   <AiInput
                     label={`Basement Rate (${projectInfo.currency}/sqft)`}
-                    value={cashOutflows.basementRate || benchBasementRate || 0}
-                    onChange={(v) =>
-                      updateFormData("basementRate", Number(v) || 0)
+                    value={
+                      isSaleLandedProduct ||
+                      (projectInfo.salesHighRiseBasementBUA || 0) === 0
+                        ? 0
+                        : cashOutflows.basementRate || benchBasementRate || 0
                     }
-                    isAiGenerated={!!aiBasementRate}
-                    isManualOverride={isBasementManual}
+                    onChange={(v) => {
+                      if (
+                        isSaleLandedProduct ||
+                        (projectInfo.salesHighRiseBasementBUA || 0) === 0
+                      ) {
+                        return; // Don't allow changes when BUA is 0
+                      }
+                      updateFormData("basementRate", Number(v) || 0);
+                    }}
+                    disabled={
+                      isSaleLandedProduct ||
+                      (projectInfo.salesHighRiseBasementBUA || 0) === 0
+                    }
+                    helperText={
+                      isSaleLandedProduct ||
+                      (projectInfo.salesHighRiseBasementBUA || 0) === 0
+                        ? "Rate is 0 because Basement BUA is 0"
+                        : undefined
+                    }
+                    isAiGenerated={
+                      !!aiBasementRate &&
+                      !isSaleLandedProduct &&
+                      (projectInfo.salesHighRiseBasementBUA || 0) > 0
+                    }
+                    isManualOverride={
+                      isBasementManual &&
+                      (projectInfo.salesHighRiseBasementBUA || 0) > 0
+                    }
                   />
                   {fieldError("basementRate") && (
                     <p className="mt-1 text-sm text-red-400">
                       {fieldError("basementRate")}
                     </p>
                   )}
-                  <p className="text-sm text-slate-300">
-                    Parking & Basement Cost (CC):{" "}
-                    <span className="font-semibold text-emerald-400">
-                      {(parkingCost + basementCost).toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}{" "}
-                      {projectInfo.currency}
-                    </span>
-                  </p>
+                  <div className="space-y-1 text-sm">
+                    <p className="text-slate-300">
+                      Parking Cost (CC):{" "}
+                      <span className="font-semibold text-emerald-400">
+                        {parkingCost.toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })}{" "}
+                        {projectInfo.currency}
+                        {(projectInfo.salesHighRisePodiumBUA || 0) === 0 && (
+                          <span className="ml-1 text-slate-500">(BUA is 0)</span>
+                        )}
+                      </span>
+                    </p>
+                    <p className="text-slate-300">
+                      Basement Cost (CC):{" "}
+                      <span className="font-semibold text-emerald-400">
+                        {basementCost.toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })}{" "}
+                        {projectInfo.currency}
+                        {(projectInfo.salesHighRiseBasementBUA || 0) === 0 && (
+                          <span className="ml-1 text-slate-500">(BUA is 0)</span>
+                        )}
+                      </span>
+                    </p>
+                    <p className="mt-1 border-t border-slate-700 pt-1 text-slate-400">
+                      Combined:{" "}
+                      <span className="font-semibold text-emerald-400">
+                        {(parkingCost + basementCost).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })}{" "}
+                        {projectInfo.currency}
+                      </span>
+                    </p>
+                  </div>
                   {streamPrefix === "/sale" && infrastructureCosts > 0 ? (
                     <p className="text-sm text-slate-300">
                       Infrastructure Costs (CC):{" "}

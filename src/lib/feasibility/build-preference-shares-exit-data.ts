@@ -180,32 +180,75 @@ function isResidentialBundle(bundle: FeasibilityProjectBundle): boolean {
 }
 
 function resolveEbitdaForDscr(bundle: FeasibilityProjectBundle): number[] {
-  if (isResidentialBundle(bundle)) {
+  const buildingType = (bundle.buildingType ?? "").toLowerCase();
+
+  if (buildingType === "office") {
+    return buildOfficeOperationalPnlData(bundle).ebitda;
+  }
+  if (buildingType === "retail") {
+    return buildMallOperationalPnlData(bundle).ebitda;
+  }
+  if (buildingType === "residential") {
     return buildBTROperationalPnlData(bundle).ebitda;
   }
+  if (buildingType === "hotel") {
+    return bundle.operationalPnl?.ebitda ?? [];
+  }
+
   if ((bundle.officeHoldSnapshot?.officeGlaSqft ?? 0) > 0) {
     return buildOfficeOperationalPnlData(bundle).ebitda;
   }
   if ((bundle.retailHoldSnapshot?.glaSqft ?? 0) > 0) {
     return buildMallOperationalPnlData(bundle).ebitda;
   }
+  if (isResidentialBundle(bundle)) {
+    return buildBTROperationalPnlData(bundle).ebitda;
+  }
+
   return bundle.operationalPnl?.ebitda ?? [];
+}
+
+function resolveSavedDscrSchedule(
+  bundle: FeasibilityProjectBundle,
+  financing: Financing
+): { year: string; dscr: number }[] | null {
+  const bundleFinancing = (bundle as { financing?: Financing }).financing;
+  const savedSchedule =
+    financing.dscrSchedule ?? bundleFinancing?.dscrSchedule;
+
+  if (!savedSchedule || !Array.isArray(savedSchedule) || savedSchedule.length === 0) {
+    return null;
+  }
+
+  return savedSchedule.map((row) => ({
+    year: row.year,
+    dscr: row.adjustedDSCR ?? row.dscr ?? 0,
+  }));
 }
 
 function buildDscrByYear(
   bundle: FeasibilityProjectBundle,
-  financing: Financing
+  financing: Financing,
+  ebitdaOverride?: number[]
 ): { year: string; dscr: number }[] {
-  const operationalYears = bundle.component2.operationalYears || 10;
-  const ebitda = resolveEbitdaForDscr(bundle);
-  const tdc = bundle.aggregate.tdc || bundle.component4.tdc || 0;
-  const gdv = bundle.aggregate.gdv || bundle.component4.gdv || 0;
+  const operationalYears = bundle.component2?.operationalYears || 10;
+
+  const savedSchedule = resolveSavedDscrSchedule(bundle, financing);
+  if (savedSchedule) {
+    const hasValidDscr = savedSchedule.some((row) => row.dscr > 0);
+    return hasValidDscr
+      ? savedSchedule.slice(0, operationalYears)
+      : DEFAULT_DSCR_BY_YEAR.slice(0, operationalYears);
+  }
+  const ebitda = ebitdaOverride ?? resolveEbitdaForDscr(bundle);
+  const tdc = bundle.aggregate?.tdc || bundle.component4?.tdc || 0;
+  const gdv = bundle.aggregate?.gdv || bundle.component4?.gdv || 0;
   const loanAtCompletion =
     financing.loanAtCompletion ??
     bundle.component4.loanAtCompletion ??
     resolveApprovedDebtAmount(financing, tdc, gdv);
 
-  if (ebitda.length === 0 || loanAtCompletion <= 0) {
+  if (!ebitda || ebitda.length === 0 || loanAtCompletion <= 0) {
     return DEFAULT_DSCR_BY_YEAR.slice(0, operationalYears);
   }
 
@@ -244,7 +287,8 @@ function buildDscrByYear(
 
 export function buildPreferenceSharesExitStrategyData(
   bundle: FeasibilityProjectBundle,
-  financing: Financing
+  financing: Financing,
+  ebitdaOverride?: number[]
 ): PreferenceSharesExitStrategyData {
   const pref = financing.preferenceShares;
   const exitYear = financing.exitYear ?? 13;
@@ -260,7 +304,7 @@ export function buildPreferenceSharesExitStrategyData(
       returnRate: pref?.returnPercent ?? 0,
     },
     debtCovenants: buildDebtCovenants(financing),
-    dscrByYear: buildDscrByYear(bundle, financing),
+    dscrByYear: buildDscrByYear(bundle, financing, ebitdaOverride),
     exitStrategy: {
       type: capitalizeExitType(financing.exitStrategy),
       timing: `Year ${operatingYear}`,
@@ -276,10 +320,11 @@ export function buildPreferenceSharesExitStrategyData(
 }
 
 export function buildPreferenceSharesExitStrategyFromBundle(
-  bundle: FeasibilityProjectBundle
+  bundle: FeasibilityProjectBundle,
+  ebitdaOverride?: number[]
 ): PreferenceSharesExitStrategyData {
   const financing = useFinModelStore.getState().operational.financing;
-  return buildPreferenceSharesExitStrategyData(bundle, financing);
+  return buildPreferenceSharesExitStrategyData(bundle, financing, ebitdaOverride);
 }
 
 export function isPreferenceSharesExitStrategyData(

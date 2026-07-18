@@ -12,12 +12,14 @@ import {
   YAxis,
 } from "recharts";
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   computeResidentialDepreciationSeries,
   getResidentialDepreciationBenchmark,
   resolveResidentialDepreciationBenchmark,
   type ResidentialDepreciationYearRow,
 } from "@/lib/benchmarks/residential-depreciation";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import {
   defaultOperationalResidentialHoldSnapshot,
   type OperationalResidentialHoldSnapshot,
@@ -26,6 +28,13 @@ import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { ResidentialDepreciationConfig } from "@/store/useFinModelStore";
 import { getOperationalResidentialHoldSnapshot } from "./ResidentialOpexStep";
+
+const AI_EPS = 0.01;
+function differsFromAi(current: number, ai?: number | null): boolean {
+  return (
+    ai != null && Number.isFinite(ai) && Math.abs(current - ai) > AI_EPS
+  );
+}
 
 export type ResidentialDepreciationStepErrors = Record<string, string>;
 
@@ -242,6 +251,36 @@ export default function ResidentialDepreciationStep() {
   const constructionBase = Math.max(0, cashOutflows.constructionCost || 0);
   const ffeBase = Math.max(0, cashOutflows.ffe || 0);
 
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step6_useful_life_working_capital ||
+      !!raw.c2_operational?.depreciation_wc ||
+      !!raw.c1_development?.construction_rates;
+    if (!hasNested) {
+      return (normalizeAiResearchData(raw) as { c2_operational?: typeof raw.c2_operational })
+        ?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep6 = aiC2?.step6_useful_life_working_capital;
+  const aiDepWc = aiC2?.depreciation_wc;
+  const aiConstructionLife =
+    aiStep6?.construction_useful_life_years ??
+    aiDepWc?.construction_useful_life_years;
+  const aiFfeLife =
+    aiStep6?.ffe_useful_life_years ?? aiDepWc?.ffe_useful_life_years;
+  const aiFfeRenovationPct =
+    aiStep6?.ffe_renovation_pct_year_6 ?? aiDepWc?.ffe_renovation_pct_year_6;
+  const aiArMonths =
+    aiStep6?.accounts_receivable_months_revenue ??
+    aiDepWc?.accounts_receivable_months_revenue;
+  const aiApMonths =
+    aiStep6?.accounts_payable_months_opex ??
+    aiDepWc?.accounts_payable_months_opex;
+
   const totalRevenueByYear = useMemo(
     () =>
       Array.from({ length: 10 }, (_, i) => {
@@ -285,6 +324,41 @@ export default function ResidentialDepreciationStep() {
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
   >(snap?.depManualYearValues ?? {});
+
+  useEffect(() => {
+    if (!aiC2) return;
+    if (
+      !overrides.depreciations &&
+      !overrides.constructionLife &&
+      aiConstructionLife != null
+    ) {
+      setConstructionLife(aiConstructionLife);
+    }
+    if (!overrides.depreciations && !overrides.ffeLife && aiFfeLife != null) {
+      setFfeLife(aiFfeLife);
+    }
+    if (
+      !overrides.depreciations &&
+      !overrides.ffeRenovationPctYear6 &&
+      aiFfeRenovationPct != null
+    ) {
+      setFfeRenovationPctYear6(aiFfeRenovationPct);
+    }
+    if (!overrides.wc && !overrides.arMonths && aiArMonths != null) {
+      setArMonths(aiArMonths);
+    }
+    if (!overrides.wc && !overrides.apMonths && aiApMonths != null) {
+      setApMonths(aiApMonths);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-apply when AI payload changes
+  }, [
+    aiC2,
+    aiConstructionLife,
+    aiFfeLife,
+    aiFfeRenovationPct,
+    aiArMonths,
+    aiApMonths,
+  ]);
 
   const formulaRows = useMemo(
     () =>
@@ -395,16 +469,29 @@ export default function ResidentialDepreciationStep() {
   }, [benchmark, overrides, snap?.constructionLife, resolved]);
 
   const handleResetDeprec = () => {
-    setConstructionLife(resolved.constructionLife);
-    setFfeLife(resolved.ffeLife);
-    setFfeRenovationPctYear6(resolved.ffeRenovationPctYear6);
-    setOverrides((prev) => ({ ...prev, depreciations: false }));
+    setConstructionLife(aiConstructionLife ?? resolved.constructionLife);
+    setFfeLife(aiFfeLife ?? resolved.ffeLife);
+    setFfeRenovationPctYear6(
+      aiFfeRenovationPct ?? resolved.ffeRenovationPctYear6
+    );
+    setOverrides((prev) => ({
+      ...prev,
+      depreciations: false,
+      constructionLife: false,
+      ffeLife: false,
+      ffeRenovationPctYear6: false,
+    }));
   };
 
   const handleResetWc = () => {
-    setArMonths(resolved.arMonths);
-    setApMonths(resolved.apMonths);
-    setOverrides((prev) => ({ ...prev, wc: false }));
+    setArMonths(aiArMonths ?? resolved.arMonths);
+    setApMonths(aiApMonths ?? resolved.apMonths);
+    setOverrides((prev) => ({
+      ...prev,
+      wc: false,
+      arMonths: false,
+      apMonths: false,
+    }));
   };
 
   const handleResetAll = () => {
@@ -527,89 +614,110 @@ export default function ResidentialDepreciationStep() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Construction Useful Life (years)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Construction Useful Life (years)"
               value={constructionLife}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "depreciations",
                   "constructionLife",
-                  Number(e.target.value)
+                  Number(val)
                 )
               }
-              className={overrideFieldClass(deprecOverride)}
-            />
-            <p className="mt-1 text-[10px] text-slate-500">Straight-line</p>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              FFE Useful Life (years)
-            </label>
-            <input
               type="number"
-              value={ffeLife}
-              onChange={(e) =>
-                handleFieldChange("depreciations", "ffeLife", Number(e.target.value))
+              isAiGenerated={
+                aiConstructionLife != null &&
+                !overrides.depreciations &&
+                !overrides.constructionLife
               }
-              className={overrideFieldClass(deprecOverride)}
+              isManualOverride={
+                !!(overrides.depreciations || overrides.constructionLife) ||
+                differsFromAi(constructionLife, aiConstructionLife)
+              }
+              helperText="Straight-line"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              FFE Renovation (% of initial) – Year 6
-            </label>
-            <input
+            <AiInput
+              label="FFE Useful Life (years)"
+              value={ffeLife}
+              onChange={(val) =>
+                handleFieldChange("depreciations", "ffeLife", Number(val))
+              }
               type="number"
+              isAiGenerated={
+                aiFfeLife != null &&
+                !overrides.depreciations &&
+                !overrides.ffeLife
+              }
+              isManualOverride={
+                !!(overrides.depreciations || overrides.ffeLife) ||
+                differsFromAi(ffeLife, aiFfeLife)
+              }
+            />
+          </div>
+          <div>
+            <AiInput
+              label="FFE Renovation (% of initial) – Year 6"
               value={ffeRenovationPctYear6}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "depreciations",
                   "ffeRenovationPctYear6",
-                  Number(e.target.value)
+                  Number(val)
                 )
               }
-              className={overrideFieldClass(deprecOverride)}
+              type="percentage"
+              isAiGenerated={
+                aiFfeRenovationPct != null &&
+                !overrides.depreciations &&
+                !overrides.ffeRenovationPctYear6
+              }
+              isManualOverride={
+                !!(
+                  overrides.depreciations || overrides.ffeRenovationPctYear6
+                ) || differsFromAi(ffeRenovationPctYear6, aiFfeRenovationPct)
+              }
+              helperText="Capitalized at Year 6, amortized over remaining useful life"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Capitalized at Year 6, amortized over remaining useful life
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Accounts Receivable (months of revenue)
-            </label>
-            <input
-              type="number"
-              step="0.5"
+            <AiInput
+              label="Accounts Receivable (months of revenue)"
               value={arMonths}
-              onChange={(e) =>
-                handleFieldChange("wc", "arMonths", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("wc", "arMonths", Number(val))
               }
-              className={overrideFieldClass(wcOverride)}
+              type="number"
+              step={0.5}
+              isAiGenerated={
+                aiArMonths != null && !overrides.wc && !overrides.arMonths
+              }
+              isManualOverride={
+                !!(overrides.wc || overrides.arMonths) ||
+                differsFromAi(arMonths, aiArMonths)
+              }
+              helperText="Rent collected monthly"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Rent collected monthly
-            </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Accounts Payable (months of opex)
-            </label>
-            <input
-              type="number"
-              step="0.5"
+            <AiInput
+              label="Accounts Payable (months of opex)"
               value={apMonths}
-              onChange={(e) =>
-                handleFieldChange("wc", "apMonths", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("wc", "apMonths", Number(val))
               }
-              className={overrideFieldClass(wcOverride)}
+              type="number"
+              step={0.5}
+              isAiGenerated={
+                aiApMonths != null && !overrides.wc && !overrides.apMonths
+              }
+              isManualOverride={
+                !!(overrides.wc || overrides.apMonths) ||
+                differsFromAi(apMonths, aiApMonths)
+              }
+              helperText="Pay expenses monthly"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Pay expenses monthly
-            </p>
           </div>
         </div>
       </div>

@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { resolveOfficeOpexBenchmark } from "@/lib/benchmarks/office-opex";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import type { OperationalOfficeHoldSnapshot } from "@/lib/operational-pnl";
 import {
   roundPct2,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { OfficeOpexConfig } from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   getOperationalOfficeHoldSnapshot,
   leasedPctForYear,
@@ -166,6 +168,38 @@ export default function OfficeOpexStep() {
   const cashOutflows = useFinModelStore((s) => s.operational.cashOutflows);
   const currencyCode = projectInfo.currency || "AED";
   const totalBua = totalOperationalBua(cashOutflows);
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step3_operating_expenses ||
+      !!raw.c2_operational?.step1_base_rent;
+    if (!hasNested) {
+      return (
+        normalizeAiResearchData(raw) as {
+          c2_operational?: typeof raw.c2_operational;
+        }
+      )?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep3 = aiC2?.step3_operating_expenses;
+  const aiCamFixedAnnual = aiStep3?.cam_fixed_base_annual;
+  const aiCamVariableRate = aiStep3?.cam_variable_rate_psf;
+  const aiPropertyTaxPctOpex = aiStep3?.property_tax_pct_of_revenue;
+  const aiInsurancePctOpex = aiStep3?.insurance_pct_of_revenue;
+  const aiMarketingPct = aiStep3?.marketing_pct_revenue;
+  const aiGAPct = aiStep3?.g_and_a_pct_revenue;
+  const aiManagementFeePct = aiStep3?.management_fee_pct_revenue;
+  const aiRenovationYear1 = aiStep3?.renovation_provision?.year_1_pct;
+  const aiRenovationYear2 = aiStep3?.renovation_provision?.year_2_pct;
+  const aiRenovationYear3to10 = aiStep3?.renovation_provision?.years_3_10_pct;
+  const aiCamFixedBaseRate =
+    aiCamFixedAnnual != null && totalBua > 0
+      ? roundRate2(aiCamFixedAnnual / totalBua)
+      : undefined;
 
   const benchmark = useMemo(
     () =>
@@ -453,53 +487,174 @@ export default function OfficeOpexStep() {
   useEffect(() => {
     if (!benchmark || Object.keys(overrides).length > 0) return;
     if (step1?.camFixedBaseRate != null || step1?.camFixedBase != null) return;
-    setCamFixedBaseRate(roundRate2(benchmark.camFixedBaseRate));
-    setCamVariableRate(benchmark.camVariableRate);
-    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
-    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
-    setMarketingPct(benchmark.marketingPctOfRevenue);
-    setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
-    setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
-    setRenovationYear1(benchmark.renovationYear1);
-    setRenovationYear2(benchmark.renovationYear2);
-    setRenovationYears3to10(benchmark.renovationYears3to10);
-  }, [benchmark, overrides, step1?.camFixedBaseRate, step1?.camFixedBase]);
+    setCamFixedBaseRate(
+      aiCamFixedBaseRate ?? roundRate2(benchmark.camFixedBaseRate)
+    );
+    setCamVariableRate(aiCamVariableRate ?? benchmark.camVariableRate);
+    setPropertyTaxPct(
+      roundPct2(
+        aiPropertyTaxPctOpex ?? benchmark.propertyTaxPctOfGrossRent
+      )
+    );
+    setInsurancePct(
+      roundPct2(aiInsurancePctOpex ?? benchmark.insurancePctOfGrossRent)
+    );
+    setMarketingPct(aiMarketingPct ?? benchmark.marketingPctOfRevenue);
+    setGAndAPct(roundPct2(aiGAPct ?? benchmark.gAndAPctOfRevenue));
+    setMgmtFeePct(aiManagementFeePct ?? benchmark.mgmtFeePctOfRevenue);
+    setRenovationYear1(aiRenovationYear1 ?? benchmark.renovationYear1);
+    setRenovationYear2(aiRenovationYear2 ?? benchmark.renovationYear2);
+    setRenovationYears3to10(
+      aiRenovationYear3to10 ?? benchmark.renovationYears3to10
+    );
+  }, [
+    benchmark,
+    overrides,
+    step1?.camFixedBaseRate,
+    step1?.camFixedBase,
+    aiCamFixedBaseRate,
+    aiCamVariableRate,
+    aiPropertyTaxPctOpex,
+    aiInsurancePctOpex,
+    aiMarketingPct,
+    aiGAPct,
+    aiManagementFeePct,
+    aiRenovationYear1,
+    aiRenovationYear2,
+    aiRenovationYear3to10,
+  ]);
+
+  // Apply AI when it arrives (unless that field overridden)
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!overrides.camFixedBaseRate && aiCamFixedBaseRate != null) {
+      setCamFixedBaseRate(aiCamFixedBaseRate);
+    }
+    if (!overrides.camVariableRate && aiCamVariableRate != null) {
+      setCamVariableRate(aiCamVariableRate);
+    }
+    if (!overrides.propertyTaxPct && aiPropertyTaxPctOpex != null) {
+      setPropertyTaxPct(roundPct2(aiPropertyTaxPctOpex));
+    }
+    if (!overrides.insurancePct && aiInsurancePctOpex != null) {
+      setInsurancePct(roundPct2(aiInsurancePctOpex));
+    }
+    if (!overrides.marketingPct && aiMarketingPct != null) {
+      setMarketingPct(aiMarketingPct);
+    }
+    if (!overrides.gAndAPct && aiGAPct != null) {
+      setGAndAPct(roundPct2(aiGAPct));
+    }
+    if (!overrides.mgmtFeePct && aiManagementFeePct != null) {
+      setMgmtFeePct(aiManagementFeePct);
+    }
+    if (!overrides.renovationYear1 && aiRenovationYear1 != null) {
+      setRenovationYear1(aiRenovationYear1);
+    }
+    if (!overrides.renovationYear2 && aiRenovationYear2 != null) {
+      setRenovationYear2(aiRenovationYear2);
+    }
+    if (!overrides.renovationYears3to10 && aiRenovationYear3to10 != null) {
+      setRenovationYears3to10(aiRenovationYear3to10);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    aiC2,
+    aiCamFixedBaseRate,
+    aiCamVariableRate,
+    aiPropertyTaxPctOpex,
+    aiInsurancePctOpex,
+    aiMarketingPct,
+    aiGAPct,
+    aiManagementFeePct,
+    aiRenovationYear1,
+    aiRenovationYear2,
+    aiRenovationYear3to10,
+  ]);
 
   const handleResetSection = (section: string) => {
     if (section === "cam") {
-      setCamFixedBaseRate(roundRate2(benchmark.camFixedBaseRate));
-      setCamVariableRate(benchmark.camVariableRate);
-      setOverrides((prev) => ({ ...prev, cam: false }));
+      setCamFixedBaseRate(
+        aiCamFixedBaseRate ?? roundRate2(benchmark.camFixedBaseRate)
+      );
+      setCamVariableRate(aiCamVariableRate ?? benchmark.camVariableRate);
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next.cam;
+        delete next.camFixedBaseRate;
+        delete next.camVariableRate;
+        return next;
+      });
     } else if (section === "propIns") {
-      setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
-      setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
-      setOverrides((prev) => ({ ...prev, propIns: false }));
+      setPropertyTaxPct(
+        roundPct2(
+          aiPropertyTaxPctOpex ?? benchmark.propertyTaxPctOfGrossRent
+        )
+      );
+      setInsurancePct(
+        roundPct2(aiInsurancePctOpex ?? benchmark.insurancePctOfGrossRent)
+      );
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next.propIns;
+        delete next.propertyTaxPct;
+        delete next.insurancePct;
+        return next;
+      });
     } else if (section === "mktGa") {
-      setMarketingPct(benchmark.marketingPctOfRevenue);
-      setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
-      setOverrides((prev) => ({ ...prev, mktGa: false }));
+      setMarketingPct(aiMarketingPct ?? benchmark.marketingPctOfRevenue);
+      setGAndAPct(roundPct2(aiGAPct ?? benchmark.gAndAPctOfRevenue));
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next.mktGa;
+        delete next.marketingPct;
+        delete next.gAndAPct;
+        return next;
+      });
     } else if (section === "mgmt") {
-      setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
-      setOverrides((prev) => ({ ...prev, mgmt: false }));
+      setMgmtFeePct(aiManagementFeePct ?? benchmark.mgmtFeePctOfRevenue);
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next.mgmt;
+        delete next.mgmtFeePct;
+        return next;
+      });
     } else if (section === "ren") {
-      setRenovationYear1(benchmark.renovationYear1);
-      setRenovationYear2(benchmark.renovationYear2);
-      setRenovationYears3to10(benchmark.renovationYears3to10);
-      setOverrides((prev) => ({ ...prev, ren: false }));
+      setRenovationYear1(aiRenovationYear1 ?? benchmark.renovationYear1);
+      setRenovationYear2(aiRenovationYear2 ?? benchmark.renovationYear2);
+      setRenovationYears3to10(
+        aiRenovationYear3to10 ?? benchmark.renovationYears3to10
+      );
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next.ren;
+        delete next.renovationYear1;
+        delete next.renovationYear2;
+        delete next.renovationYears3to10;
+        return next;
+      });
     }
   };
 
   const handleResetAll = () => {
-    setCamFixedBaseRate(roundRate2(benchmark.camFixedBaseRate));
-    setCamVariableRate(benchmark.camVariableRate);
-    setPropertyTaxPct(roundPct2(benchmark.propertyTaxPctOfGrossRent));
-    setInsurancePct(roundPct2(benchmark.insurancePctOfGrossRent));
-    setMarketingPct(benchmark.marketingPctOfRevenue);
-    setGAndAPct(roundPct2(benchmark.gAndAPctOfRevenue));
-    setMgmtFeePct(benchmark.mgmtFeePctOfRevenue);
-    setRenovationYear1(benchmark.renovationYear1);
-    setRenovationYear2(benchmark.renovationYear2);
-    setRenovationYears3to10(benchmark.renovationYears3to10);
+    setCamFixedBaseRate(
+      aiCamFixedBaseRate ?? roundRate2(benchmark.camFixedBaseRate)
+    );
+    setCamVariableRate(aiCamVariableRate ?? benchmark.camVariableRate);
+    setPropertyTaxPct(
+      roundPct2(aiPropertyTaxPctOpex ?? benchmark.propertyTaxPctOfGrossRent)
+    );
+    setInsurancePct(
+      roundPct2(aiInsurancePctOpex ?? benchmark.insurancePctOfGrossRent)
+    );
+    setMarketingPct(aiMarketingPct ?? benchmark.marketingPctOfRevenue);
+    setGAndAPct(roundPct2(aiGAPct ?? benchmark.gAndAPctOfRevenue));
+    setMgmtFeePct(aiManagementFeePct ?? benchmark.mgmtFeePctOfRevenue);
+    setRenovationYear1(aiRenovationYear1 ?? benchmark.renovationYear1);
+    setRenovationYear2(aiRenovationYear2 ?? benchmark.renovationYear2);
+    setRenovationYears3to10(
+      aiRenovationYear3to10 ?? benchmark.renovationYears3to10
+    );
     setOverrides({});
     setManualYearValues({});
   };
@@ -528,7 +683,8 @@ export default function OfficeOpexStep() {
 
     if (setters[field]) {
       setters[field](normalized);
-      setOverrides((prev) => ({ ...prev, [section]: true }));
+      // Field-specific override only (not section-wide)
+      setOverrides((prev) => ({ ...prev, [field]: true }));
     }
   };
 
@@ -585,81 +741,51 @@ export default function OfficeOpexStep() {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => handleResetSection("cam")}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset CAM
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={() => handleResetSection("propIns")}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset prop/ins
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={() => handleResetSection("mktGa")}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset marketing/G&amp;A
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={() => handleResetSection("mgmt")}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset mgmt fee
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={() => handleResetSection("ren")}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset renovation
-            </button>
-            <span className="text-slate-600">|</span>
+          {Object.values(overrides).some((v) => v) && (
             <button
               type="button"
               onClick={handleResetAll}
-              className="text-emerald-400 transition hover:text-emerald-300"
+              className="text-sm font-medium text-emerald-400 transition-colors hover:text-emerald-300"
             >
-              Reset all
+              Reset to benchmark
             </button>
-          </div>
+          )}
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          CAM (Common Area Maintenance)
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            CAM (Common Area Maintenance)
+          </h3>
+          <button
+            type="button"
+            onClick={() => handleResetSection("cam")}
+            className={`text-xs font-medium transition-colors ${
+              overrides.camFixedBaseRate || overrides.camVariableRate
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!overrides.camFixedBaseRate && !overrides.camVariableRate}
+          >
+            Reset CAM
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              CAM – Fixed Base Rate ({currencyCode}/psf of BUA/year)
-            </label>
-            <input
+            <AiInput
+              label={`CAM – Fixed Base Rate (${currencyCode}/psf of BUA/year)`}
+              value={camFixedBaseRate}
+              onChange={(val) =>
+                handleFieldChange("cam", "camFixedBaseRate", Number(val))
+              }
               type="number"
               step={0.01}
               min={0}
-              placeholder="e.g., 25"
-              value={camFixedBaseRate}
-              onChange={(e) =>
-                handleFieldChange(
-                  "cam",
-                  "camFixedBaseRate",
-                  Number(e.target.value)
-                )
+              isAiGenerated={
+                aiCamFixedBaseRate != null && !overrides.camFixedBaseRate
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.cam ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.camFixedBaseRate}
             />
             <p className="mt-1 text-sm text-slate-500">
               Annual fixed CAM = Rate × Total BUA (
@@ -667,20 +793,17 @@ export default function OfficeOpexStep() {
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              CAM – Variable rate ({currencyCode}/psf × blended leased %)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`CAM – Variable rate (${currencyCode}/psf × blended leased %)`}
               value={camVariableRate}
-              onChange={(e) =>
-                handleFieldChange(
-                  "cam",
-                  "camVariableRate",
-                  Number(e.target.value)
-                )
+              onChange={(val) =>
+                handleFieldChange("cam", "camVariableRate", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.cam ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="number"
+              isAiGenerated={
+                aiCamVariableRate != null && !overrides.camVariableRate
+              }
+              isManualOverride={!!overrides.camVariableRate}
             />
             <p className="mt-1 text-[10px] text-slate-500">
               × (Office + Retail GLA × blended effective leased %)
@@ -694,53 +817,59 @@ export default function OfficeOpexStep() {
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Property Tax &amp; Insurance
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Property Tax &amp; Insurance
+          </h3>
+          <button
+            type="button"
+            onClick={() => handleResetSection("propIns")}
+            className={`text-xs font-medium transition-colors ${
+              overrides.propertyTaxPct || overrides.insurancePct
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!overrides.propertyTaxPct && !overrides.insurancePct}
+          >
+            Reset prop/ins
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Property Tax (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Property Tax (% of Gross Rental Revenue)"
+              value={propertyTaxPct}
+              onChange={(val) =>
+                handleFieldChange("propIns", "propertyTaxPct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 5"
-              value={propertyTaxPct}
-              onChange={(e) =>
-                handleFieldChange(
-                  "propIns",
-                  "propertyTaxPct",
-                  Number(e.target.value)
-                )
+              isAiGenerated={
+                aiPropertyTaxPctOpex != null && !overrides.propertyTaxPct
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propIns ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.propertyTaxPct}
             />
             <p className="mt-1 text-sm text-slate-500">
               Applied to Step 1 office + retail rent revenue each year
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Insurance (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Insurance (% of Gross Rental Revenue)"
+              value={insurancePct}
+              onChange={(val) =>
+                handleFieldChange("propIns", "insurancePct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 1.5"
-              value={insurancePct}
-              onChange={(e) =>
-                handleFieldChange(
-                  "propIns",
-                  "insurancePct",
-                  Number(e.target.value)
-                )
+              isAiGenerated={
+                aiInsurancePctOpex != null && !overrides.insurancePct
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.propIns ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isManualOverride={!!overrides.insurancePct}
             />
             <p className="mt-1 text-sm text-slate-500">
               Applied to Step 1 office + retail rent revenue each year
@@ -750,42 +879,53 @@ export default function OfficeOpexStep() {
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Marketing &amp; G&amp;A
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Marketing &amp; G&amp;A
+          </h3>
+          <button
+            type="button"
+            onClick={() => handleResetSection("mktGa")}
+            className={`text-xs font-medium transition-colors ${
+              overrides.marketingPct || overrides.gAndAPct
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!overrides.marketingPct && !overrides.gAndAPct}
+          >
+            Reset marketing/G&amp;A
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Marketing (% of total revenue)
-            </label>
-            <input
-              type="number"
-              step={0.1}
+            <AiInput
+              label="Marketing (% of total revenue)"
               value={marketingPct}
-              onChange={(e) =>
-                handleFieldChange("mktGa", "marketingPct", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("mktGa", "marketingPct", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.mktGa ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={aiMarketingPct != null && !overrides.marketingPct}
+              isManualOverride={!!overrides.marketingPct}
             />
             <p className="mt-1 text-[10px] text-slate-500">
               Total revenue = Step 1 base rent + Step 2 other income
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              G&amp;A (% of Total Revenue)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="G&A (% of Total Revenue)"
+              value={gAndAPct}
+              onChange={(val) =>
+                handleFieldChange("mktGa", "gAndAPct", Number(val))
+              }
+              type="percentage"
               step={0.01}
               min={0}
               max={100}
-              placeholder="e.g., 2.5"
-              value={gAndAPct}
-              onChange={(e) =>
-                handleFieldChange("mktGa", "gAndAPct", Number(e.target.value))
-              }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.mktGa ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              isAiGenerated={aiGAPct != null && !overrides.gAndAPct}
+              isManualOverride={!!overrides.gAndAPct}
             />
             <p className="mt-1 text-sm text-slate-500">
               Total revenue = Step 1 base rent + Step 2 other income
@@ -795,72 +935,104 @@ export default function OfficeOpexStep() {
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">Management Fee</h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">Management Fee</h3>
+          <button
+            type="button"
+            onClick={() => handleResetSection("mgmt")}
+            className={`text-xs font-medium transition-colors ${
+              overrides.mgmtFeePct
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!overrides.mgmtFeePct}
+          >
+            Reset mgmt fee
+          </button>
+        </div>
         <div className="max-w-xs">
-          <label className="mb-1 block text-xs text-slate-400">
-            Base management fee (% of total revenue)
-          </label>
-          <input
-            type="number"
-            step={0.1}
+          <AiInput
+            label="Base management fee (% of total revenue)"
             value={mgmtFeePct}
-            onChange={(e) =>
-              handleFieldChange("mgmt", "mgmtFeePct", Number(e.target.value))
+            onChange={(val) =>
+              handleFieldChange("mgmt", "mgmtFeePct", Number(val))
             }
-            className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.mgmt ? "border-2 border-amber-500" : "border border-slate-600"}`}
+            type="percentage"
+            step={0.1}
+            isAiGenerated={aiManagementFeePct != null && !overrides.mgmtFeePct}
+            isManualOverride={!!overrides.mgmtFeePct}
           />
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Renovation / Capex Provision
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Renovation / Capex Provision
+          </h3>
+          <button
+            type="button"
+            onClick={() => handleResetSection("ren")}
+            className={`text-xs font-medium transition-colors ${
+              overrides.renovationYear1 ||
+              overrides.renovationYear2 ||
+              overrides.renovationYears3to10
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={
+              !overrides.renovationYear1 &&
+              !overrides.renovationYear2 &&
+              !overrides.renovationYears3to10
+            }
+          >
+            Reset renovation
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Year 1 (% of EGI)
-            </label>
-            <input
-              type="number"
-              step={0.1}
+            <AiInput
+              label="Year 1 (% of EGI)"
               value={renovationYear1}
-              onChange={(e) =>
-                handleFieldChange("ren", "renovationYear1", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("ren", "renovationYear1", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.ren ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={
+                aiRenovationYear1 != null && !overrides.renovationYear1
+              }
+              isManualOverride={!!overrides.renovationYear1}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Year 2 (% of EGI)
-            </label>
-            <input
-              type="number"
-              step={0.1}
+            <AiInput
+              label="Year 2 (% of EGI)"
               value={renovationYear2}
-              onChange={(e) =>
-                handleFieldChange("ren", "renovationYear2", Number(e.target.value))
+              onChange={(val) =>
+                handleFieldChange("ren", "renovationYear2", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.ren ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={
+                aiRenovationYear2 != null && !overrides.renovationYear2
+              }
+              isManualOverride={!!overrides.renovationYear2}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Years 3–10 (% of EGI)
-            </label>
-            <input
-              type="number"
-              step={0.1}
+            <AiInput
+              label="Years 3–10 (% of EGI)"
               value={renovationYears3to10}
-              onChange={(e) =>
-                handleFieldChange(
-                  "ren",
-                  "renovationYears3to10",
-                  Number(e.target.value)
-                )
+              onChange={(val) =>
+                handleFieldChange("ren", "renovationYears3to10", Number(val))
               }
-              className={`w-full rounded bg-slate-900 p-2 text-white ${overrides.ren ? "border-2 border-amber-500" : "border border-slate-600"}`}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={
+                aiRenovationYear3to10 != null && !overrides.renovationYears3to10
+              }
+              isManualOverride={!!overrides.renovationYears3to10}
             />
           </div>
         </div>

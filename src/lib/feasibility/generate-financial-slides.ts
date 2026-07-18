@@ -41,7 +41,7 @@ export function generateFinancialSlides(
     project.termLoanFinancing ?? buildTermLoanFinancingFromBundle(project);
   const prefSharesExitData =
     project.preferenceSharesExitStrategy ??
-    buildPreferenceSharesExitStrategyFromBundle(project);
+    buildPreferenceSharesExitStrategyFromBundle(project, operationalPnlData?.ebitda);
   const postFinancingCashFlowData =
     project.postFinancingCashFlow ??
     buildPostFinancingCashFlowFromBundle(project);

@@ -12,7 +12,6 @@ import {
   Legend,
 } from "recharts";
 import {
-  defaultParkingSpaces,
   getRetailOtherIncomeBenchmark,
 } from "@/lib/benchmarks/retail-other-income";
 import { getRetailRevenueBenchmark } from "@/lib/benchmarks/retail-revenue";
@@ -29,7 +28,8 @@ export function getOperationalRetailHoldSnapshot():
 }
 
 export function validateRetailOtherIncomeStep(
-  snap: OperationalRetailHoldSnapshot | undefined
+  snap: OperationalRetailHoldSnapshot | undefined,
+  options?: { retailBasementBUA?: number; retailPodiumBUA?: number }
 ): RetailOtherIncomeStepErrors {
   const next: RetailOtherIncomeStepErrors = {};
   const gla = snap?.glaSqft ?? 0;
@@ -42,9 +42,16 @@ export function validateRetailOtherIncomeStep(
     next.avgTenantSalesPsf =
       "Year 1 tenant sales ($/sqft) must be greater than 0.";
   }
-  const spaces = snap?.parkingSpaces ?? 0;
+  const autoSpaces = Math.max(
+    0,
+    Math.round(
+      ((options?.retailBasementBUA || 0) + (options?.retailPodiumBUA || 0)) / 350
+    )
+  );
+  const spaces = autoSpaces > 0 ? autoSpaces : snap?.parkingSpaces ?? 0;
   if (!Number.isFinite(spaces) || spaces <= 0) {
-    next.parkingSpaces = "Parking spaces must be greater than 0.";
+    next.parkingSpaces =
+      "Parking spaces must be greater than 0. Set Basement + Podium BUA in Component 1 Step 5.";
   }
   return next;
 }
@@ -129,9 +136,13 @@ export default function RetailOtherIncomeStep() {
             100
         )
       : 1.5;
-  const defaultSpaces = defaultParkingSpaces(
-    cashOutflows?.parkingBUA ?? 0,
-    gla
+  const defaultSpaces = Math.max(
+    0,
+    Math.round(
+      ((projectInfo.retailBasementBUA || 0) +
+        (projectInfo.retailPodiumBUA || 0)) /
+        350
+    )
   );
 
   const [avgTenantSalesPsf, setAvgTenantSalesPsf] = useState(
@@ -187,7 +198,7 @@ export default function RetailOtherIncomeStep() {
   );
 
   const [parkingSpaces, setParkingSpaces] = useState(
-    step1Data?.parkingSpaces ?? defaultSpaces
+    () => (defaultSpaces > 0 ? defaultSpaces : step1Data?.parkingSpaces ?? 0)
   );
   const [parkingRevenuePerDay, setParkingRevenuePerDay] = useState(
     step1Data?.parkingRevenuePerSpaceDay ??
@@ -218,6 +229,10 @@ export default function RetailOtherIncomeStep() {
   const [manualYearValues, setManualYearValues] = useState<
     Record<number, Record<string, number>>
   >({});
+
+  useEffect(() => {
+    setParkingSpaces(defaultSpaces);
+  }, [defaultSpaces]);
 
   useEffect(() => {
     if (!aiCamExpenses || overrides.camExpenses) return;
@@ -798,14 +813,20 @@ export default function RetailOtherIncomeStep() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
-              Number of Spaces
+              Total Parking Spaces
             </label>
             <input
               type="number"
               value={parkingSpaces}
-              onChange={(e) => setParkingSpaces(Number(e.target.value))}
-              className="w-full rounded border border-slate-600 bg-slate-900 p-2 text-white"
+              readOnly
+              className="w-full cursor-not-allowed rounded border border-slate-700 bg-slate-900 p-2 text-slate-400"
             />
+            <p className="mt-1 text-xs text-amber-400">
+              🔒 Locked: To change, go back to Component 1 Step 5
+            </p>
+            <p className="mt-1 text-[10px] text-slate-500">
+              Formula: (Basement BUA + Podium BUA) ÷ 350
+            </p>
           </div>
           <div>
             <AiInput

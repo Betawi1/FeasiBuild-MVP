@@ -5,6 +5,7 @@ import type {
   TitleSlideData,
 } from "@/types/feasibility";
 import { buildMacroSlides } from "@/lib/feasibility/generate-market-slides";
+import { generateProjectLocationSlide } from "@/lib/feasibility/generate-project-location-slide";
 import {
   generateSaleCommentaryFallback,
   type SaleCommentarySection,
@@ -61,7 +62,8 @@ export async function generateSaleCommentary(
     forceRegenerate: options?.forceRegenerate,
     section,
   });
-  return cleanAIContent(raw);
+  // generateCommentary already returns cleaned paragraphs
+  return raw;
 }
 
 function tallChart(chart: SlideChart): SlideChart {
@@ -354,6 +356,7 @@ export function generateSaleSlides(bundle: SaleFeasibilityBundle): FeasibilitySl
   return [
     generateSaleTitleSlide(bundle),
     ...generateSaleExecutiveSlides(bundle, config),
+    generateProjectLocationSlide(bundle),
     generateSaleProjectSlide(bundle, config),
     ...generateSaleMarketSlides(bundle, config),
     ...generateSaleFinancialSlides(bundle),

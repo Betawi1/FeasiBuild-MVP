@@ -540,6 +540,15 @@ export type AiResearchData = {
       opening_occupancy_pct?: number;
       stabilized_occupancy_pct?: number;
       lease_up_years?: number;
+      ti_allowance_psf?: number;
+      retail?: {
+        avg_rent_psf_year_1?: number;
+        annual_escalation_pct?: number;
+      };
+      percentage_rent?: {
+        avg_retail_sales_psf?: number;
+        percentage_rent_rate_pct?: number;
+      };
     };
     step2_other_income?: {
       avg_tenant_sales_psf?: number;
@@ -551,10 +560,26 @@ export type AiResearchData = {
       recovery_rate_pct?: number;
       property_tax_pct_of_revenue?: number;
       insurance_pct_of_revenue?: number;
+      /** Nested office parking (monthly pass price in parking_revenue_per_space_day). */
+      parking?: {
+        parking_revenue_per_space_day?: number;
+        parking_utilization_pct?: number;
+      };
       parking_revenue_per_space_day?: number;
+      parking_utilization_pct?: number;
       parking_utilization?: number;
+      amenity_income_psf?: number;
       operating_days?: number;
       advertising_kiosks_events_psf?: number;
+      /** Residential BTR */
+      parking_fee_per_space?: number;
+      parking_uptake_pct?: number;
+      amenity_fee_per_unit?: number;
+      amenity_uptake_pct?: number;
+      utility_recovery_per_unit?: number;
+      utility_uptake_pct?: number;
+      other_fee_per_unit?: number;
+      other_fee_uptake_pct?: number;
     };
     step3_operating_expenses?: {
       cam_fixed_base_annual?: number;
@@ -569,12 +594,19 @@ export type AiResearchData = {
         year_2_pct?: number;
         years_3_10_pct?: number;
       };
+      /** Residential BTR */
+      maintenance_pct_of_residential_gla?: number;
+      utilities_pct_of_common_vacant_gla?: number;
+      marketing_pct_of_EGI?: number;
+      g_and_a_pct_of_revenue?: number;
+      capex_reserve_pct_of_gla?: number;
     };
     step6_useful_life_working_capital?: {
       construction_useful_life_years?: number;
       ffe_useful_life_years?: number;
       ffe_renovation_pct_year_6?: number;
       ti_useful_life_years?: number;
+      retail_ti_useful_life_years?: number;
       leasing_commissions_life_years?: number;
       accounts_receivable_months_revenue?: number;
       accounts_payable_months_opex?: number;
@@ -1079,6 +1111,12 @@ export type Financing = {
   refinanceRate?: number;
   saleCapRate?: number;
   saleCosts?: number;
+  /** Annual DSCR schedule Y4–Y13 from Component 4 Step 7/8 (preference-share adjusted when applicable). */
+  dscrSchedule?: Array<{
+    year: string;
+    dscr?: number;
+    adjustedDSCR?: number;
+  }>;
 
   // -------------------------------------------------------------------------
   // Component 4 - Land financing (Step 2 UI)

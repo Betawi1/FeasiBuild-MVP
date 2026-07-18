@@ -12,10 +12,10 @@ import {
   YAxis,
 } from "recharts";
 import {
-  defaultRecoveriesFromGla,
   defaultRecoveryPctsFromGla,
   resolveOfficeOtherIncomeBenchmark,
 } from "@/lib/benchmarks/office-other-income";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import {
   defaultOperationalOfficeHoldSnapshot,
@@ -24,6 +24,7 @@ import {
   type OperationalOfficeHoldSnapshot,
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
+import { AiInput } from "@/components/ui/AiInput";
 import { getOperationalOfficeHoldSnapshot } from "./OfficeRevenueStep";
 
 const inputBase =
@@ -47,8 +48,20 @@ function useClientMounted(): boolean {
 
 export type OfficeOtherIncomeStepErrors = Record<string, string>;
 
+/** Locked parking spaces from Component 1 Step 5 ((basement + podium) ÷ 350). */
+export function officeAutoTotalParkingSpaces(
+  basementBUA?: number,
+  podiumBUA?: number
+): number {
+  return Math.max(
+    0,
+    Math.round(((basementBUA || 0) + (podiumBUA || 0)) / 350)
+  );
+}
+
 export function validateOfficeOtherIncomeStep(
-  snap: OperationalOfficeHoldSnapshot | undefined
+  snap: OperationalOfficeHoldSnapshot | undefined,
+  options?: { officeBasementBUA?: number; officePodiumBUA?: number }
 ): OfficeOtherIncomeStepErrors {
   const next: OfficeOtherIncomeStepErrors = {};
   const officeGla = snap?.officeGlaSqft ?? 0;
@@ -56,12 +69,21 @@ export function validateOfficeOtherIncomeStep(
     next.officeGla =
       "Complete Step 1 (office GLA) before configuring other income.";
   }
-  const spaces = snap?.totalParkingSpaces ?? 0;
+  // Prefer live BUA-derived spaces (UI is locked); fall back to snapshot.
+  const autoSpaces = officeAutoTotalParkingSpaces(
+    options?.officeBasementBUA,
+    options?.officePodiumBUA
+  );
+  const spaces =
+    autoSpaces > 0
+      ? autoSpaces
+      : Math.max(0, snap?.totalParkingSpaces ?? 0);
   if (!Number.isFinite(spaces) || spaces <= 0) {
-    next.totalParkingSpaces = "Total parking spaces must be greater than 0.";
+    next.totalParkingSpaces =
+      "Total parking spaces must be greater than 0. Set Basement + Podium BUA in Component 1 Step 5.";
   }
   const reserved = snap?.officeReservedSpaces ?? 0;
-  if (reserved > spaces) {
+  if (spaces > 0 && reserved > spaces) {
     next.officeReservedSpaces =
       "Office reserved spaces cannot exceed total parking spaces.";
   }
@@ -163,9 +185,18 @@ export function computeOfficeOtherIncomeRows(params: {
   };
 }
 
-export default function OfficeOtherIncomeStep() {
+type OfficeOtherIncomeStepProps = {
+  fieldError?: (name: string) => string | undefined;
+  onRegisterPersist?: (persist: (() => void) | null) => void;
+};
+
+export default function OfficeOtherIncomeStep({
+  fieldError,
+  onRegisterPersist,
+}: OfficeOtherIncomeStepProps = {}) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
   const step1 = useFinModelStore((s) => s.operational.officeHoldSnapshot);
   const storeCam = useFinModelStore(
     (s) => s.operational.projectInfo.officeOpex?.camTotal
@@ -180,24 +211,40 @@ export default function OfficeOtherIncomeStep() {
     storeCam !== undefined ||
     storeTaxPct !== undefined ||
     storeInsPct !== undefined;
-  const parkingSectionOverride = useFinModelStore(
-    (s) =>
-      !!s.operational.officeHoldSnapshot?.otherIncomeSectionOverrides?.parking
-  );
-  const recoveriesSectionOverride = useFinModelStore(
-    (s) =>
-      !!s.operational.officeHoldSnapshot?.otherIncomeSectionOverrides
-        ?.recoveries
-  );
-  const advertisingSectionOverride = useFinModelStore(
-    (s) =>
-      !!s.operational.officeHoldSnapshot?.otherIncomeSectionOverrides
-        ?.advertising
-  );
   const updateOfficeHoldSnapshot = useFinModelStore(
     (s) => s.updateOfficeHoldSnapshot
   );
   const currencyCode = projectInfo.currency || "AED";
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step2_other_income ||
+      !!raw.c2_operational?.step1_base_rent;
+    if (!hasNested) {
+      return (
+        normalizeAiResearchData(raw) as {
+          c2_operational?: typeof raw.c2_operational;
+        }
+      )?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep2 = aiC2?.step2_other_income;
+  const aiParkingNested = aiStep2?.parking;
+  /** Nested schema stores MONTHLY pass price; legacy flat field was daily. */
+  const aiMonthlyPassPrice =
+    aiParkingNested?.parking_revenue_per_space_day != null
+      ? roundRate2(aiParkingNested.parking_revenue_per_space_day)
+      : aiStep2?.parking_revenue_per_space_day != null
+        ? roundRate2(aiStep2.parking_revenue_per_space_day * 30)
+        : undefined;
+  const aiAmenityIncomePsf =
+    aiStep2?.amenity_income_psf ?? aiStep2?.advertising_kiosks_events_psf;
+  const aiPropertyTaxPct = aiStep2?.property_tax_pct_of_revenue;
+  const aiInsurancePct = aiStep2?.insurance_pct_of_revenue;
 
   const coworkingDelivery =
     projectInfo.officeSegment === "co_working"
@@ -311,24 +358,80 @@ export default function OfficeOtherIncomeStep() {
     Record<number, Record<string, number>>
   >(() => snap?.otherIncomeManualYearValues ?? {});
 
-  useEffect(() => {
-    if (recoveriesSectionOverride || storeCam === undefined) return;
-    setCamExpenses((prev) => (prev !== storeCam ? storeCam : prev));
-  }, [storeCam, recoveriesSectionOverride]);
+  /** Field-specific AI override flags (not section-wide). */
+  const [fieldOverrides, setFieldOverrides] = useState<Record<string, boolean>>(
+    () => {
+      const sec = snap?.otherIncomeSectionOverrides ?? {};
+      return {
+        monthlyPassPrice: !!sec.monthlyPassPrice || !!sec.parking,
+        propertyTaxPct: !!sec.propertyTaxPct || !!sec.recoveries,
+        insurancePct: !!sec.insurancePct || !!sec.recoveries,
+        advertisingRatePerSqft:
+          !!sec.advertisingRatePerSqft || !!sec.advertising,
+      };
+    }
+  );
+
+  const autoTotalParkingSpaces = officeAutoTotalParkingSpaces(
+    projectInfo.officeBasementBUA,
+    projectInfo.officePodiumBUA
+  );
 
   useEffect(() => {
-    if (recoveriesSectionOverride || storeTaxPct === undefined) return;
+    setTotalParkingSpaces(autoTotalParkingSpaces);
+  }, [autoTotalParkingSpaces]);
+
+  // Keep reserved spaces within the locked total so Next isn't blocked silently.
+  useEffect(() => {
+    if (autoTotalParkingSpaces <= 0) return;
+    setOfficeReservedSpaces((prev) =>
+      prev > autoTotalParkingSpaces ? autoTotalParkingSpaces : prev
+    );
+  }, [autoTotalParkingSpaces]);
+
+  useEffect(() => {
+    if (fieldOverrides.propertyTaxPct || fieldOverrides.insurancePct || storeCam === undefined)
+      return;
+    setCamExpenses((prev) => (prev !== storeCam ? storeCam : prev));
+  }, [storeCam, fieldOverrides.propertyTaxPct, fieldOverrides.insurancePct]);
+
+  useEffect(() => {
+    if (fieldOverrides.propertyTaxPct || storeTaxPct === undefined) return;
     setPropertyTaxPct((prev) =>
       prev !== storeTaxPct ? roundPct2(storeTaxPct) : prev
     );
-  }, [storeTaxPct, recoveriesSectionOverride]);
+  }, [storeTaxPct, fieldOverrides.propertyTaxPct]);
 
   useEffect(() => {
-    if (recoveriesSectionOverride || storeInsPct === undefined) return;
+    if (fieldOverrides.insurancePct || storeInsPct === undefined) return;
     setInsurancePct((prev) =>
       prev !== storeInsPct ? roundPct2(storeInsPct) : prev
     );
-  }, [storeInsPct, recoveriesSectionOverride]);
+  }, [storeInsPct, fieldOverrides.insurancePct]);
+
+  // Apply AI research values when they arrive (unless that field already overridden)
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!fieldOverrides.monthlyPassPrice && aiMonthlyPassPrice != null) {
+      setMonthlyPassPrice(aiMonthlyPassPrice);
+    }
+    if (!fieldOverrides.propertyTaxPct && aiPropertyTaxPct != null) {
+      setPropertyTaxPct(roundPct2(aiPropertyTaxPct));
+    }
+    if (!fieldOverrides.insurancePct && aiInsurancePct != null) {
+      setInsurancePct(roundPct2(aiInsurancePct));
+    }
+    if (!fieldOverrides.advertisingRatePerSqft && aiAmenityIncomePsf != null) {
+      setAdvertisingRatePerSqft(roundRate2(aiAmenityIncomePsf));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    aiC2,
+    aiMonthlyPassPrice,
+    aiPropertyTaxPct,
+    aiInsurancePct,
+    aiAmenityIncomePsf,
+  ]);
 
   const tableData = useMemo(
     () =>
@@ -372,13 +475,21 @@ export default function OfficeOtherIncomeStep() {
 
   const persistSnapshot = useCallback(() => {
     const prev = getOperationalOfficeHoldSnapshot();
+    const resolvedSpaces = officeAutoTotalParkingSpaces(
+      projectInfo.officeBasementBUA,
+      projectInfo.officePodiumBUA
+    );
+    const resolvedReserved = Math.min(
+      officeReservedSpaces,
+      resolvedSpaces > 0 ? resolvedSpaces : officeReservedSpaces
+    );
     const merged: OperationalOfficeHoldSnapshot = {
       ...defaultOperationalOfficeHoldSnapshot,
       ...prev,
       officeGlaSqft: prev?.officeGlaSqft ?? 0,
       retailGlaSqft: prev?.retailGlaSqft ?? 0,
-      totalParkingSpaces,
-      officeReservedSpaces,
+      totalParkingSpaces: resolvedSpaces,
+      officeReservedSpaces: resolvedReserved,
       monthlyPassPrice,
       officePassOccupancy,
       retailHourlyRate,
@@ -402,7 +513,8 @@ export default function OfficeOtherIncomeStep() {
     };
     updateOfficeHoldSnapshot(merged, "operational");
   }, [
-    totalParkingSpaces,
+    projectInfo.officeBasementBUA,
+    projectInfo.officePodiumBUA,
     officeReservedSpaces,
     monthlyPassPrice,
     officePassOccupancy,
@@ -428,6 +540,12 @@ export default function OfficeOtherIncomeStep() {
     return () => clearTimeout(timer);
   }, [persistSnapshot]);
 
+  useEffect(() => {
+    if (!onRegisterPersist) return;
+    onRegisterPersist(persistSnapshot);
+    return () => onRegisterPersist(null);
+  }, [onRegisterPersist, persistSnapshot]);
+
   const setSectionOverride = (section: string, value: boolean) => {
     const prev = getOperationalOfficeHoldSnapshot();
     updateOfficeHoldSnapshot(
@@ -445,13 +563,19 @@ export default function OfficeOtherIncomeStep() {
     );
   };
 
+  const AI_OTHER_INCOME_FIELDS = new Set([
+    "monthlyPassPrice",
+    "propertyTaxPct",
+    "insurancePct",
+    "advertisingRatePerSqft",
+  ]);
+
   const handleFieldChange = (
     section: string,
     field: string,
     value: number
   ) => {
     const parkingSetters: Record<string, (v: number) => void> = {
-      totalParkingSpaces: setTotalParkingSpaces,
       officeReservedSpaces: setOfficeReservedSpaces,
       monthlyPassPrice: setMonthlyPassPrice,
       officePassOccupancy: setOfficePassOccupancy,
@@ -488,23 +612,18 @@ export default function OfficeOtherIncomeStep() {
 
     if (map[field]) {
       map[field](normalized);
-      setSectionOverride(section, true);
+      if (AI_OTHER_INCOME_FIELDS.has(field)) {
+        setFieldOverrides((prev) => ({ ...prev, [field]: true }));
+        setSectionOverride(field, true);
+      }
     }
   };
 
   const handleResetParking = () => {
     const b = incomeBenchmark;
-    setTotalParkingSpaces(b.totalParkingSpaces);
-    setOfficeReservedSpaces(b.officeReservedSpaces);
-    setMonthlyPassPrice(b.monthlyPassPrice);
-    setOfficePassOccupancy(b.officePassOccupancy);
-    setRetailHourlyRate(b.retailHourlyRate);
-    setRetailAvgDailyHours(b.retailAvgDailyHours);
-    setRetailAvailableSpaces(
-      Math.max(0, b.totalParkingSpaces - b.officeReservedSpaces)
-    );
-    setRetailUtilization(b.retailUtilization);
-    setOperatingDays(b.operatingDays);
+    setMonthlyPassPrice(aiMonthlyPassPrice ?? b.monthlyPassPrice);
+    setFieldOverrides((prev) => ({ ...prev, monthlyPassPrice: false }));
+    setSectionOverride("monthlyPassPrice", false);
     setSectionOverride("parking", false);
     setManualYearValues((prev) => {
       const next = { ...prev };
@@ -521,9 +640,24 @@ export default function OfficeOtherIncomeStep() {
   const handleResetRecoveries = () => {
     const d = defaultRecoveries;
     setCamExpenses(storeCam ?? d.camTotal);
-    setPropertyTaxPct(storeTaxPct ?? d.propertyTaxPct);
-    setInsurancePct(storeInsPct ?? d.insurancePct);
+    setPropertyTaxPct(
+      storeTaxPct ??
+        (aiPropertyTaxPct != null
+          ? roundPct2(aiPropertyTaxPct)
+          : d.propertyTaxPct)
+    );
+    setInsurancePct(
+      storeInsPct ??
+        (aiInsurancePct != null ? roundPct2(aiInsurancePct) : d.insurancePct)
+    );
     setRecoveryRate(incomeBenchmark.recoveryRate);
+    setFieldOverrides((prev) => ({
+      ...prev,
+      propertyTaxPct: false,
+      insurancePct: false,
+    }));
+    setSectionOverride("propertyTaxPct", false);
+    setSectionOverride("insurancePct", false);
     setSectionOverride("recoveries", false);
     setManualYearValues((prev) => {
       const next = { ...prev };
@@ -539,8 +673,13 @@ export default function OfficeOtherIncomeStep() {
 
   const handleResetAdvertising = () => {
     setAdvertisingRatePerSqft(
-      roundRate2(incomeBenchmark.advertisingRatePerSqft)
+      roundRate2(aiAmenityIncomePsf ?? incomeBenchmark.advertisingRatePerSqft)
     );
+    setFieldOverrides((prev) => ({
+      ...prev,
+      advertisingRatePerSqft: false,
+    }));
+    setSectionOverride("advertisingRatePerSqft", false);
     setSectionOverride("advertising", false);
     setManualYearValues((prev) => {
       const next = { ...prev };
@@ -572,15 +711,16 @@ export default function OfficeOtherIncomeStep() {
     [tableData.rows]
   );
 
-  const hasManualOverride =
-    parkingSectionOverride ||
-    recoveriesSectionOverride ||
-    advertisingSectionOverride ||
-    Object.keys(manualYearValues).length > 0;
+  const parkingOverride = !!fieldOverrides.monthlyPassPrice;
+  const recoveriesOverride =
+    !!fieldOverrides.propertyTaxPct || !!fieldOverrides.insurancePct;
+  const advertisingOverride = !!fieldOverrides.advertisingRatePerSqft;
 
-  const parkingOverride = parkingSectionOverride;
-  const recoveriesOverride = recoveriesSectionOverride;
-  const advertisingOverride = advertisingSectionOverride;
+  const hasManualOverride =
+    parkingOverride ||
+    recoveriesOverride ||
+    advertisingOverride ||
+    Object.keys(manualYearValues).length > 0;
 
   return (
     <div className="animate-in fade-in space-y-8 duration-500">
@@ -595,51 +735,38 @@ export default function OfficeOtherIncomeStep() {
       </div>
 
       <div className="mb-6 border-b border-slate-700 pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-medium text-slate-500">BENCHMARK</span>
-            <div className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1">
-              <span className="text-xs text-slate-300">
-                Office + Retail · {projectInfo.country || "UAE"} ·{" "}
-                {(projectInfo.officeSegment || "prime_tower").replace(/_/g, " ")}
-              </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-medium text-slate-500">BENCHMARK</span>
+          <div className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1">
+            <span className="text-xs text-slate-300">
+              Office + Retail · {projectInfo.country || "UAE"} ·{" "}
+              {(projectInfo.officeSegment || "prime_tower").replace(/_/g, " ")}
+            </span>
+          </div>
+          {hasManualOverride && (
+            <div className="rounded-full border border-amber-600/50 bg-amber-900/30 px-3 py-1">
+              <span className="text-xs text-amber-400">Manual overrides</span>
             </div>
-            {hasManualOverride && (
-              <div className="rounded-full border border-amber-600/50 bg-amber-900/30 px-3 py-1">
-                <span className="text-xs text-amber-400">Manual overrides</span>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <button
-              type="button"
-              onClick={handleResetParking}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset parking
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={handleResetRecoveries}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset recoveries
-            </button>
-            <span className="text-slate-600">|</span>
-            <button
-              type="button"
-              onClick={handleResetAdvertising}
-              className="text-emerald-400 transition hover:text-emerald-300"
-            >
-              Reset advertising
-            </button>
-          </div>
+          )}
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">Parking Income</h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">Parking Income</h3>
+          <button
+            type="button"
+            onClick={handleResetParking}
+            className={`text-xs font-medium transition-colors ${
+              parkingOverride
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!parkingOverride}
+          >
+            Reset parking
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div>
             <label className="mb-1 block text-xs text-slate-400">
@@ -647,19 +774,26 @@ export default function OfficeOtherIncomeStep() {
             </label>
             <input
               type="number"
-              value={totalParkingSpaces}
-              onChange={(e) =>
-                handleFieldChange(
-                  "parking",
-                  "totalParkingSpaces",
-                  Number(e.target.value) || 0
-                )
-              }
-              className={overrideFieldClass(parkingOverride)}
+              value={autoTotalParkingSpaces}
+              readOnly
+              className="w-full cursor-not-allowed rounded bg-slate-900 p-2 text-slate-400 border border-slate-700"
             />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Includes office &amp; retail
+            <p className="mt-1 text-xs text-amber-400">
+              🔒 Locked: To change, go back to Component 1 Step 5
             </p>
+            <p className="mt-1 text-[10px] text-slate-500">
+              Formula: (Basement BUA + Podium BUA) ÷ 350
+            </p>
+            {fieldError?.("totalParkingSpaces") && (
+              <p className="mt-1 text-sm text-red-400">
+                {fieldError("totalParkingSpaces")}
+              </p>
+            )}
+            {fieldError?.("officeGla") && (
+              <p className="mt-1 text-sm text-red-400">
+                {fieldError("officeGla")}
+              </p>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
@@ -675,25 +809,31 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
             <p className="mt-1 text-[10px] text-slate-500">Monthly passes</p>
+            {fieldError?.("officeReservedSpaces") && (
+              <p className="mt-1 text-sm text-red-400">
+                {fieldError("officeReservedSpaces")}
+              </p>
+            )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Monthly Pass Price per Space ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Monthly Pass Price per Space (${currencyCode})`}
               value={monthlyPassPrice}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "parking",
                   "monthlyPassPrice",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              type="number"
+              isAiGenerated={
+                !!aiMonthlyPassPrice && !fieldOverrides.monthlyPassPrice
+              }
+              isManualOverride={!!fieldOverrides.monthlyPassPrice}
             />
           </div>
           <div>
@@ -710,7 +850,7 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
             <p className="mt-1 text-[10px] text-slate-500">
               % of reserved spaces leased
@@ -738,7 +878,7 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
           <div>
@@ -756,7 +896,7 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
           <div>
@@ -773,10 +913,10 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
             <p className="mt-1 text-[10px] text-slate-500">
-              Typically total − office reserved ({Math.max(0, totalParkingSpaces - officeReservedSpaces)})
+              Typically total − office reserved ({Math.max(0, autoTotalParkingSpaces - officeReservedSpaces)})
             </p>
           </div>
           <div>
@@ -793,7 +933,7 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
           <div>
@@ -810,16 +950,30 @@ export default function OfficeOtherIncomeStep() {
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(parkingOverride)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          CAM &amp; Tax Recoveries (Linked to Step 4)
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            CAM &amp; Tax Recoveries (Linked to Step 4)
+          </h3>
+          <button
+            type="button"
+            onClick={handleResetRecoveries}
+            className={`text-xs font-medium transition-colors ${
+              recoveriesOverride
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!recoveriesOverride}
+          >
+            Reset recoveries
+          </button>
+        </div>
         {opexLocked ? (
           <p className="mb-4 text-xs text-slate-500">
             CAM, property tax, and insurance sync from Step 4 opex. Adjust recovery
@@ -855,58 +1009,50 @@ export default function OfficeOtherIncomeStep() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Property Tax (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
-              step={0.01}
-              min={0}
-              max={100}
-              placeholder="e.g., 5"
+            <AiInput
+              label="Property Tax (% of Gross Rental Revenue)"
               value={propertyTaxPct}
-              readOnly={opexLocked}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "recoveries",
                   "propertyTaxPct",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={
-                opexLocked
-                  ? readOnlyFieldClass()
-                  : overrideFieldClass(recoveriesOverride)
+              type="percentage"
+              step={0.01}
+              min={0}
+              max={100}
+              disabled={opexLocked}
+              isAiGenerated={
+                aiPropertyTaxPct != null && !fieldOverrides.propertyTaxPct
               }
+              isManualOverride={!!fieldOverrides.propertyTaxPct}
             />
             <p className="mt-1 text-sm text-slate-500">
               Applied to Step 1 base rent revenue each year
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Insurance (% of Gross Rental Revenue)
-            </label>
-            <input
-              type="number"
-              step={0.01}
-              min={0}
-              max={100}
-              placeholder="e.g., 1.5"
+            <AiInput
+              label="Insurance (% of Gross Rental Revenue)"
               value={insurancePct}
-              readOnly={opexLocked}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "recoveries",
                   "insurancePct",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={
-                opexLocked
-                  ? readOnlyFieldClass()
-                  : overrideFieldClass(recoveriesOverride)
+              type="percentage"
+              step={0.01}
+              min={0}
+              max={100}
+              disabled={opexLocked}
+              isAiGenerated={
+                aiInsurancePct != null && !fieldOverrides.insurancePct
               }
+              isManualOverride={!!fieldOverrides.insurancePct}
             />
             <p className="mt-1 text-sm text-slate-500">
               Applied to Step 1 base rent revenue each year
@@ -929,33 +1075,53 @@ export default function OfficeOtherIncomeStep() {
               className={overrideFieldClass(recoveriesOverride)}
             />
             <p className="mt-1 text-[10px] text-slate-500">% billed to tenants</p>
+            {fieldError?.("recoveryRate") && (
+              <p className="mt-1 text-sm text-red-400">
+                {fieldError("recoveryRate")}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Advertising / Signage
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Advertising / Signage
+          </h3>
+          <button
+            type="button"
+            onClick={handleResetAdvertising}
+            className={`text-xs font-medium transition-colors ${
+              advertisingOverride
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!advertisingOverride}
+          >
+            Reset advertising
+          </button>
+        </div>
         <div className="grid max-w-md grid-cols-1 gap-4">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Advertising/Signage Rate ({currencyCode} per sqft GLA/year)
-            </label>
-            <input
-              type="number"
-              step={0.01}
-              min={0}
-              placeholder="e.g., 50"
+            <AiInput
+              label={`Advertising/Signage Rate (${currencyCode} per sqft GLA/year)`}
               value={advertisingRatePerSqft}
-              onChange={(e) =>
+              onChange={(val) =>
                 handleFieldChange(
                   "advertising",
                   "advertisingRatePerSqft",
-                  Number(e.target.value) || 0
+                  Number(val) || 0
                 )
               }
-              className={overrideFieldClass(advertisingOverride)}
+              type="number"
+              step={0.01}
+              min={0}
+              isAiGenerated={
+                aiAmenityIncomePsf != null &&
+                !fieldOverrides.advertisingRatePerSqft
+              }
+              isManualOverride={!!fieldOverrides.advertisingRatePerSqft}
             />
             <p className="mt-1 text-sm text-slate-500">
               Annual income = Rate × Total GLA ({totalGla.toLocaleString()} sqft)

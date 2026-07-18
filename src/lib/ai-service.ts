@@ -5,14 +5,18 @@ import {
   setCachedContent,
 } from "@/lib/cache-service";
 import {
-  cleanAIContent,
   COMMENTARY_NO_QUOTES_CONSTRAINT,
   parseAIParagraphs,
+  stripThinkingAndPromptArtifacts,
+  validateSlideContent,
 } from "@/lib/feasibility/clean-ai-content";
 
 export {
   cleanAIContent,
+  clearContentCache,
   COMMENTARY_NO_QUOTES_CONSTRAINT,
+  stripThinkingAndPromptArtifacts,
+  validateSlideContent,
 } from "@/lib/feasibility/clean-ai-content";
 
 export interface AIGenerateOptions {
@@ -33,7 +37,25 @@ export interface AIProvider {
   isAvailable(): boolean;
 }
 
-const PUTER_MODEL = "qwen/qwen3.6-flash";
+/** Centralized Puter model config for feasibility study commentary / charts. */
+export const AI_MODEL_CONFIG = {
+  FEASIBILITY_STUDY: "qwen/qwen3.7-plus",
+  FALLBACK: "qwen/qwen3.7-plus",
+  TEMPERATURE: 0.6,
+  MAX_TOKENS: 6000,
+  /** REQUIRED for Qwen 3.7 Plus on Puter */
+  STREAM: true as boolean,
+} as const;
+
+if (typeof window !== "undefined") {
+  console.log("[AI Service] Configuration:", {
+    model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+    temperature: AI_MODEL_CONFIG.TEMPERATURE,
+    maxTokens: AI_MODEL_CONFIG.MAX_TOKENS,
+    stream: AI_MODEL_CONFIG.STREAM,
+  });
+}
+
 const MAX_BULLETS = 6;
 const MAX_WORDS_PER_BULLET = 30;
 const MAX_TOTAL_WORDS = 150;
@@ -60,6 +82,9 @@ const PLACEHOLDER_PHRASES = [
   "example text",
   "configure feasibility_ai_url",
   "generated dynamically via ai",
+  "thinking process:",
+  "analyze the request:",
+  "critical requirements:",
 ];
 
 const WTDC_TEMPLATE_PHRASES = [
@@ -110,11 +135,60 @@ function extractChatText(response: unknown): string {
   if (typeof response === "string") return response;
   if (!response || typeof response !== "object") return "";
   const r = response as {
-    message?: { content?: string };
+    message?: { content?: string | Array<{ text?: string }> };
     text?: string;
     content?: string;
   };
-  return r.message?.content ?? r.text ?? r.content ?? "";
+  const content = r.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => part.text ?? "").join("");
+  }
+  return r.text ?? r.content ?? "";
+}
+
+function extractStreamChunkText(chunk: unknown): string {
+  if (typeof chunk === "string") return chunk;
+  if (!chunk || typeof chunk !== "object") return "";
+
+  const c = chunk as {
+    value?: string;
+    text?: string;
+    content?: string;
+    message?: { content?: string | Array<{ text?: string }> };
+    choices?: Array<{ delta?: { content?: string }; text?: string }>;
+  };
+
+  // Never accumulate reasoning/thinking tokens into slide content
+  if (typeof c.choices?.[0]?.delta?.content === "string") {
+    return c.choices[0].delta.content;
+  }
+  if (typeof c.value === "string") return c.value;
+  if (typeof c.text === "string") return c.text;
+  if (typeof c.content === "string") return c.content;
+  if (typeof c.message?.content === "string") return c.message.content;
+  if (Array.isArray(c.message?.content)) {
+    return c.message.content.map((part) => part.text ?? "").join("");
+  }
+  return "";
+}
+
+/** Accumulate Puter streaming (or non-streaming fallback) into a single string. */
+async function handleStreamingResponse(response: unknown): Promise<string> {
+  if (
+    response &&
+    typeof response === "object" &&
+    Symbol.asyncIterator in response
+  ) {
+    let fullContent = "";
+    for await (const chunk of response as AsyncIterable<unknown>) {
+      fullContent += extractStreamChunkText(chunk);
+    }
+    return fullContent;
+  }
+
+  if (typeof response === "string") return response;
+  return extractChatText(response);
 }
 
 function wordCount(text: string): number {
@@ -144,8 +218,10 @@ function withPlaceholderWarning(paragraphs: string[]): string[] {
 }
 
 function parseParagraphs(raw: string): string[] {
-  const bullets = parseAIParagraphs(raw).map(truncateBullet);
-  let result = cleanAIContent(bullets).slice(0, MAX_BULLETS);
+  // strip + parseAIParagraphs already produce cleaned bullets — do not re-run cleanAIContent here
+  const stripped = stripThinkingAndPromptArtifacts(raw);
+  const bullets = parseAIParagraphs(stripped).map(truncateBullet);
+  let result = bullets.slice(0, MAX_BULLETS);
 
   let totalWords = result.reduce((sum, b) => sum + wordCount(b), 0);
   while (totalWords > MAX_TOTAL_WORDS && result.length > 1) {
@@ -158,12 +234,13 @@ function parseParagraphs(raw: string): string[] {
 
 function buildRetryPrompt(originalPrompt: string): string {
   return `
-CRITICAL: Previous attempt generated placeholder, WTDC template, or insufficient content.
+CRITICAL: Previous attempt generated placeholder, thinking-process leakage, or insufficient content.
 
 You MUST generate UNIQUE, SPECIFIC content with:
 - Real data points, percentages, and metrics
-- Actual project/hotel names from the location
+- Actual project/hotel names from the location and sub-market
 - Specific districts and competitor hotels (e.g. Business Bay, DIFC for Dubai)
+- NO thinking process, analysis steps, or prompt instruction echo
 - NO WTDC/STR template phrases like "Travel & Tourism Demand in [Country] reached approximately"
 - NO generic phrases like "charts and visualizations"
 - NO placeholder text
@@ -190,15 +267,50 @@ async function chatWithPuter(
   puter: NonNullable<typeof window.puter>,
   prompt: string
 ): Promise<string> {
-  const response = await puter.ai.chat(prompt, { model: PUTER_MODEL });
+  console.log(
+    "[AI Service] Generating with model:",
+    AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+    "(stream:",
+    AI_MODEL_CONFIG.STREAM,
+    ")"
+  );
 
-  const content = extractChatText(response);
-  if (!content || content.trim().length === 0) {
-    console.error("[AI Service] Invalid response from Puter AI:", response);
-    throw new Error("Invalid response from Puter AI");
+  try {
+    const response = await puter.ai.chat(prompt, {
+      model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+      stream: AI_MODEL_CONFIG.STREAM, // REQUIRED for Qwen 3.7 Plus
+      temperature: AI_MODEL_CONFIG.TEMPERATURE,
+      max_tokens: AI_MODEL_CONFIG.MAX_TOKENS,
+    });
+
+    const content = await handleStreamingResponse(response);
+    console.log("[AI Service] Generated content length:", content.length);
+
+    if (!content || content.trim().length === 0) {
+      console.error("[AI Service] Invalid/empty streaming response:", response);
+      throw new Error("Invalid response from Puter AI");
+    }
+
+    console.log(
+      "[AI Service] Response received from model:",
+      AI_MODEL_CONFIG.FEASIBILITY_STUDY
+    );
+
+    return content;
+  } catch (error: unknown) {
+    console.error("[AI Service] Streaming error:", error);
+    const err = error as { message?: string; error?: unknown; response?: { data?: unknown } };
+    if (err?.response?.data) {
+      console.error("[AI Service] API Error Details:", err.response.data);
+    }
+    const message =
+      err?.message ||
+      (typeof err?.error === "string" ? err.error : undefined) ||
+      (error instanceof Error ? error.message : JSON.stringify(error));
+    throw new Error(
+      typeof message === "string" ? message : "Unknown streaming error"
+    );
   }
-
-  return content;
 }
 
 class PuterAIProvider implements AIProvider {
@@ -223,6 +335,7 @@ class PuterAIProvider implements AIProvider {
     const shortLogKey =
       logKey.length > 50 ? `${logKey.substring(0, 50)}...` : logKey;
     const isStubborn = cacheKey ? isStubbornSlideKey(cacheKey) : false;
+    // Stubborn slides should still HIT cache; only force when explicitly requested or retrying.
     const skipCache = forceRegenerate || retryCount > 0;
 
     try {
@@ -230,13 +343,14 @@ class PuterAIProvider implements AIProvider {
         `[AI Service] Starting commentary generation for: ${shortLogKey}${retryCount > 0 ? ` (retry ${retryCount}/${MAX_RETRIES})` : ""}`
       );
 
-      if (isStubborn && retryCount === 0) {
+      if (isStubborn && skipCache && retryCount === 0) {
         console.log(
-          `[AI Service] Forcing regeneration for stubborn slide: ${logKey}`
+          `[AI Service] Force regenerating stubborn slide (cache bypassed): ${logKey}`
         );
       }
 
       if (cacheKey && !skipCache) {
+        console.log(`[AI Service] Checking cache for: ${cacheKey}`);
         const cached = await getCachedContent<string[]>(cacheKey);
         if (cached?.length) {
           const hasJsonArtifacts = cached.some(
@@ -245,22 +359,25 @@ class PuterAIProvider implements AIProvider {
               /paragraphs?\s*:/i.test(p) ||
               /["'],?\s*$/.test(p)
           );
+          // Cached commentary is stored already-cleaned; only re-parse when artifacts remain
           const paragraphs = hasJsonArtifacts
-            ? cleanAIContent(parseAIParagraphs(cached.join("\n")))
-            : cleanAIContent(cached);
+            ? parseAIParagraphs(cached.join("\n"))
+            : cached;
 
           if (!hasPlaceholderContent(paragraphs)) {
-            console.log(`[AI Service] Cache HIT: ${cacheKey}`);
+            console.log(`[AI Service] ✅ Cache HIT: ${cacheKey}`);
             return paragraphs;
           }
 
           console.log(
             `[AI Service] Cached content stale/placeholder, regenerating: ${cacheKey}`
           );
+        } else {
+          console.log(`[AI Service] ❌ Cache MISS: ${cacheKey}`);
         }
       }
 
-      console.log(`[AI Service] Cache miss, calling AI: ${logKey}`);
+      console.log(`[AI Service] Calling AI for: ${logKey}`);
 
       const puter = await waitForPuter();
       if (!puter) {
@@ -278,14 +395,23 @@ class PuterAIProvider implements AIProvider {
         throw new Error("Empty AI response");
       }
 
-      const paragraphs = cleanAIContent(parseParagraphs(content));
+      // parseParagraphs already strips + cleans — do not wrap with cleanAIContent again
+      const paragraphs = parseParagraphs(content);
       console.log(
         `[AI Service] Generated ${paragraphs.length} paragraphs for: ${logKey}`
       );
 
-      if (hasPlaceholderContent(paragraphs)) {
+      const validation = validateSlideContent(paragraphs.join("\n"));
+      if (!validation.isValid) {
         console.warn(
-          `[AI Service] ⚠️ Placeholder or insufficient content detected for: ${logKey}`
+          `[Feasibility Study] Content issues for ${logKey}:`,
+          validation.issues
+        );
+      }
+
+      if (hasPlaceholderContent(paragraphs) || !validation.isValid) {
+        console.warn(
+          `[AI Service] ⚠️ Placeholder, leakage, or insufficient content detected for: ${logKey}`
         );
         console.warn(
           `[AI Service] Content preview: ${paragraphs[0]?.substring(0, 100)}...`
@@ -306,15 +432,23 @@ class PuterAIProvider implements AIProvider {
       }
 
       if (cacheKey && paragraphs.length > 0) {
-        await setCachedContent(cacheKey, cleanAIContent(paragraphs));
+        await setCachedContent(cacheKey, paragraphs);
       }
 
-      return cleanAIContent(paragraphs);
-    } catch (error) {
-      console.error(`[AI Service] ERROR:`, error);
-      return [
-        "[Content generation failed. Please try again or edit manually.]",
-      ];
+      return paragraphs;
+    } catch (error: unknown) {
+      console.error(`[AI Service] Streaming error:`, error);
+      const err = error as { message?: string; response?: { data?: unknown } };
+      if (err?.response?.data) {
+        console.error("[AI Service] API Error Details:", err.response.data);
+      }
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof err?.message === "string"
+            ? err.message
+            : "Unknown error";
+      return [`Content generation failed: ${message}`];
     }
   }
 

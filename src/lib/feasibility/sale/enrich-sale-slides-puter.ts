@@ -3,7 +3,7 @@
 import type { FeasibilitySlide, SlideChart } from "@/types/feasibility";
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
 import { getCachedContent, setCachedContent } from "@/lib/cache-service";
-import { aiProvider, cleanAIContent } from "@/lib/ai-service";
+import { aiProvider } from "@/lib/ai-service";
 import { enrichStructuredSlideData } from "@/lib/feasibility/enrich-structured-slide-data";
 import {
   createMacroChartPrompt,
@@ -23,6 +23,7 @@ import {
   buildCommentaryCacheKey,
   buildSaleBundleHashes,
   getSlideDependencySection,
+  resetDependencyChangeLog,
   shouldRegenerateSlide,
   type SlideDependencySection,
 } from "@/lib/slide-dependencies";
@@ -188,7 +189,7 @@ async function loadCachedSlideContent(
   if (chartsCache?.length) charts.push(...chartsCache.map(withTallChart));
 
   return {
-    paragraphs: paragraphs ? cleanAIContent(paragraphs) : undefined,
+    paragraphs: paragraphs ?? undefined,
     charts: charts.length > 0 ? charts : undefined,
   };
 }
@@ -204,6 +205,7 @@ export async function enrichSaleSlidesWithPuter(
   options: EnrichSaleSlidesOptions = {}
 ): Promise<EnrichSaleSlidesResult> {
   const { oldHashes = {}, forceRegenerate = false } = options;
+  resetDependencyChangeLog();
   const config = getSaleStreamConfig(bundle.buildingSubType);
   const newHashes = buildSaleBundleHashes(bundle);
   const enriched = [...slides];
@@ -243,7 +245,7 @@ export async function enrichSaleSlidesWithPuter(
       cacheKey,
       forceRegenerate
     );
-    enriched[idx] = { ...enriched[idx]!, paragraphs: cleanAIContent(paragraphs) };
+    enriched[idx] = { ...enriched[idx]!, paragraphs };
 
     const macroType = MACRO_SLIDE_CHART_TYPE[slideId];
     if (macroType) {

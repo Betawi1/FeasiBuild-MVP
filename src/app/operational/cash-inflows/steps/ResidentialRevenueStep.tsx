@@ -12,10 +12,12 @@ import {
   YAxis,
 } from "recharts";
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   getResidentialBenchmark,
   getResidentialBenchmarkProfileKey,
 } from "@/lib/benchmarks/residential-construction-costs";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import {
   computeResidentialRevenueRows,
   type ResidentialRevenueInputs,
@@ -27,6 +29,13 @@ import {
   type OperationalResidentialHoldSnapshot,
 } from "@/lib/operational-pnl";
 import useFinModelStore from "@/store/useFinModelStore";
+
+const AI_EPS = 0.01;
+function differsFromAi(current: number, ai?: number | null): boolean {
+  return (
+    ai != null && Number.isFinite(ai) && Math.abs(current - ai) > AI_EPS
+  );
+}
 
 const inputBase =
   "w-full rounded bg-slate-900 p-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500";
@@ -141,10 +150,40 @@ export default function ResidentialRevenueStep({
 }: ResidentialRevenueStepProps) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
   const currencyCode = projectInfo.currency || "AED";
   const updateResidentialHoldSnapshot = useFinModelStore(
     (s) => s.updateResidentialHoldSnapshot
   );
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step1_base_rent ||
+      !!raw.c2_operational?.residential_rent ||
+      !!raw.c1_development?.construction_rates;
+    if (!hasNested) {
+      return (normalizeAiResearchData(raw) as { c2_operational?: typeof raw.c2_operational })
+        ?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep1 = aiC2?.step1_base_rent;
+  const aiResidentialRent =
+    aiStep1?.base_rent_year_1_psf ??
+    aiC2?.residential_rent?.avg_rent_psf_year_1;
+  const aiResidentialEscalation =
+    aiStep1?.rent_escalation_pct ??
+    aiC2?.residential_rent?.annual_escalation_pct;
+  const aiOpeningOccupancy = aiStep1?.opening_occupancy_pct;
+  const aiStabilizedOccupancy = aiStep1?.stabilized_occupancy_pct;
+  const aiLeaseUpYears = aiStep1?.lease_up_years;
+  const aiLeaseUpMonths =
+    aiLeaseUpYears != null && Number.isFinite(aiLeaseUpYears)
+      ? Math.round(aiLeaseUpYears * 12)
+      : undefined;
 
   const benchmark = useMemo(
     () =>
@@ -312,12 +351,71 @@ export default function ResidentialRevenueStep({
 
     setOverrides({});
     setManualYearValues({});
-    setResidentialRentPsf(benchmark.blendedRentPsf);
-    setResidentialEscalation(benchmark.rentEscalation);
-    setResidentialLeasedOpening(benchmark.openingOccupancy);
-    setResidentialLeasedTarget(benchmark.stabilizedOccupancy);
-    setResidentialLeaseUpMonths(Math.round(benchmark.leaseUpYears * 12));
-  }, [benchmark, profileKey, snap?.residentialRentPsfYear1]);
+    setResidentialRentPsf(aiResidentialRent ?? benchmark.blendedRentPsf);
+    setResidentialEscalation(aiResidentialEscalation ?? benchmark.rentEscalation);
+    setResidentialLeasedOpening(
+      aiOpeningOccupancy ?? benchmark.openingOccupancy
+    );
+    setResidentialLeasedTarget(
+      aiStabilizedOccupancy ?? benchmark.stabilizedOccupancy
+    );
+    setResidentialLeaseUpMonths(
+      aiLeaseUpMonths ?? Math.round(benchmark.leaseUpYears * 12)
+    );
+  }, [
+    benchmark,
+    profileKey,
+    snap?.residentialRentPsfYear1,
+    aiResidentialRent,
+    aiResidentialEscalation,
+    aiOpeningOccupancy,
+    aiStabilizedOccupancy,
+    aiLeaseUpMonths,
+  ]);
+
+  // Apply AI research values when they arrive (unless user already overrode)
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!overrides.residential && !overrides.residentialRentPsf && aiResidentialRent) {
+      setResidentialRentPsf(aiResidentialRent);
+    }
+    if (
+      !overrides.residential &&
+      !overrides.residentialEscalation &&
+      aiResidentialEscalation != null
+    ) {
+      setResidentialEscalation(aiResidentialEscalation);
+    }
+    if (
+      !overrides.residential &&
+      !overrides.residentialLeasedOpening &&
+      aiOpeningOccupancy != null
+    ) {
+      setResidentialLeasedOpening(aiOpeningOccupancy);
+    }
+    if (
+      !overrides.residential &&
+      !overrides.residentialLeasedTarget &&
+      aiStabilizedOccupancy != null
+    ) {
+      setResidentialLeasedTarget(aiStabilizedOccupancy);
+    }
+    if (
+      !overrides.residential &&
+      !overrides.residentialLeaseUpMonths &&
+      aiLeaseUpMonths != null
+    ) {
+      setResidentialLeaseUpMonths(aiLeaseUpMonths);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-apply when AI payload changes
+  }, [
+    aiC2,
+    aiResidentialRent,
+    aiResidentialEscalation,
+    aiOpeningOccupancy,
+    aiStabilizedOccupancy,
+    aiLeaseUpMonths,
+  ]);
 
   const revenueInputs: ResidentialRevenueInputs = useMemo(
     () => ({
@@ -461,15 +559,40 @@ export default function ResidentialRevenueStep({
 
   const handleResetResidential = useCallback(() => {
     if (!benchmark) return;
-    setOverrides((prev) => ({ ...prev, residential: false }));
-    setResidentialRentPsf(benchmark.blendedRentPsf);
-    setResidentialEscalation(benchmark.rentEscalation);
-    setResidentialLeasedOpening(benchmark.openingOccupancy);
-    setResidentialLeasedTarget(benchmark.stabilizedOccupancy);
-    setResidentialLeaseUpMonths(Math.round(benchmark.leaseUpYears * 12));
+    setOverrides((prev) => {
+      const next: Record<string, boolean> = { ...prev, residential: false };
+      delete next.residentialRentPsf;
+      delete next.residentialEscalation;
+      delete next.residentialLeasedOpening;
+      delete next.residentialLeasedTarget;
+      delete next.residentialLeaseUpMonths;
+      delete next.residentialVacancyRate;
+      delete next.residentialBadDebtRate;
+      return next;
+    });
+    setResidentialRentPsf(aiResidentialRent ?? benchmark.blendedRentPsf);
+    setResidentialEscalation(
+      aiResidentialEscalation ?? benchmark.rentEscalation
+    );
+    setResidentialLeasedOpening(
+      aiOpeningOccupancy ?? benchmark.openingOccupancy
+    );
+    setResidentialLeasedTarget(
+      aiStabilizedOccupancy ?? benchmark.stabilizedOccupancy
+    );
+    setResidentialLeaseUpMonths(
+      aiLeaseUpMonths ?? Math.round(benchmark.leaseUpYears * 12)
+    );
     setResidentialVacancyRate(DEFAULT_VACANCY);
     setResidentialBadDebtRate(DEFAULT_BAD_DEBT);
-  }, [benchmark]);
+  }, [
+    benchmark,
+    aiResidentialRent,
+    aiResidentialEscalation,
+    aiOpeningOccupancy,
+    aiStabilizedOccupancy,
+    aiLeaseUpMonths,
+  ]);
 
   const handleResetRetail = useCallback(() => {
     setOverrides((prev) => ({ ...prev, retail: false }));
@@ -629,21 +752,24 @@ export default function ResidentialRevenueStep({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Avg blended residential rent psf – Year 1 ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Avg blended residential rent psf – Year 1 (${currencyCode})`}
               value={residentialRentPsf}
-              onChange={(e) =>
-                handleFieldChange(
-                  "residentialRentPsf",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("residentialRentPsf", Number(val) || 0)
               }
-              className={overrideFieldClass(
-                !!overrides.residential || !!overrides.residentialRentPsf
-              )}
+              type="number"
+              step={0.01}
+              min={0}
+              isAiGenerated={
+                !!aiResidentialRent &&
+                !overrides.residential &&
+                !overrides.residentialRentPsf
+              }
+              isManualOverride={
+                !!(overrides.residential || overrides.residentialRentPsf) ||
+                differsFromAi(residentialRentPsf, aiResidentialRent)
+              }
             />
             {fieldError("residentialRentPsf") && (
               <p className="mt-1 text-sm text-red-400">
@@ -652,68 +778,84 @@ export default function ResidentialRevenueStep({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Annual residential rent escalation (%)
-            </label>
-            <input
-              type="number"
-              step="0.1"
+            <AiInput
+              label="Annual residential rent escalation (%)"
               value={residentialEscalation}
-              onChange={(e) =>
-                handleFieldChange(
-                  "residentialEscalation",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("residentialEscalation", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.residentialEscalation)}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={
+                aiResidentialEscalation != null &&
+                !overrides.residential &&
+                !overrides.residentialEscalation
+              }
+              isManualOverride={
+                !!(overrides.residential || overrides.residentialEscalation) ||
+                differsFromAi(residentialEscalation, aiResidentialEscalation)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Leased % at opening
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Leased % at opening"
               value={residentialLeasedOpening}
-              onChange={(e) =>
-                handleFieldChange(
-                  "residentialLeasedOpening",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("residentialLeasedOpening", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.residentialLeasedOpening)}
+              type="percentage"
+              isAiGenerated={
+                aiOpeningOccupancy != null &&
+                !overrides.residential &&
+                !overrides.residentialLeasedOpening
+              }
+              isManualOverride={
+                !!(
+                  overrides.residential || overrides.residentialLeasedOpening
+                ) || differsFromAi(residentialLeasedOpening, aiOpeningOccupancy)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Target leased % (stabilized)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Target leased % (stabilized)"
               value={residentialLeasedTarget}
-              onChange={(e) =>
-                handleFieldChange(
-                  "residentialLeasedTarget",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("residentialLeasedTarget", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.residentialLeasedTarget)}
+              type="percentage"
+              isAiGenerated={
+                aiStabilizedOccupancy != null &&
+                !overrides.residential &&
+                !overrides.residentialLeasedTarget
+              }
+              isManualOverride={
+                !!(
+                  overrides.residential || overrides.residentialLeasedTarget
+                ) ||
+                differsFromAi(residentialLeasedTarget, aiStabilizedOccupancy)
+              }
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Residential lease-up period (months)
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label="Residential lease-up period (months)"
               value={residentialLeaseUpMonths}
-              onChange={(e) =>
-                handleFieldChange(
-                  "residentialLeaseUpMonths",
-                  Number(e.target.value) || 0
-                )
+              onChange={(val) =>
+                handleFieldChange("residentialLeaseUpMonths", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.residentialLeaseUpMonths)}
+              type="number"
+              isAiGenerated={
+                aiLeaseUpMonths != null &&
+                !overrides.residential &&
+                !overrides.residentialLeaseUpMonths
+              }
+              isManualOverride={
+                !!(
+                  overrides.residential || overrides.residentialLeaseUpMonths
+                ) || differsFromAi(residentialLeaseUpMonths, aiLeaseUpMonths)
+              }
             />
           </div>
           <div>

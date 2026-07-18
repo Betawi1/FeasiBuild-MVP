@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   getResidentialBenchmark,
   getResidentialBenchmarkProfileKey,
+  type ResidentialConstructionBenchmark,
 } from "@/lib/benchmarks/residential-construction-costs";
 import { logOperationalCashOutflow } from "@/lib/operational-audit-fields";
 import useFinModelStore, {
@@ -17,6 +18,17 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Optional AI research rates — preferred over static MVP table when present. */
+export type ResidentialAiBenchmarkRates = {
+  buildingRate?: number;
+  parkingRate?: number;
+  basementRate?: number;
+  softCostsPercent?: number;
+  powcPercent?: number;
+  ffePercent?: number;
+  landRate?: number;
+};
+
 export type ResidentialCcRateOverrides = {
   building: boolean;
   parking: boolean;
@@ -24,15 +36,23 @@ export type ResidentialCcRateOverrides = {
   any: boolean;
 };
 
+function pickRate(
+  ai: number | undefined,
+  fallback: number
+): number {
+  return ai != null && Number.isFinite(ai) && ai > 0 ? ai : fallback;
+}
+
 export function useResidentialCashOutflowBenchmark(
   projectInfo: ProjectInfo,
   cashOutflows: CashOutflows,
   updateCashOutflows: (data: Partial<CashOutflows>) => void,
-  enabled: boolean
+  enabled: boolean,
+  aiRates?: ResidentialAiBenchmarkRates | null
 ) {
   const profilePrevKeyRef = useRef<string | null>(null);
 
-  const benchmark = useMemo(() => {
+  const staticBenchmark = useMemo(() => {
     if (!enabled) return null;
     if (
       !projectInfo.residentialSegment?.trim() ||
@@ -55,6 +75,24 @@ export function useResidentialCashOutflowBenchmark(
     projectInfo.residentialFurnishingLevel,
     projectInfo.residentialIsServicedApartment,
   ]);
+
+  /** Effective benchmark: AI research rates when available, else static MVP table. */
+  const benchmark = useMemo((): ResidentialConstructionBenchmark | null => {
+    if (!staticBenchmark) return null;
+    return {
+      ...staticBenchmark,
+      buildingRate: pickRate(aiRates?.buildingRate, staticBenchmark.buildingRate),
+      parkingRate: pickRate(aiRates?.parkingRate, staticBenchmark.parkingRate),
+      basementRate: pickRate(aiRates?.basementRate, staticBenchmark.basementRate),
+      softCostsPercent: pickRate(
+        aiRates?.softCostsPercent,
+        staticBenchmark.softCostsPercent
+      ),
+      powcPercent: pickRate(aiRates?.powcPercent, staticBenchmark.powcPercent),
+      ffePercent: pickRate(aiRates?.ffePercent, staticBenchmark.ffePercent),
+      landRate: pickRate(aiRates?.landRate, staticBenchmark.landRate),
+    };
+  }, [staticBenchmark, aiRates]);
 
   const profileKey = useMemo(() => {
     if (!enabled) return null;
@@ -129,6 +167,19 @@ export function useResidentialCashOutflowBenchmark(
 
   const resetProfileDefaults = useCallback(() => {
     if (!benchmark || !profileKey) return;
+
+    console.log("[Benchmark Reset] Residential AI rates:", aiRates);
+    console.log("[Benchmark Reset] Effective construction rates:", {
+      buildingRate: benchmark.buildingRate,
+      parkingRate: benchmark.parkingRate,
+      basementRate: benchmark.basementRate,
+      softCostsPercent: benchmark.softCostsPercent,
+      powcPercent: benchmark.powcPercent,
+      ffePercent: benchmark.ffePercent,
+      landRate: benchmark.landRate,
+      source: aiRates?.buildingRate ? "ai" : "static_mvp",
+    });
+
     updateCashOutflows({
       operationalResidentialProfileKey: profileKey,
       operationalResidentialBuildingRateManual: false,
@@ -147,7 +198,7 @@ export function useResidentialCashOutflowBenchmark(
       landRate: benchmark.landRate,
     });
     profilePrevKeyRef.current = profileKey;
-  }, [benchmark, profileKey, updateCashOutflows]);
+  }, [benchmark, profileKey, aiRates, updateCashOutflows]);
 
   const handleCcRateChange = useCallback(
     (
@@ -261,6 +312,7 @@ export function useResidentialCashOutflowBenchmark(
 
   return {
     benchmark,
+    staticBenchmark,
     benchmarkReady,
     profileKey,
     ccRateOverrides,

@@ -332,16 +332,27 @@ const OFFICE_TWO_PHASE_OUTPUT = `
       "opening_occupancy_pct": 0,
       "stabilized_occupancy_pct": 0,
       "lease_up_years": 0,
-      "ti_allowance_psf": 000
+      "ti_allowance_psf": 000,
+      "retail": {
+        "avg_rent_psf_year_1": 000,
+        "annual_escalation_pct": 0.00
+      },
+      "percentage_rent": {
+        "avg_retail_sales_psf": 0000,
+        "percentage_rent_rate_pct": 0.00
+      }
     },
-    "RENT_RATE_RULE": "CRITICAL: base_rent_year_1_psf is ANNUAL (NOT monthly). If monthly rent is RM 15/psf, return 180.",
+    "RENT_RATE_RULE": "CRITICAL: ALL rent rates (office base_rent_year_1_psf AND retail.avg_rent_psf_year_1) are ANNUAL (NOT monthly). If monthly rent is RM 15/psf, return 180.",
     "step2_other_income": {
-      "parking_revenue_per_space_day": 00,
-      "parking_utilization_pct": 0,
+      "parking": {
+        "parking_revenue_per_space_day": 00,
+        "parking_utilization_pct": 0
+      },
       "amenity_income_psf": 00,
       "property_tax_pct_of_revenue": 0.00,
       "insurance_pct_of_revenue": 0.00
     },
+    "PARKING_PASS_RULE": "parking.parking_revenue_per_space_day is the MONTHLY parking pass price per space (not a daily transient rate).",
     "step3_operating_expenses": {
       "cam_fixed_base_annual": 000000,
       "cam_variable_rate_psf": 00,
@@ -360,6 +371,7 @@ const OFFICE_TWO_PHASE_OUTPUT = `
       "ffe_useful_life_years": 0,
       "ffe_renovation_pct_year_6": 0.00,
       "ti_useful_life_years": 0,
+      "retail_ti_useful_life_years": 0,
       "leasing_commissions_life_years": 0,
       "accounts_receivable_months_revenue": 0.0,
       "accounts_payable_months_opex": 0.0
@@ -606,10 +618,16 @@ Regional malls in GCC often show land_tdc_target_pct of 25-45% depending on land
 ${OPERATIONAL_C2_FIELDS}
 ${TWO_PHASE_INSTRUCTIONS}
 
+For office Phase 2 (c2_operational), also research:
+- Office tower: annual base rent psf Y1, escalation %, lease-up years, opening/stabilized occupancy %, TI allowance psf
+- Retail portion (ground floor to G+2): annual avg retail rent psf Y1, annual retail escalation %
+- Percentage rent (when retail is present): avg retail sales psf, percentage rent rate %
+- Parking: MONTHLY pass price per space (parking.parking_revenue_per_space_day), parking utilization %
+
 Full two-phase JSON schema (return only the phase requested):
 ${OFFICE_TWO_PHASE_OUTPUT}`,
     userPromptIntro:
-      "Conduct an office hold feasibility benchmark. Consider segment (prime tower, business park, secondary, co-working), grade/positioning, and office vs retail GLA split.",
+      "Conduct an office hold feasibility benchmark. Consider segment (prime tower, business park, secondary, co-working), grade/positioning, and office vs retail GLA split. Include retail podium rent and percentage-rent benchmarks when retail GLA is present.",
   },
 
   residentialBtr: {
@@ -913,10 +931,13 @@ CRITICAL: Use these exact physical dimensions to calculate and provide benchmark
 
 CRITICAL RENT RESEARCH:
 - Research base rent rates for office assets in ${location.city}, ${location.subMarket?.trim() || "General City Area"}.
+- ALSO research RETAIL portion rents (ground floor to G+2 / podium retail) for the same location: annual avg retail rent psf Y1 and annual escalation %.
+- If percentage rent is common for that retail mix, research avg retail sales psf and percentage rent rate %.
 - ALL rates MUST be ANNUAL (per year per sqft), NOT monthly.
 - If you find monthly rates (e.g., RM 15/psf/month), multiply by 12 to get annual (RM 180/psf/year).
 - In your <reasoning> block, explicitly state: "Found monthly rent of RM X/psf, converted to annual: RM Y/psf (X × 12)".
-- NEVER return monthly rates in the JSON. The base_rent_year_1_psf field MUST be annual.
+- NEVER return monthly rates in the JSON. The base_rent_year_1_psf and retail.avg_rent_psf_year_1 fields MUST be annual.
+- For parking, return MONTHLY pass price per space in parking.parking_revenue_per_space_day (not a daily transient rate).
 - Research and cite ACTUAL recent market transactions or listings for this specific land use category and location. Explicitly state the source (e.g., "Based on Property Finder listings for JVC commercial plots" or "Based on DLD transaction data").
 - If you found rates per Allowable GFA/BUA, show the exact normalization math: "(Allowable BUA × Rate per GFA) / Plot Area = Normalized Rate per Plot sqft".
 - DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.`

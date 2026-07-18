@@ -60,6 +60,7 @@ export function buildSaleCommentaryPrompt(
     const ctx: MacroCommentaryContext = {
       city: bundle.location.city,
       country: bundle.location.country,
+      subMarket: bundle.location.subMarket,
       assetType: config.assetLabel,
       projectIRR: bundle.component4.projectIRR,
       constructionMonths: m.constructionMonths,

@@ -10,6 +10,8 @@ export interface SlideChart {
   xKey: string;
   yKeys: string[];
   colors?: string[];
+  /** When true, bars share a stackId and data labels are omitted */
+  stacked?: boolean;
   /** Tailwind height class, e.g. flex-1 or h-64 */
   height?: string;
   /** Tailwind width class, e.g. w-full */
@@ -441,6 +443,16 @@ export interface TitleSlideData {
   preparedBy?: string;
   reportYear?: string;
   confidentialFooter?: string;
+}
+
+/** Static project-location slide (map + sub-market). No AI content. */
+export interface ProjectLocationSlideData {
+  city: string;
+  country: string;
+  subMarket?: string;
+  coordinates?: { lat: number; lng: number } | null;
+  assetType?: string;
+  locationDescription: string;
 }
 
 export interface BTROperationalPnLData {
@@ -877,6 +889,7 @@ export interface MallOperationalExpensesData {
 
 export type FeasibilitySlideData =
   | TitleSlideData
+  | ProjectLocationSlideData
   | TravelTourismDemandData
   | TravelTourismOutlookData
   | HistoricalGuestsData
@@ -957,7 +970,12 @@ export interface FeasibilityReport {
 
 /** Layer 1 payload — Components 1–4/6 via Zustand operational slice. */
 export interface AggregatedProjectData {
-  location: { country: string; city: string };
+  location: {
+    country: string;
+    city: string;
+    subMarket?: string;
+    coordinates?: { lat: number; lng: number } | null;
+  };
   assetType: string;
   segment: string;
   positioning: string;
@@ -985,7 +1003,12 @@ export interface AggregatedProjectData {
 /** Layer 1 bundle shaped for Section A & D components (Components 1–4). */
 export interface FeasibilityProjectBundle {
   stream?: "operational" | "sale";
-  location: { city: string; country: string };
+  location: {
+    city: string;
+    country: string;
+    subMarket?: string;
+    coordinates?: { lat: number; lng: number } | null;
+  };
   assetType: string;
   segment: string;
   currency: string;

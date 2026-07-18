@@ -14,11 +14,13 @@ import {
   YAxis,
 } from "recharts";
 import BenchmarkHeader from "@/components/BenchmarkHeader";
+import { AiInput } from "@/components/ui/AiInput";
 import {
   getOfficeBenchmark,
   getOfficeBenchmarkProfileKey,
 } from "@/lib/benchmarks/office-construction-costs";
 import { compoundRentForYearIndex } from "@/lib/benchmarks/retail-revenue";
+import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import {
   snapFinite,
@@ -29,12 +31,6 @@ import useFinModelStore from "@/store/useFinModelStore";
 
 const inputBase =
   "w-full rounded bg-slate-900 p-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500";
-
-function overrideFieldClass(overridden: boolean): string {
-  return overridden
-    ? `${inputBase} border-2 border-amber-500/70`
-    : `${inputBase} border border-slate-600`;
-}
 
 function useClientMounted(): boolean {
   const [mounted, setMounted] = useState(false);
@@ -280,10 +276,45 @@ export default function OfficeRevenueStep({
 }: OfficeRevenueStepProps) {
   const mounted = useClientMounted();
   const projectInfo = useFinModelStore((s) => s.operational.projectInfo);
+  const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
   const currencyCode = projectInfo.currency || "AED";
   const updateOfficeHoldSnapshot = useFinModelStore(
     (s) => s.updateOfficeHoldSnapshot
   );
+
+  const aiC2 = useMemo(() => {
+    const raw = cashOutflows?.aiResearchData;
+    if (!raw) return undefined;
+    const hasNested =
+      !!raw.c2_operational?.step1_base_rent ||
+      !!raw.c2_operational?.office_rent ||
+      !!raw.c1_development?.construction_rates;
+    if (!hasNested) {
+      return (
+        normalizeAiResearchData(raw) as {
+          c2_operational?: typeof raw.c2_operational;
+        }
+      )?.c2_operational;
+    }
+    return raw.c2_operational;
+  }, [cashOutflows?.aiResearchData]);
+
+  const aiStep1 = aiC2?.step1_base_rent;
+  const aiOfficeRentYear1 =
+    aiStep1?.base_rent_year_1_psf ?? aiC2?.office_rent?.avg_rent_psf_year_1;
+  const aiOfficeRentEscalation =
+    aiStep1?.rent_escalation_pct ?? aiC2?.office_rent?.annual_escalation_pct;
+  const aiOfficeOpeningOccupancy = aiStep1?.opening_occupancy_pct;
+  const aiOfficeStabilizedOccupancy = aiStep1?.stabilized_occupancy_pct;
+  const aiOfficeLeaseUpYears = aiStep1?.lease_up_years;
+  const aiRetailRentYear1 = aiStep1?.retail?.avg_rent_psf_year_1;
+  const aiRetailRentEscalation = aiStep1?.retail?.annual_escalation_pct;
+  const aiRetailSalesPsf =
+    aiStep1?.percentage_rent?.avg_retail_sales_psf ??
+    aiC2?.step2_other_income?.avg_tenant_sales_psf;
+  const aiPercentageRentRate =
+    aiStep1?.percentage_rent?.percentage_rent_rate_pct ??
+    aiC2?.step2_other_income?.percentage_rent_rate_pct;
 
   const coworkingDelivery =
     projectInfo.officeSegment === "co_working"
@@ -438,12 +469,62 @@ export default function OfficeRevenueStep({
 
     setOverrides({});
     setManualYearValues({});
-    setOfficeRentPsf(benchmark.baseRentPsf);
-    setOfficeEscalation(benchmark.rentEscalation);
-    setOfficeLeasedOpening(benchmark.openingOccupancy);
-    setOfficeLeasedTarget(benchmark.stabilizedOccupancy);
-    setOfficeLeaseUpYears(benchmark.leaseUpYears);
-  }, [benchmark, profileKey, snap?.officeRentPsfYear1]);
+    setOfficeRentPsf(aiOfficeRentYear1 ?? benchmark.baseRentPsf);
+    setOfficeEscalation(aiOfficeRentEscalation ?? benchmark.rentEscalation);
+    setOfficeLeasedOpening(
+      aiOfficeOpeningOccupancy ?? benchmark.openingOccupancy
+    );
+    setOfficeLeasedTarget(
+      aiOfficeStabilizedOccupancy ?? benchmark.stabilizedOccupancy
+    );
+    setOfficeLeaseUpYears(aiOfficeLeaseUpYears ?? benchmark.leaseUpYears);
+    if (aiRetailRentYear1 != null) setRetailRentPsf(aiRetailRentYear1);
+    if (aiRetailRentEscalation != null)
+      setRetailEscalation(aiRetailRentEscalation);
+  }, [
+    benchmark,
+    profileKey,
+    snap?.officeRentPsfYear1,
+    aiOfficeRentYear1,
+    aiOfficeRentEscalation,
+    aiOfficeOpeningOccupancy,
+    aiOfficeStabilizedOccupancy,
+    aiOfficeLeaseUpYears,
+    aiRetailRentYear1,
+    aiRetailRentEscalation,
+  ]);
+
+  // Apply AI research values when they arrive (unless user already overrode that field)
+  useEffect(() => {
+    if (!aiC2) return;
+    if (!overrides.officeRentPsf && aiOfficeRentYear1) {
+      setOfficeRentPsf(aiOfficeRentYear1);
+    }
+    if (!overrides.officeEscalation && aiOfficeRentEscalation != null) {
+      setOfficeEscalation(aiOfficeRentEscalation);
+    }
+    if (!overrides.retailRentPsf && aiRetailRentYear1) {
+      setRetailRentPsf(aiRetailRentYear1);
+    }
+    if (!overrides.retailEscalation && aiRetailRentEscalation != null) {
+      setRetailEscalation(aiRetailRentEscalation);
+    }
+    if (!overrides.retailSalesPsf && aiRetailSalesPsf != null) {
+      setRetailSalesPsf(aiRetailSalesPsf);
+    }
+    if (!overrides.percentageRentRate && aiPercentageRentRate != null) {
+      setPercentageRentRate(aiPercentageRentRate);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-apply when AI payload changes
+  }, [
+    aiC2,
+    aiOfficeRentYear1,
+    aiOfficeRentEscalation,
+    aiRetailRentYear1,
+    aiRetailRentEscalation,
+    aiRetailSalesPsf,
+    aiPercentageRentRate,
+  ]);
 
   const tableRows = useMemo(
     () =>
@@ -573,44 +654,106 @@ export default function OfficeRevenueStep({
     return () => onRegisterPersist(null);
   }, [onRegisterPersist, persistSnapshot]);
 
+  const handleResetOffice = useCallback(() => {
+    if (!benchmark && aiOfficeRentYear1 == null) return;
+    setOverrides((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      delete next.officeRentPsf;
+      delete next.officeEscalation;
+      delete next.office;
+      return next;
+    });
+    setOfficeRentPsf(aiOfficeRentYear1 ?? benchmark?.baseRentPsf ?? 180);
+    setOfficeEscalation(
+      aiOfficeRentEscalation ?? benchmark?.rentEscalation ?? 3
+    );
+  }, [benchmark, aiOfficeRentYear1, aiOfficeRentEscalation]);
+
+  const handleResetRetail = useCallback(() => {
+    setOverrides((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      delete next.retailRentPsf;
+      delete next.retailEscalation;
+      delete next.retailSalesPsf;
+      delete next.percentageRentRate;
+      delete next.retail;
+      return next;
+    });
+    setRetailRentPsf(aiRetailRentYear1 ?? DEFAULT_RETAIL_RENT_PSF);
+    setRetailEscalation(aiRetailRentEscalation ?? 3);
+    if (aiRetailSalesPsf != null) setRetailSalesPsf(aiRetailSalesPsf);
+    if (aiPercentageRentRate != null) setPercentageRentRate(aiPercentageRentRate);
+  }, [
+    aiRetailRentYear1,
+    aiRetailRentEscalation,
+    aiRetailSalesPsf,
+    aiPercentageRentRate,
+  ]);
+
   const handleResetAll = useCallback(() => {
-    if (!benchmark) return;
     setOverrides({});
     setManualYearValues({});
-    setOfficeRentPsf(benchmark.baseRentPsf);
-    setOfficeEscalation(benchmark.rentEscalation);
-    setOfficeLeasedOpening(benchmark.openingOccupancy);
-    setOfficeLeasedTarget(benchmark.stabilizedOccupancy);
-    setOfficeLeaseUpYears(benchmark.leaseUpYears);
-  }, [benchmark]);
+    handleResetOffice();
+    handleResetRetail();
+    setIncludePercentageRent(false);
+    setRetailSalesPsf(aiRetailSalesPsf ?? 4000);
+    setRetailSalesGrowth(3);
+    setPercentageRentRate(aiPercentageRentRate ?? 5);
+    setBreakpointType("natural");
+    setBreakpointMultiple(1);
+    setFixedBreakpointPsf(500);
+  }, [
+    handleResetOffice,
+    handleResetRetail,
+    aiRetailSalesPsf,
+    aiPercentageRentRate,
+  ]);
 
-  const handleFieldChange = useCallback((field: string, value: number) => {
-    const setters: Record<string, (v: number) => void> = {
-      officeGla: setOfficeGla,
-      officeRentPsf: setOfficeRentPsf,
-      officeEscalation: setOfficeEscalation,
-      officeLeasedOpening: setOfficeLeasedOpening,
-      officeLeasedTarget: setOfficeLeasedTarget,
-      officeLeaseUpYears: setOfficeLeaseUpYears,
-      officeFreeRentMonths: setOfficeFreeRentMonths,
-      retailGla: setRetailGla,
-      retailRentPsf: setRetailRentPsf,
-      retailEscalation: setRetailEscalation,
-      retailLeasedOpening: setRetailLeasedOpening,
-      retailLeasedTarget: setRetailLeasedTarget,
-      retailLeaseUpYears: setRetailLeaseUpYears,
-      retailFreeRentMonths: setRetailFreeRentMonths,
-      retailSalesPsf: setRetailSalesPsf,
-      retailSalesGrowth: setRetailSalesGrowth,
-      percentageRentRate: setPercentageRentRate,
-      breakpointMultiple: setBreakpointMultiple,
-      fixedBreakpointPsf: setFixedBreakpointPsf,
-    };
-    if (setters[field]) {
+  /** Only AI-tracked fields get override flags — manual inputs stay badge-free. */
+  const AI_OVERRIDE_FIELDS = useMemo(
+    () =>
+      new Set([
+        "officeRentPsf",
+        "officeEscalation",
+        "retailRentPsf",
+        "retailEscalation",
+        "retailSalesPsf",
+        "percentageRentRate",
+      ]),
+    []
+  );
+
+  const handleFieldChange = useCallback(
+    (field: string, value: number) => {
+      const setters: Record<string, (v: number) => void> = {
+        officeGla: setOfficeGla,
+        officeRentPsf: setOfficeRentPsf,
+        officeEscalation: setOfficeEscalation,
+        officeLeasedOpening: setOfficeLeasedOpening,
+        officeLeasedTarget: setOfficeLeasedTarget,
+        officeLeaseUpYears: setOfficeLeaseUpYears,
+        officeFreeRentMonths: setOfficeFreeRentMonths,
+        retailGla: setRetailGla,
+        retailRentPsf: setRetailRentPsf,
+        retailEscalation: setRetailEscalation,
+        retailLeasedOpening: setRetailLeasedOpening,
+        retailLeasedTarget: setRetailLeasedTarget,
+        retailLeaseUpYears: setRetailLeaseUpYears,
+        retailFreeRentMonths: setRetailFreeRentMonths,
+        retailSalesPsf: setRetailSalesPsf,
+        retailSalesGrowth: setRetailSalesGrowth,
+        percentageRentRate: setPercentageRentRate,
+        breakpointMultiple: setBreakpointMultiple,
+        fixedBreakpointPsf: setFixedBreakpointPsf,
+      };
+      if (!setters[field]) return;
       setters[field](value);
-      setOverrides((prev) => ({ ...prev, [field]: true }));
-    }
-  }, []);
+      if (AI_OVERRIDE_FIELDS.has(field)) {
+        setOverrides((prev) => ({ ...prev, [field]: true }));
+      }
+    },
+    [AI_OVERRIDE_FIELDS]
+  );
 
   const handleCellOverride = useCallback(
     (year: number, stream: string, valueM: number) => {
@@ -653,8 +796,22 @@ export default function OfficeRevenueStep({
   );
 
   const hasManualOverride =
-    Object.values(overrides).some(Boolean) ||
-    Object.keys(manualYearValues).length > 0;
+    !!(
+      overrides.officeRentPsf ||
+      overrides.officeEscalation ||
+      overrides.retailRentPsf ||
+      overrides.retailEscalation ||
+      overrides.retailSalesPsf ||
+      overrides.percentageRentRate
+    ) || Object.keys(manualYearValues).length > 0;
+
+  const officeAiOverride =
+    !!overrides.officeRentPsf || !!overrides.officeEscalation;
+  const retailAiOverride =
+    !!overrides.retailRentPsf ||
+    !!overrides.retailEscalation ||
+    !!overrides.retailSalesPsf ||
+    !!overrides.percentageRentRate;
 
   const officeBenchmarkReady =
     !!projectInfo.officeSegment && !!projectInfo.officePositioning && !!benchmark;
@@ -673,7 +830,7 @@ export default function OfficeRevenueStep({
         </p>
       </div>
 
-      {officeBenchmarkReady ? (
+      {officeBenchmarkReady || aiC2 ? (
         <BenchmarkHeader
           assetType="office"
           country={projectInfo.country}
@@ -686,9 +843,23 @@ export default function OfficeRevenueStep({
       ) : null}
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Inputs – Office Portion
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Inputs – Office Portion
+          </h3>
+          <button
+            type="button"
+            onClick={handleResetOffice}
+            className={`text-xs font-medium transition-colors ${
+              officeAiOverride
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!officeAiOverride}
+          >
+            Reset office
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="col-span-2">
             <label className="mb-2 block text-sm font-medium text-slate-300">
@@ -709,16 +880,17 @@ export default function OfficeRevenueStep({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Average Office Rent psf – Year 1 ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Average Office Rent psf – Year 1 (${currencyCode})`}
               value={officeRentPsf}
-              onChange={(e) =>
-                handleFieldChange("officeRentPsf", Number(e.target.value) || 0)
+              onChange={(val) =>
+                handleFieldChange("officeRentPsf", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.officeRentPsf)}
+              type="number"
+              step={0.01}
+              min={0}
+              isAiGenerated={!!aiOfficeRentYear1 && !overrides.officeRentPsf}
+              isManualOverride={!!overrides.officeRentPsf}
             />
             {fieldError("officeRentPsf") && (
               <p className="mt-1 text-sm text-red-400">
@@ -727,17 +899,18 @@ export default function OfficeRevenueStep({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Annual Rent Escalation (%)
-            </label>
-            <input
-              type="number"
-              step="0.1"
+            <AiInput
+              label="Annual Rent Escalation (%)"
               value={officeEscalation}
-              onChange={(e) =>
-                handleFieldChange("officeEscalation", Number(e.target.value) || 0)
+              onChange={(val) =>
+                handleFieldChange("officeEscalation", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.officeEscalation)}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={
+                aiOfficeRentEscalation != null && !overrides.officeEscalation
+              }
+              isManualOverride={!!overrides.officeEscalation}
             />
           </div>
           <div>
@@ -753,7 +926,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.officeLeasedOpening)}
+              className={`${inputBase} border border-slate-600`}
             />
             {fieldError("officeLeasedOpening") && (
               <p className="mt-1 text-sm text-red-400">
@@ -774,7 +947,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.officeLeasedTarget)}
+              className={`${inputBase} border border-slate-600`}
             />
             {fieldError("officeLeasedTarget") && (
               <p className="mt-1 text-sm text-red-400">
@@ -796,7 +969,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.officeLeaseUpYears)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
           <div>
@@ -812,16 +985,30 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.officeFreeRentMonths)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-        <h3 className="mb-4 text-lg font-semibold text-white">
-          Inputs – Retail Portion (Ground Floor to G+2)
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-white">
+            Inputs – Retail Portion (Ground Floor to G+2)
+          </h3>
+          <button
+            type="button"
+            onClick={handleResetRetail}
+            className={`text-xs font-medium transition-colors ${
+              retailAiOverride
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "cursor-default text-slate-500"
+            }`}
+            disabled={!retailAiOverride}
+          >
+            Reset retail
+          </button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="col-span-2">
             <label className="mb-1 block text-xs text-slate-400">
@@ -829,24 +1016,27 @@ export default function OfficeRevenueStep({
             </label>
             <input
               type="number"
+              min={0}
               value={retailGla}
-              onChange={(e) =>
-                handleFieldChange("retailGla", Number(e.target.value) || 0)
-              }
-              className={overrideFieldClass(false)}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                handleFieldChange("retailGla", Number.isFinite(v) && v >= 0 ? v : 0);
+              }}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Average Retail Rent psf – Year 1 ({currencyCode})
-            </label>
-            <input
-              type="number"
+            <AiInput
+              label={`Average Retail Rent psf – Year 1 (${currencyCode})`}
               value={retailRentPsf}
-              onChange={(e) =>
-                handleFieldChange("retailRentPsf", Number(e.target.value) || 0)
+              onChange={(val) =>
+                handleFieldChange("retailRentPsf", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.retailRentPsf)}
+              type="number"
+              step={0.01}
+              min={0}
+              isAiGenerated={!!aiRetailRentYear1 && !overrides.retailRentPsf}
+              isManualOverride={!!overrides.retailRentPsf}
             />
             {fieldError("retailRentPsf") && (
               <p className="mt-1 text-sm text-red-400">
@@ -855,17 +1045,18 @@ export default function OfficeRevenueStep({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">
-              Annual Rent Escalation (%)
-            </label>
-            <input
-              type="number"
-              step="0.1"
+            <AiInput
+              label="Annual Rent Escalation (%)"
               value={retailEscalation}
-              onChange={(e) =>
-                handleFieldChange("retailEscalation", Number(e.target.value) || 0)
+              onChange={(val) =>
+                handleFieldChange("retailEscalation", Number(val) || 0)
               }
-              className={overrideFieldClass(!!overrides.retailEscalation)}
+              type="percentage"
+              step={0.1}
+              isAiGenerated={
+                aiRetailRentEscalation != null && !overrides.retailEscalation
+              }
+              isManualOverride={!!overrides.retailEscalation}
             />
           </div>
           <div>
@@ -881,7 +1072,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.retailLeasedOpening)}
+              className={`${inputBase} border border-slate-600`}
             />
             {fieldError("retailLeasedOpening") && (
               <p className="mt-1 text-sm text-red-400">
@@ -902,7 +1093,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.retailLeasedTarget)}
+              className={`${inputBase} border border-slate-600`}
             />
             {fieldError("retailLeasedTarget") && (
               <p className="mt-1 text-sm text-red-400">
@@ -924,7 +1115,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.retailLeaseUpYears)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
           <div>
@@ -940,7 +1131,7 @@ export default function OfficeRevenueStep({
                   Number(e.target.value) || 0
                 )
               }
-              className={overrideFieldClass(!!overrides.retailFreeRentMonths)}
+              className={`${inputBase} border border-slate-600`}
             />
           </div>
         </div>
@@ -960,16 +1151,17 @@ export default function OfficeRevenueStep({
         {includePercentageRent && (
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="mb-1 block text-xs text-slate-400">
-                Average Retail Sales psf ({currencyCode})
-              </label>
-              <input
-                type="number"
+              <AiInput
+                label={`Average Retail Sales psf (${currencyCode})`}
                 value={retailSalesPsf}
-                onChange={(e) =>
-                  handleFieldChange("retailSalesPsf", Number(e.target.value) || 0)
+                onChange={(val) =>
+                  handleFieldChange("retailSalesPsf", Number(val) || 0)
                 }
-                className={overrideFieldClass(!!overrides.retailSalesPsf)}
+                type="number"
+                isAiGenerated={
+                  aiRetailSalesPsf != null && !overrides.retailSalesPsf
+                }
+                isManualOverride={!!overrides.retailSalesPsf}
               />
             </div>
             <div>
@@ -986,24 +1178,24 @@ export default function OfficeRevenueStep({
                     Number(e.target.value) || 0
                   )
                 }
-                className={overrideFieldClass(!!overrides.retailSalesGrowth)}
+                className={`${inputBase} border border-slate-600`}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-slate-400">
-                Percentage Rent Rate (%)
-              </label>
-              <input
-                type="number"
-                step="0.1"
+              <AiInput
+                label="Percentage Rent Rate (%)"
                 value={percentageRentRate}
-                onChange={(e) =>
+                onChange={(val) =>
                   handleFieldChange(
                     "percentageRentRate",
-                    Number(e.target.value) || 0
+                    Number(val) || 0
                   )
                 }
-                className={overrideFieldClass(!!overrides.percentageRentRate)}
+                type="percentage"
+                isAiGenerated={
+                  aiPercentageRentRate != null && !overrides.percentageRentRate
+                }
+                isManualOverride={!!overrides.percentageRentRate}
               />
             </div>
             <div>
@@ -1036,7 +1228,7 @@ export default function OfficeRevenueStep({
                       Number(e.target.value) || 0
                     )
                   }
-                  className={overrideFieldClass(!!overrides.breakpointMultiple)}
+                  className={`${inputBase} border border-slate-600`}
                 />
               </div>
             ) : (
@@ -1053,7 +1245,7 @@ export default function OfficeRevenueStep({
                       Number(e.target.value) || 0
                     )
                   }
-                  className={overrideFieldClass(!!overrides.fixedBreakpointPsf)}
+                  className={`${inputBase} border border-slate-600`}
                 />
               </div>
             )}

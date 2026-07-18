@@ -49,6 +49,7 @@ export function buildBTRCommentaryPrompt(
     const macroCtx: MacroCommentaryContext = {
       city: ctx.city,
       country: ctx.country,
+      subMarket: bundle.location.subMarket,
       assetType: "Residential High-Rise BTR (Grade B)",
       projectIRR: ctx.projectIRR,
       constructionMonths: ctx.constructionPeriod,
@@ -69,7 +70,8 @@ export function buildBTRCommentaryPrompt(
       "Stabilized Occupancy": `${ctx.residentialStabilizedOccupancy}%`,
       TDC: fmtBTRMoney(ctx.tdc, ctx.currency, true),
       "Project IRR": `${ctx.projectIRR}%`,
-    }
+    },
+    { subMarket: bundle.location.subMarket }
   );
   if (marketPrompt) return marketPrompt;
 

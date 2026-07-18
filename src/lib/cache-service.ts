@@ -3,9 +3,18 @@ const AUTH_CHECK_KEY = "_auth_check";
 export const SALE_HASHES_STORAGE_KEY = "feasibuild_sale_hashes";
 export const OPERATIONAL_HASHES_STORAGE_KEY = "feasibuild_operational_hashes";
 
+/** Default TTL for feasibility AI commentary / chart caches (24 hours). */
+export const FEASIBILITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
 export type PuterKvStatus = {
   available: boolean;
   authenticated: boolean;
+};
+
+export type CacheEnvelope<T = unknown> = {
+  data: T;
+  expires: number | null;
+  timestamp: number;
 };
 
 function isPuterAvailable(): boolean {
@@ -35,11 +44,10 @@ export async function checkPuterStatus(): Promise<PuterKvStatus> {
   }
 }
 
-function readLocalStorage<T>(key: string): T | null {
+function readLocalStorageRaw(key: string): string | null {
   if (typeof window === "undefined") return null;
   try {
-    const cached = localStorage.getItem(key);
-    return cached ? (JSON.parse(cached) as T) : null;
+    return localStorage.getItem(key);
   } catch (error) {
     console.error(`[Cache] localStorage read error for ${key}:`, error);
     return null;
@@ -56,14 +64,51 @@ function writeLocalStorage(key: string, serializedContent: string): void {
   }
 }
 
+function isCacheEnvelope(value: unknown): value is CacheEnvelope {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "data" in value &&
+    "timestamp" in value
+  );
+}
+
+function unwrapCachedValue<T>(raw: unknown, label: string): T | null {
+  if (raw == null) return null;
+
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Legacy non-JSON string payloads
+      return raw as T;
+    }
+  }
+
+  if (isCacheEnvelope(parsed)) {
+    if (parsed.expires != null && Date.now() >= parsed.expires) {
+      console.log(`[Cache] ⌛ EXPIRED for: ${label}`);
+      return null;
+    }
+    return parsed.data as T;
+  }
+
+  // Backward compatible: previously we stored the payload directly
+  return parsed as T;
+}
+
 async function getWithFallback<T>(key: string, label: string): Promise<T | null> {
+  console.log(`[Cache] Trying to retrieve: ${label}`);
+
   if (typeof window !== "undefined" && isPuterAvailable()) {
     try {
       console.log(`[Cache] Trying Puter KV read: ${label}`);
       const cached = await window.puter!.kv.get(key);
-      if (cached != null) {
-        console.log(`[Cache] ✓ Hit (Puter KV): ${label}`);
-        return (typeof cached === "string" ? JSON.parse(cached) : cached) as T;
+      const unwrapped = unwrapCachedValue<T>(cached, label);
+      if (unwrapped != null) {
+        console.log(`[Cache] ✅ HIT (Puter KV): ${label}`);
+        return unwrapped;
       }
     } catch (error) {
       console.warn(`[Cache] ⚠️ Puter KV read failed for ${label}:`, error);
@@ -73,19 +118,29 @@ async function getWithFallback<T>(key: string, label: string): Promise<T | null>
     console.log(`[Cache] Puter not available, using localStorage for: ${label}`);
   }
 
-  const local = readLocalStorage<T>(key);
+  const localRaw = readLocalStorageRaw(key);
+  const local = unwrapCachedValue<T>(localRaw, label);
   if (local != null) {
-    console.log(`[Cache] ✓ Hit (localStorage): ${label}`);
+    console.log(`[Cache] ✅ HIT (localStorage): ${label}`);
+    return local;
   }
-  return local;
+
+  console.log(`[Cache] ❌ MISS for: ${label}`);
+  return null;
 }
 
 async function setWithFallback(
   key: string,
   content: unknown,
-  label: string
+  label: string,
+  ttlMs: number = FEASIBILITY_CACHE_TTL_MS
 ): Promise<void> {
-  const serializedContent = JSON.stringify(content);
+  const envelope: CacheEnvelope = {
+    data: content,
+    expires: ttlMs > 0 ? Date.now() + ttlMs : null,
+    timestamp: Date.now(),
+  };
+  const serializedContent = JSON.stringify(envelope);
 
   if (typeof window !== "undefined" && isPuterAvailable()) {
     try {
@@ -102,6 +157,7 @@ async function setWithFallback(
   }
 
   writeLocalStorage(key, serializedContent);
+  console.log(`[Cache] ✓ Saved to cache: ${label}`);
 }
 
 /** cyrb53 string hash (returns numeric hash). */
@@ -179,38 +235,15 @@ export async function getCachedContent<T = unknown>(
   cacheKey: string
 ): Promise<T | null> {
   const storageKey = `${CACHE_PREFIX}${cacheKey}`;
-  console.log(`[Cache] Checking Puter KV for key: ${cacheKey}`);
-
-  if (typeof window !== "undefined" && isPuterAvailable()) {
-    try {
-      const cached = await window.puter!.kv.get(storageKey);
-      if (cached != null) {
-        console.log(`[Cache] ✓ FOUND in Puter KV! key: ${cacheKey}`);
-        return (
-          typeof cached === "string" ? JSON.parse(cached) : cached
-        ) as T;
-      }
-    } catch (error) {
-      console.warn(`[Cache] ⚠️ Puter KV read failed for ${cacheKey}:`, error);
-      console.log(`[Cache] Falling back to localStorage for: ${cacheKey}`);
-    }
-  }
-
-  const local = readLocalStorage<T>(storageKey);
-  if (local != null) {
-    console.log(`[Cache] ✓ FOUND in localStorage! key: ${cacheKey}`);
-    return local;
-  }
-
-  console.log(`[Cache] ✗ MISS for key: ${cacheKey}`);
-  return null;
+  return getWithFallback<T>(storageKey, cacheKey);
 }
 
 export async function setCachedContent(
   cacheKey: string,
-  content: unknown
+  content: unknown,
+  ttlMs: number = FEASIBILITY_CACHE_TTL_MS
 ): Promise<void> {
-  await setWithFallback(`${CACHE_PREFIX}${cacheKey}`, content, cacheKey);
+  await setWithFallback(`${CACHE_PREFIX}${cacheKey}`, content, cacheKey, ttlMs);
 }
 
 export async function getStoredHashes(
@@ -223,7 +256,8 @@ export async function setStoredHashes(
   key: string,
   hashes: Record<string, string>
 ): Promise<void> {
-  await setWithFallback(key, hashes, key);
+  // Hash maps should outlive commentary TTL; keep for 30 days.
+  await setWithFallback(key, hashes, key, 30 * FEASIBILITY_CACHE_TTL_MS);
 }
 
 export async function clearStoredHashes(key: string): Promise<void> {

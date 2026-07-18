@@ -16,6 +16,10 @@ import {
   ReferenceLine,
   Legend,
 } from "recharts";
+import {
+  BarValueLabelList,
+  formatChartNumber,
+} from "@/components/feasibility/charts/chart-data-labels";
 
 interface Props extends SlideEditingProps {
   data: PreferenceSharesExitStrategyData;
@@ -93,7 +97,7 @@ export default function PreferenceSharesExitStrategySlide({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={data.dscrByYear}
-                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                margin={{ top: 22, right: 10, left: 0, bottom: 0 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={10} />
@@ -121,7 +125,18 @@ export default function PreferenceSharesExitStrategySlide({
                   fill="#10b981"
                   name="DSCR (x)"
                   radius={[4, 4, 0, 0]}
-                />
+                >
+                  <BarValueLabelList
+                    fontSize={9}
+                    formatter={(v) =>
+                      formatChartNumber(v, {
+                        decimals: 2,
+                        compact: false,
+                        suffix: "x",
+                      })
+                    }
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

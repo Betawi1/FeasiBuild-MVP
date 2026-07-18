@@ -2294,6 +2294,7 @@ function OperationalCashInflowsPageContent() {
   const [errors, setErrors] = useState<Errors>({});
   const hotelBenchmarkStepsLogged = useRef<Set<number>>(new Set());
   const step0PersistRef = useRef<(() => void) | null>(null);
+  const step1PersistRef = useRef<(() => void) | null>(null);
 
   // Sync Hotel Step 4 Total Keys to hotel hold snapshot when entering Component 2 Step 1
   useEffect(() => {
@@ -3282,12 +3283,18 @@ function OperationalCashInflowsPageContent() {
       if (projectInfo.buildingType === "office") {
         Object.assign(
           next,
-          validateOfficeOtherIncomeStep(getOperationalOfficeHoldSnapshot())
+          validateOfficeOtherIncomeStep(getOperationalOfficeHoldSnapshot(), {
+            officeBasementBUA: projectInfo.officeBasementBUA,
+            officePodiumBUA: projectInfo.officePodiumBUA,
+          })
         );
       } else if (projectInfo.buildingType === "retail") {
         Object.assign(
           next,
-          validateRetailOtherIncomeStep(getOperationalRetailHoldSnapshot())
+          validateRetailOtherIncomeStep(getOperationalRetailHoldSnapshot(), {
+            retailBasementBUA: projectInfo.retailBasementBUA,
+            retailPodiumBUA: projectInfo.retailPodiumBUA,
+          })
         );
       } else if (projectInfo.buildingType === "residential") {
         Object.assign(
@@ -3395,6 +3402,9 @@ function OperationalCashInflowsPageContent() {
   const handleNext = () => {
     if (currentStep === 0) {
       step0PersistRef.current?.();
+    }
+    if (currentStep === 1 && projectInfo.buildingType === "office") {
+      step1PersistRef.current?.();
     }
     if (currentStep === 2 && isRetail) {
       const snap = getOperationalRetailHoldSnapshot();
@@ -3649,7 +3659,12 @@ function OperationalCashInflowsPageContent() {
           )}
 
           {currentStep === 1 && projectInfo.buildingType === "office" && (
-            <OfficeOtherIncomeStep />
+            <OfficeOtherIncomeStep
+              fieldError={fieldError}
+              onRegisterPersist={(persist) => {
+                step1PersistRef.current = persist;
+              }}
+            />
           )}
 
           {currentStep === 1 && projectInfo.buildingType === "retail" && (

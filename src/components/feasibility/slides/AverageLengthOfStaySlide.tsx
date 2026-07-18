@@ -15,6 +15,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  BarValueLabelList,
+  CHART_MARGIN_WITH_LABELS,
+  formatChartNumber,
+} from "@/components/feasibility/charts/chart-data-labels";
 
 type LengthOfStayDataWithBullets = LengthOfStayData & {
   summaryBullets?: string[];
@@ -81,15 +86,36 @@ export default function AverageLengthOfStaySlide({
               Average length of stay by region, {country}
             </h3>
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={data.byRegion}>
+              <BarChart data={data.byRegion} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="region" fontSize={9} />
                 <YAxis fontSize={9} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: "9px" }} />
-                <Bar dataKey="year2004" fill="#4c1d95" name="Year 1" />
-                <Bar dataKey="year2005" fill="#92400e" name="Year 2" />
-                <Bar dataKey="year2006" fill="#166534" name="Year 3" />
+                <Bar dataKey="year2004" fill="#4c1d95" name="Year 1">
+                  <BarValueLabelList
+                    fontSize={8}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
+                <Bar dataKey="year2005" fill="#92400e" name="Year 2">
+                  <BarValueLabelList
+                    fontSize={8}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
+                <Bar dataKey="year2006" fill="#166534" name="Year 3">
+                  <BarValueLabelList
+                    fontSize={8}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -99,15 +125,36 @@ export default function AverageLengthOfStaySlide({
               Average length of stay by hotel class
             </h3>
             <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={data.byHotelClass}>
+              <BarChart data={data.byHotelClass} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="hotelClass" fontSize={9} />
                 <YAxis fontSize={9} />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: "9px" }} />
-                <Bar dataKey="year2004" fill="#4c1d95" name="Year 1" />
-                <Bar dataKey="year2005" fill="#92400e" name="Year 2" />
-                <Bar dataKey="year2006" fill="#166534" name="Year 3" />
+                <Bar dataKey="year2004" fill="#4c1d95" name="Year 1">
+                  <BarValueLabelList
+                    fontSize={8}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
+                <Bar dataKey="year2005" fill="#92400e" name="Year 2">
+                  <BarValueLabelList
+                    fontSize={8}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
+                <Bar dataKey="year2006" fill="#166534" name="Year 3">
+                  <BarValueLabelList
+                    fontSize={8}
+                    formatter={(v) =>
+                      formatChartNumber(v, { decimals: 1, compact: false })
+                    }
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
             {isEditing ? (
