@@ -923,7 +923,7 @@ export const DEFAULT_PREFERENCE_TENOR_MONTHS = 36;
 
 /** Escrow withdrawal settings (Component 4 Step 5 — jurisdiction-specific). */
 export type FinancingEscrowConfig = {
-  withdrawalMode?: "malaysia" | "uae" | "australia";
+  withdrawalMode?: "malaysia" | "uae" | "australia" | "none";
   malaysia?: {
     propertyType: "HIGH_RISE" | "LANDED";
     retentionFirstReleaseMonths: number;

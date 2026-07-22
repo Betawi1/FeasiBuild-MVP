@@ -5,7 +5,6 @@ import type {
 } from "@/lib/financing-engine/generate-cash-flow";
 import {
   generateFinancingCashFlow,
-  resolveSaleHorizonLastMonth,
 } from "@/lib/financing-engine/generate-cash-flow";
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
 import { computeReimbursementMilestones } from "@/lib/milestone-drawdown";
@@ -25,11 +24,15 @@ import type { MonthlyRow as AustraliaCashFlowRow } from "./components/cash-flow-
 export function resolveFinancingEngineJurisdiction(projectInfo: ProjectInfo): Jurisdiction {
   const code = projectInfo.countryCode?.toUpperCase() ?? "";
   const c = projectInfo.country?.toLowerCase() ?? "";
+
+  // The 4 Specific Countries
   if (code === "AE" || c.includes("uae") || c.includes("emirates")) return "UAE_SA";
   if (code === "SA" || c.includes("saudi") || c.includes("ksa")) return "UAE_SA";
   if (code === "MY" || c.includes("malaysia")) return "MALAYSIA";
   if (code === "AU" || c.includes("australia")) return "AUSTRALIA";
-  return "UAE_SA";
+
+  // EVERYTHING ELSE is "OTHER"
+  return "OTHER";
 }
 
 export type FinancingEngineTimelineOptions = {
@@ -39,73 +42,70 @@ export type FinancingEngineTimelineOptions = {
   country?: string;
   countryCode?: string;
   withdrawalMode?: string;
+  escrowWithdrawalMode?: string;
   businessModel?: string;
   projectType?: string;
 };
-
-function saleHorizonInputsFromTimelineOptions(
-  jurisdiction: Jurisdiction,
-  constructionPeriodMonths: number,
-  options?: FinancingEngineTimelineOptions
-): FinancingInputs {
-  return {
-    constructionPeriodMonths,
-    jurisdiction,
-    financingModel: options?.commercial ? "commercial" : "residential",
-    businessModel: options?.businessModel,
-    projectType: options?.projectType,
-    country: options?.country,
-    countryCode: options?.countryCode,
-    escrowWithdrawalMode: options?.withdrawalMode,
-    withdrawalMethod: options?.withdrawalMode,
-    stream: "sale",
-    exitStrategy: "sale",
-    sCurveMonthly: [],
-    phases: [],
-    monthlyCosts: { construction: [], soft: [], powc: [] },
-    landCost: 0,
-    monthlySalesInflows: [],
-    landEquityPercent: 100,
-    landEquityValue: 0,
-    cashEquityRequired: 0,
-    approvedCreditFacility: 0,
-    constructionLoanLtcPct: 0,
-    interestRatePct: 0,
-    idcTreatment: "capitalize",
-    landLoanAmount: 0,
-    landLoanRatePct: 0,
-    landLoanArrangementFeePct: 0,
-    landLoanValuationFeePct: 0,
-    prefSharesEnabled: false,
-    prefSharesAmount: 0,
-    prefSharesReturnPct: 0,
-    commitmentFeePct: 0,
-    escrowSetupFee: 0,
-    escrowManagementFeePct: 0,
-    escrowDepositRatePct: 0,
-    milestoneMonths: [],
-    certificationIntervalMonths: 6,
-    hdaDepositPct: 3,
-    totalConstructionCosts: 0,
-    trustAccountFeePct: 0,
-    trustAccountDepositRatePct: 0,
-  };
-}
 
 /** Post–construction tail (months) after last construction month index, per engine. */
 export function financingEnginePostExtensionMonths(
   jurisdiction: Jurisdiction,
   options?: FinancingEngineTimelineOptions
 ): number {
-  const cp = options?.constructionPeriodMonths ?? 42;
+  const cp = options?.constructionPeriodMonths ?? 30;
+
+  // CRITICAL: Explicitly check withdrawal mode first
   if (options?.sale) {
-    return (
-      resolveSaleHorizonLastMonth(
-        saleHorizonInputsFromTimelineOptions(jurisdiction, cp, options)
-      ) - cp
-    );
+    const mode = (options?.withdrawalMode || options?.escrowWithdrawalMode)?.toLowerCase();
+
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("🔍 [Engine] Detected withdrawal mode:", {
+        mode,
+        jurisdiction,
+        constructionPeriod: cp,
+      });
+    }
+
+    // 4. No Escrow: Construction Period + 6 months
+    if (mode === "none") {
+      if (process.env.NODE_ENV === "development") {
+        // eslint-disable-next-line no-console
+        console.log("✅ [Engine] Using No Escrow: +6 months");
+      }
+      return 6;
+    }
+
+    // 2. Malaysia HDA: Construction Period + 24 months
+    if (mode === "malaysia") {
+      if (process.env.NODE_ENV === "development") {
+        // eslint-disable-next-line no-console
+        console.log("✅ [Engine] Using Malaysia: +24 months");
+      }
+      return 24;
+    }
+
+    // 3. Australia 10/90: Construction Period + 12 months
+    if (mode === "australia") {
+      if (process.env.NODE_ENV === "development") {
+        // eslint-disable-next-line no-console
+        console.log("✅ [Engine] Using Australia: +12 months");
+      }
+      return 12;
+    }
+
+    // 1. UAE/SA (Default fallback): Construction Period + 12 months
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("✅ [Engine] Using UAE/SA: +12 months");
+    }
+    return 12;
   }
+
+  // Commercial stream fallback
   if (options?.commercial) return 6;
+
+  // Operational stream fallback
   return jurisdiction === "MALAYSIA" ? 24 : 12;
 }
 
@@ -149,15 +149,6 @@ export function financingEngineTimelineLastMonth(
   constructionPeriodMonths: number,
   options?: FinancingEngineTimelineOptions
 ): number {
-  if (options?.sale) {
-    return resolveSaleHorizonLastMonth(
-      saleHorizonInputsFromTimelineOptions(
-        jurisdiction,
-        constructionPeriodMonths,
-        { ...options, constructionPeriodMonths }
-      )
-    );
-  }
   return (
     constructionPeriodMonths +
     financingEnginePostExtensionMonths(jurisdiction, {
@@ -395,7 +386,8 @@ export function buildFinancingEnginePreview(params: {
   const commercial = isCommercialFinancingModel(projectInfo, financing);
   const withdrawalMode =
     financing.escrowConfig?.withdrawalMode ??
-    (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode;
+    (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode ??
+    "none";
   const timelineOpts: FinancingEngineTimelineOptions = {
     commercial,
     sale: true,
@@ -571,7 +563,18 @@ export function buildFinancingEnginePreview(params: {
       90,
   };
 
+  console.log("🔍 [DEBUG BRIDGE] Inputs sent to engine:", {
+    jurisdiction: inputs.jurisdiction,
+    financingModel: inputs.financingModel,
+    constructionPeriodMonths: inputs.constructionPeriodMonths,
+    escrowWithdrawalMode: inputs.escrowWithdrawalMode,
+    totalSalesInflows: inputs.monthlySalesInflows.reduce((a, b) => a + b, 0),
+    totalConstructionCosts: inputs.monthlyCosts.construction.reduce((a, b) => a + b, 0),
+  });
+
   const rows = generateFinancingCashFlow(inputs);
+
+  console.log("🔍 [DEBUG BRIDGE] Engine returned rows count:", rows.length);
   return { jurisdiction, inputs, rows };
 }
 
@@ -594,6 +597,10 @@ export function mapEngineRowsToUae(rows: EngineMonthlyRow[]): UaeCashFlowRow[] {
     landCost: r.landCost,
     totalOutflowsInclLand: r.totalOutflowsInclLand,
     ncf: r.ncf,
+    landLoanDrawdown: r.landLoanDrawdown || 0,
+    landLoanInterest: r.landLoanInterest || 0,
+    landLoanRepayment: r.landLoanRepayment || 0,
+    landLoanFees: r.landLoanFees || 0,
     loanDrawdown: r.constLoanDrawdown,
     cumulativeLoanDrawdown: r.constLoanCumulative,
     interestPayment: r.constLoanInterest,

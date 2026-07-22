@@ -26,6 +26,11 @@ export type MonthlyRow = {
   totalOutflowsInclLand: number;
   ncf: number;
 
+  landLoanDrawdown: number;
+  landLoanInterest: number;
+  landLoanRepayment: number;
+  landLoanFees: number;
+
   loanDrawdown: number;
   cumulativeLoanDrawdown: number;
   interestPayment: number;
@@ -201,6 +206,41 @@ export function CashFlowTableUaeSa({
             isBold
             isNCF
           />
+
+          {/* Land Loan Section: Only shown for Commercial & No-Escrow (hideEscrowRows=true) */}
+          {hideEscrowRows && (
+            <>
+              <SectionHeader colSpan={colCount} label="LAND LOAN" />
+              <TableRow
+                label="Loan drawdown"
+                data={data}
+                getValue={(r) => r.landLoanDrawdown}
+                formatCurrency={formatCurrency}
+                isHighlight
+              />
+              <TableRow
+                label="Interest payment"
+                data={data}
+                getValue={(r) => r.landLoanInterest}
+                formatCurrency={formatCurrency}
+                isNegative
+              />
+              <TableRow
+                label="Loan repayment"
+                data={data}
+                getValue={(r) => r.landLoanRepayment}
+                formatCurrency={formatCurrency}
+                isNegative
+              />
+              <TableRow
+                label="Loan fees"
+                data={data}
+                getValue={(r) => r.landLoanFees}
+                formatCurrency={formatCurrency}
+                isNegative
+              />
+            </>
+          )}
 
           <SectionHeader colSpan={colCount} label="CONSTRUCTION LOAN" />
           <TableRow

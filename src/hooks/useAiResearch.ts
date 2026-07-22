@@ -83,102 +83,56 @@ async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
   return undefined;
 }
 
-function tryParseAiJson(candidate: string): AiResearchResult | null {
-  try {
-    return JSON.parse(candidate) as AiResearchResult;
-  } catch {
-    return null;
-  }
-}
-
-/** Extract JSON from markdown fences or outermost `{...}` braces. */
-function extractFromMarkdownOrBraces(text: string): AiResearchResult | null {
-  const jsonFence = text.match(/```json\s*([\s\S]*?)\s*```/i);
-  if (jsonFence?.[1]) {
-    const parsed = tryParseAiJson(jsonFence[1].trim());
-    if (parsed) {
-      console.log("✅ Extracted JSON from ```json fence");
-      return parsed;
-    }
-  }
-
-  const fence = text.match(/```\s*([\s\S]*?)\s*```/);
-  if (fence?.[1]) {
-    const inner = fence[1].trim();
-    if (inner.startsWith("{") || inner.startsWith("[")) {
-      const parsed = tryParseAiJson(inner);
-      if (parsed) {
-        console.log("✅ Extracted JSON from generic markdown fence");
-        return parsed;
-      }
-    }
-  }
-
-  // Strip fence markers (handles leftover prose outside fences poorly, so try last)
-  const withoutMarkdown = text
-    .replace(/```json\s*/gi, "")
-    .replace(/```/g, "")
-    .trim();
-  const strippedMd = tryParseAiJson(withoutMarkdown);
-  if (strippedMd) return strippedMd;
-
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    const candidate = text.substring(firstBrace, lastBrace + 1);
-    const parsed = tryParseAiJson(candidate);
-    if (parsed) {
-      console.log("✅ Extracted JSON via brace bounds (length:", candidate.length, ")");
-      return parsed;
-    }
-  }
-
-  return null;
-}
-
 /**
  * Robust JSON extraction for AI responses that may include:
  * - markdown code fences (```json ... ```)
- * - <reasoning>...</reasoning> blocks
+ * - <reasoning>...</reasoning> blocks followed by raw JSON
  * - prose before/after the JSON object
  */
-function extractJsonFromResponse(text: string): AiResearchResult {
-  console.log("🔍 Raw AI Response Length:", text.length);
-  console.log("🔍 First 500 chars:", text.substring(0, 500));
+function extractJsonFromResponse(rawText: string): AiResearchResult {
+  const trimmed = rawText.trim();
 
-  // Strategy 1: Try parsing the entire text first
-  const direct = tryParseAiJson(text.trim());
-  if (direct) return direct;
-  console.log("⚠️ Direct parse failed, trying extraction strategies...");
-
-  // Strategy 2: Prefer content after </reasoning>
-  const afterReasoningParts = text.split(/<\/reasoning>/i);
-  if (afterReasoningParts.length > 1) {
-    const jsonPart = afterReasoningParts.slice(1).join("</reasoning>").trim();
-    const parsed =
-      tryParseAiJson(jsonPart) ?? extractFromMarkdownOrBraces(jsonPart);
-    if (parsed) {
-      console.log("✅ Parsed JSON after </reasoning>");
-      return parsed;
+  // Strategy 1: Look for standard markdown code blocks (```json ... ```)
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim()) as AiResearchResult;
+    } catch {
+      // Fall through to next strategy
     }
-    console.log("⚠️ Post-reasoning parse failed");
   }
 
-  // Strategy 3: Strip reasoning tags, then markdown/braces
-  const withoutReasoning = text
-    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
-    .trim();
-  const stripped =
-    tryParseAiJson(withoutReasoning) ??
-    extractFromMarkdownOrBraces(withoutReasoning);
-  if (stripped) return stripped;
+  // Strategy 2: Look for JSON specifically after the </reasoning> tag
+  const reasoningMatch = trimmed.match(/<\/reasoning>\s*({[\s\S]*})/);
+  if (reasoningMatch) {
+    try {
+      return JSON.parse(reasoningMatch[1].trim()) as AiResearchResult;
+    } catch {
+      // Fall through to next strategy
+    }
+  }
 
-  // Strategy 4: Markdown / brace extraction on full raw text
-  const fromFull = extractFromMarkdownOrBraces(text);
-  if (fromFull) return fromFull;
+  // Strategy 3: Find the first '{' and the last '}' in the entire string
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const jsonStr = trimmed.substring(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(jsonStr) as AiResearchResult;
+    } catch {
+      // Fall through to next strategy
+    }
+  }
+
+  // Strategy 4: Fallback - try parsing the whole string
+  try {
+    return JSON.parse(trimmed) as AiResearchResult;
+  } catch {
+    // All strategies failed
+  }
 
   throw new Error(
-    `Unable to parse JSON from AI response. Raw response preview: ${text.substring(0, 1000)}...`
+    `Unable to parse JSON from AI response. Raw response preview: ${trimmed.substring(0, 300)}...`
   );
 }
 

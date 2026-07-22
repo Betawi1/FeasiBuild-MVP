@@ -278,10 +278,9 @@ function FinancingPreviewPageContent({
       0
     ) || 0);
   const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+    cashOutflows.constructionPeriod ??
+    financing.constructionPeriodMonths ??
+    30;
   const holdPeriodYears = financing.holdPeriodYears || 10;
   /** Last month of pre-op buffer (M41–M46 for 40M); operations begin next month — see `calculateOperationsStartMonth`. */
   const stabilizationEndMonth = calculateOperationsStartMonth(constructionPeriod) - 1;
@@ -3548,29 +3547,47 @@ function FinancingPreviewPageContent({
     showEscrowSection,
   ]);
 
+  // Extract withdrawal mode to component scope for table routing
+  const withdrawalMode =
+    financing.escrowConfig?.withdrawalMode ??
+    (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode ??
+    "none";
+
   const financingEngineGridMeta = useMemo(() => {
     const j = resolveFinancingEngineJurisdiction(projectInfo);
-    const commercialOpts = {
+
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("🔍 [Preview] Withdrawal mode from store:", {
+        withdrawalMode,
+        escrowConfig: financing.escrowConfig,
+        escrowWithdrawalMode: (financing as { escrowWithdrawalMode?: string })
+          .escrowWithdrawalMode,
+      });
+    }
+
+    const timelineOpts = {
       commercial: isCommercialPreview,
       sale: true as const,
       constructionPeriodMonths: constructionPeriod,
       country: projectInfo.country,
       countryCode: projectInfo.countryCode,
-      withdrawalMode: financing.escrowConfig?.withdrawalMode,
+      withdrawalMode,
       businessModel: projectInfo.businessModel ?? "DEV_FOR_SALE",
       projectType:
         projectInfo.projectType ??
         (isCommercialPreview ? "COMMERCIAL" : "RESIDENTIAL"),
     };
     return {
-      lastMonth: financingEngineTimelineLastMonth(j, constructionPeriod, commercialOpts),
-      monthCount: financingEngineTimelineMonthCount(j, constructionPeriod, commercialOpts),
+      lastMonth: financingEngineTimelineLastMonth(j, constructionPeriod, timelineOpts),
+      monthCount: financingEngineTimelineMonthCount(j, constructionPeriod, timelineOpts),
     };
   }, [
     projectInfo,
     constructionPeriod,
     isCommercialPreview,
-    financing.escrowConfig?.withdrawalMode,
+    withdrawalMode,
+    financing.escrowConfig,
   ]);
 
   /**
@@ -3684,6 +3701,42 @@ function FinancingPreviewPageContent({
                 formatCurrency={formatCurrency}
                 hideEscrowRows={!showEscrowSection}
               />
+            )}
+
+            {/* Handle "OTHER" jurisdictions based on C4S5 selection */}
+            {financingEnginePreview.inputs.jurisdiction === "OTHER" && (
+              <>
+                {withdrawalMode === "malaysia" && (
+                  <CashFlowTableMalaysia
+                    data={mapEngineRowsToMalaysia(financingEnginePreview.rows)}
+                    formatCurrency={formatCurrency}
+                    hideEscrowRows={false}
+                  />
+                )}
+                {withdrawalMode === "australia" && (
+                  <CashFlowTableAustralia
+                    data={mapEngineRowsToAustralia(financingEnginePreview.rows)}
+                    formatCurrency={formatCurrency}
+                    hideEscrowRows={false}
+                  />
+                )}
+                {/* For Non-Escrow (Commercial OR "Other" Residential selecting "none"), use UAE table with escrow rows hidden */}
+                {(withdrawalMode === "none" || isCommercialPreview) && (
+                  <CashFlowTableUaeSa
+                    data={mapEngineRowsToUae(financingEnginePreview.rows)}
+                    formatCurrency={formatCurrency}
+                    hideEscrowRows={true}
+                  />
+                )}
+                {/* Fallback for UAE/KSA selection in "Other" country */}
+                {withdrawalMode === "uae" && (
+                  <CashFlowTableUaeSa
+                    data={mapEngineRowsToUae(financingEnginePreview.rows)}
+                    formatCurrency={formatCurrency}
+                    hideEscrowRows={false}
+                  />
+                )}
+              </>
             )}
           </>
         ) : (

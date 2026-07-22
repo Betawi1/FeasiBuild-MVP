@@ -3,7 +3,7 @@
  * Generates pre-calculated monthly cash flow data for preview tables.
  * 
  * Features:
- * - 3 Jurisdictions: UAE_SA, MALAYSIA, AUSTRALIA
+ * - 4 Jurisdictions: UAE_SA, MALAYSIA, AUSTRALIA, OTHER
  * - 1-Month Offsets for Interest, Fees, Withdrawals
  * - Gap-Fill Sequencing: Equity -> RCF -> Backstop Equity
  * - 30/70 Milestone Rule (UAE/KSA)
@@ -13,7 +13,7 @@
 
 // --- TYPES ---
 
-export type Jurisdiction = 'UAE_SA' | 'MALAYSIA' | 'AUSTRALIA';
+export type Jurisdiction = 'UAE_SA' | 'MALAYSIA' | 'AUSTRALIA' | 'OTHER';
 
 export type MalaysiaPropertyType = 'LANDED' | 'HIGH_RISE';
 
@@ -279,7 +279,7 @@ export function generateOperationalCashFlow(
   });
 }
 
-type CountryHorizonBucket = "MY" | "UAE_SA" | "AU" | "VN" | "TH" | "OTHER";
+type CountryHorizonBucket = "MY" | "UAE_SA" | "AU" | "OTHER";
 
 function normalizeCountryHorizonBucket(
   jurisdiction: Jurisdiction,
@@ -288,9 +288,8 @@ function normalizeCountryHorizonBucket(
 ): CountryHorizonBucket {
   const code = (countryCode ?? "").toUpperCase();
   const c = (country ?? "").toLowerCase();
-  if (code === "MY" || c.includes("malaysia") || jurisdiction === "MALAYSIA") {
-    return "MY";
-  }
+
+  if (code === "MY" || c.includes("malaysia") || jurisdiction === "MALAYSIA") return "MY";
   if (
     code === "AE" ||
     code === "SA" ||
@@ -302,97 +301,249 @@ function normalizeCountryHorizonBucket(
   ) {
     return "UAE_SA";
   }
-  if (code === "AU" || c.includes("australia") || jurisdiction === "AUSTRALIA") {
-    return "AU";
-  }
-  if (code === "VN" || c.includes("vietnam")) return "VN";
-  if (code === "TH" || c.includes("thailand")) return "TH";
-  return "OTHER";
-}
+  if (code === "AU" || c.includes("australia") || jurisdiction === "AUSTRALIA") return "AU";
 
-function normalizeEscrowWithdrawalModel(
-  raw?: string
-): "malaysia" | "uae" | "australia" | null {
-  if (!raw) return null;
-  const v = raw.toLowerCase();
-  if (v.includes("malaysia") || v.includes("hda")) return "malaysia";
-  if (v.includes("australia") || v.includes("10/90") || v.includes("trust")) {
-    return "australia";
-  }
-  if (v.includes("uae") || v.includes("certification") || v.includes("ksa")) {
-    return "uae";
-  }
-  return null;
+  // EVERYTHING ELSE (Thailand, Vietnam, Indonesia, etc.) is "OTHER"
+  return "OTHER";
 }
 
 /**
  * Last month index for sale stream (M0 … saleHorizon inclusive).
- * Commercial: CP+6. Residential: jurisdiction law or VN/TH Step 5 model selection.
+ * Commercial: CP+6. Core 4 countries: fixed by law. OTHER: C4S5 tab selection.
  */
 export function resolveSaleHorizonLastMonth(inputs: FinancingInputs): number {
   const constructionMonths = inputs.constructionPeriodMonths || 42;
-  const businessModel = (
-    inputs.businessModel ||
-    inputs.projectType ||
-    ""
-  ).toUpperCase();
-  const isCommercial =
-    businessModel === "COMMERCIAL" || inputs.financingModel === "commercial";
+  const businessModel = (inputs.businessModel || inputs.projectType || "").toUpperCase();
+  const isCommercial = businessModel === "COMMERCIAL" || inputs.financingModel === "commercial";
 
-  const countryBucket = normalizeCountryHorizonBucket(
-    inputs.jurisdiction,
-    inputs.country,
-    inputs.countryCode
-  );
-  const selectedModel =
-    inputs.escrowModelType ||
-    inputs.withdrawalMethod ||
-    inputs.escrowWithdrawalMode;
+  const countryBucket = normalizeCountryHorizonBucket(inputs.jurisdiction, inputs.country, inputs.countryCode);
+  const selectedModel = (inputs.escrowWithdrawalMode || inputs.withdrawalMethod || "").toLowerCase();
 
-  let saleHorizon = 0;
+  // 1. Commercial: Always Non-Escrow (CP + 6)
+  if (isCommercial) return constructionMonths + 6;
 
-  if (isCommercial) {
-    saleHorizon = constructionMonths + 6;
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("🏢 [Commercial]: Horizon = CP + 6 months");
+  // 2. The 4 Specific Countries
+  if (countryBucket === "MY") return constructionMonths + 24;
+  if (countryBucket === "AU") return constructionMonths + 12;
+  if (countryBucket === "UAE_SA") return constructionMonths + 12;
+
+  // 3. OTHERS: Rely entirely on C4S5 Tab Selection
+  if (countryBucket === "OTHER") {
+    if (selectedModel === "malaysia") return constructionMonths + 24;
+    if (selectedModel === "australia") return constructionMonths + 12;
+    if (selectedModel === "none") return constructionMonths + 6; // Non-Escrow
+    return constructionMonths + 12; // Fallback to UAE rules if nothing selected
+  }
+
+  return constructionMonths + 12;
+}
+
+// --- STRATEGY MODELS ---
+
+/** Strategy A: UAE/KSA Escrow Logic */
+function applyUaeKsaEscrowLogic(
+  row: MonthlyRow,
+  state: any,
+  inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  totalSales: number,
+  interestEarned: number,
+  feePayable: number
+) {
+  const interval = inputs.certificationIntervalMonths;
+  const safeInterval = interval === 3 || interval === 6 ? interval : 6;
+  const monthlyOutflowExclLand = row.constructionCosts + row.softCosts + row.powc;
+  state.costsSinceLastCert += monthlyOutflowExclLand;
+  const cp = inputs.constructionPeriodMonths;
+  const isCertMonth = m > 0 && m <= cp && m % safeInterval === 0;
+  const escrowAtCertMonth = state.escrowBalance + salesThisMonth + interestEarned - feePayable;
+
+  if (isCertMonth) {
+    const eligibleAmount = Math.min(state.costsSinceLastCert, Math.max(0, escrowAtCertMonth));
+    state.pendingWithdrawal = eligibleAmount;
+    state.costsSinceLastCert = 0;
+  }
+
+  const isWithdrawalMonth = m - 1 > 0 && m - 1 <= cp && (m - 1) % safeInterval === 0;
+  if (isWithdrawalMonth && state.pendingWithdrawal > 0) {
+    row.progressWithdrawal = state.pendingWithdrawal;
+    state.pendingWithdrawal = 0;
+  } else {
+    row.progressWithdrawal = 0;
+  }
+
+  const balanceAfterFlows = state.escrowBalance + salesThisMonth + interestEarned - feePayable - row.progressWithdrawal;
+  const retentionFloor = totalSales * 0.05;
+  const finalReleaseMonth = inputs.constructionPeriodMonths + 12;
+  let releaseAmount = 0;
+
+  if (m >= inputs.constructionPeriodMonths + 1) {
+    if (m === finalReleaseMonth) {
+      releaseAmount = balanceAfterFlows;
+      state.escrowBalance = 0;
+    } else {
+      const surplus = balanceAfterFlows - retentionFloor;
+      if (surplus > 0) { releaseAmount = surplus; state.escrowBalance = retentionFloor; }
+      else { releaseAmount = 0; state.escrowBalance = balanceAfterFlows; }
     }
   } else {
-    if (countryBucket === "MY") {
-      saleHorizon = constructionMonths + 24;
-    } else if (countryBucket === "UAE_SA") {
-      saleHorizon = constructionMonths + 12;
-    } else if (countryBucket === "AU") {
-      saleHorizon = constructionMonths + 12;
-    } else {
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log(
-          "🌏 [VN/TH/Other]: Horizon depends on Selected Model:",
-          selectedModel
-        );
+    state.escrowBalance = balanceAfterFlows;
+  }
+
+  row.escrowReleases = releaseAmount;
+  row.escrowBalance = state.escrowBalance;
+  row.escrowInterest = interestEarned;
+  row.escrowAccountFees = feePayable;
+}
+
+/** Strategy B: Malaysia HDA Logic */
+function applyMalaysiaHdaLogic(
+  row: MonthlyRow,
+  state: any,
+  inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  interestEarned: number,
+  feePayable: number,
+  totalSales: number
+) {
+  if (m === 0 && state.hdaDepositAmount > 0) state.escrowBalance += state.hdaDepositAmount;
+  row.escrowInterest = interestEarned;
+  if (m === inputs.constructionPeriodMonths + 24 && state.hdaDepositAmount > 0) {
+    row.escrowInterest += state.hdaDepositAmount * inputs.escrowDepositRatePct * (inputs.constructionPeriodMonths / 12);
+  }
+  row.escrowAccountFees = feePayable;
+  state.totalActualSalesCollected += salesThisMonth;
+  const balanceAfterInflows = state.escrowBalance + salesThisMonth + interestEarned - feePayable;
+  const isConstruction = m <= inputs.constructionPeriodMonths;
+  const monthsSinceVP = m - inputs.constructionPeriodMonths;
+  const hdaFloor = state.hdaDepositAmount > 0 && !state.hdaDepositReleased ? state.hdaDepositAmount : 0;
+
+  let progressWithdrawal = 0;
+  let escrowRelease = 0;
+
+  if (isConstruction) {
+    const currentProgress = inputs.sCurveMonthly[m] ?? row.progressPct ?? 0;
+    const stage1Withdrawal = salesThisMonth * 0.1;
+    let milestoneEntitlement = 0;
+    const propertyType = normalizeMalaysiaPropertyType(inputs.malaysiaPropertyType ?? (inputs as any).propertyType);
+    const applicableMilestones = filterMalaysiaMilestonesForPropertyType(propertyType);
+
+    for (const milestone of applicableMilestones) {
+      if (currentProgress >= milestone.threshold && !state.malaysiaPaidMilestones.includes(milestone.id)) {
+        const entitlement = state.totalActualSalesCollected * milestone.percent;
+        milestoneEntitlement += entitlement;
+        state.malaysiaPaidMilestones.push(milestone.id);
       }
-      const model = normalizeEscrowWithdrawalModel(selectedModel);
-      if (model === "malaysia") {
-        saleHorizon = constructionMonths + 24;
-      } else {
-        saleHorizon = constructionMonths + 12;
-      }
+    }
+    const totalEntitlement = stage1Withdrawal + milestoneEntitlement;
+    const withdrawableBalance = Math.max(0, balanceAfterInflows - hdaFloor);
+    progressWithdrawal = Math.min(totalEntitlement, withdrawableBalance);
+  } else {
+    let retentionPercent = 0;
+    if (monthsSinceVP >= 1 && monthsSinceVP <= 8) retentionPercent = 0.05;
+    else if (monthsSinceVP >= 9 && monthsSinceVP <= 23) retentionPercent = 0.025;
+    else if (monthsSinceVP === 24) retentionPercent = 0;
+
+    const gdvOrSales = state.totalActualSalesCollected || inputs.projectedGDV || totalSales;
+    const requiredRetention = gdvOrSales * retentionPercent;
+    const hdaLocked = monthsSinceVP < 24 ? hdaFloor : 0;
+    const minimumEscrowBalance = requiredRetention + hdaLocked;
+    const surplus = balanceAfterInflows - minimumEscrowBalance;
+    if (surplus > 0) escrowRelease = surplus;
+    if (monthsSinceVP === 24 && !state.hdaDepositReleased) {
+      state.hdaDepositReleased = true;
+      state.hdaDepositAmount = 0;
     }
   }
 
-  if (process.env.NODE_ENV === "development") {
-    // eslint-disable-next-line no-console
-    console.log("📅 [Final Sale Horizon]:", {
-      construction: constructionMonths,
-      jurisdiction: inputs.jurisdiction,
-      country: countryBucket,
-      model: selectedModel,
-      finalHorizon: saleHorizon,
-    });
+  row.progressWithdrawal = progressWithdrawal;
+  row.escrowReleases = escrowRelease;
+  row.retentionRelease = isConstruction ? 0 : escrowRelease;
+  state.escrowBalance = balanceAfterInflows - progressWithdrawal - escrowRelease;
+  row.escrowBalance = state.escrowBalance;
+}
+
+/** Strategy C: Australia 10/90 Logic */
+function applyAustralia1090Logic(
+  row: MonthlyRow,
+  state: any,
+  inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  interestEarned: number,
+  feePayable: number,
+  totalSales: number
+) {
+  const depositPct = (inputs.auDepositPct ?? 10) / 100;
+  const balancePct = (inputs.auBalancePct ?? 90) / 100;
+  const constructionEnd = inputs.constructionPeriodMonths;
+  const monthsSinceConstructionEnd = m - constructionEnd;
+
+  row.lockedInSales = salesThisMonth;
+  state.cumuLockedSales += salesThisMonth;
+  row.cumuLockedInSales = state.cumuLockedSales;
+  row.trustAccountInterest = interestEarned;
+  row.trustAccountFees = feePayable;
+  row.escrowReleases = 0;
+  row.actualSalesProceeds = 0;
+  row.trustAccountReleases = 0;
+
+  if (m > constructionEnd) {
+    if (!state.auConstructionBalancePaid) {
+      row.actualSalesProceeds += state.auConstructionSalesCumulative * balancePct;
+      state.auConstructionBalancePaid = true;
+    }
+    row.actualSalesProceeds += salesThisMonth * balancePct;
   }
 
-  return saleHorizon;
+  if (m <= constructionEnd) {
+    const depositAmount = row.lockedInSales * depositPct;
+    state.auConstructionSalesCumulative += salesThisMonth;
+    state.trustAccountBalance += depositAmount + interestEarned - feePayable;
+  } else {
+    state.trustAccountBalance += interestEarned - feePayable;
+    const totalGDV = inputs.projectedGDV || state.cumuLockedSales || totalSales;
+    const retentionFloor = totalGDV * 0.05;
+
+    if (monthsSinceConstructionEnd === 1) {
+      const excess = state.trustAccountBalance - retentionFloor;
+      const releaseAmount = Math.max(0, excess);
+      row.trustAccountReleases = releaseAmount;
+      state.trustAccountBalance -= releaseAmount;
+    } else if (monthsSinceConstructionEnd === 12) {
+      row.trustAccountReleases = state.trustAccountBalance;
+      state.trustAccountBalance = 0;
+    }
+  }
+  row.escrowReleases = row.trustAccountReleases;
+  row.cumuTrustAccount = state.trustAccountBalance;
+  row.escrowBalance = state.trustAccountBalance;
+}
+
+/** Strategy D: Non-Escrow (Universal Fallback) */
+function applyNonEscrowLogic(
+  row: MonthlyRow,
+  state: any,
+  inputs: FinancingInputs,
+  salesThisMonth: number
+) {
+  // Direct sales sweep, no escrow/trust logic
+  row.ncf = salesThisMonth - row.totalOutflowsInclLand;
+  row.escrowBalance = 0;
+  row.escrowInterest = 0;
+  row.escrowAccountFees = 0;
+  row.progressWithdrawal = 0;
+  row.escrowReleases = 0;
+  row.retentionRelease = 0;
+  row.lockedInSales = 0;
+  row.cumuLockedInSales = 0;
+  row.cumuTrustAccount = 0;
+  row.trustAccountInterest = 0;
+  row.trustAccountFees = 0;
+  row.trustAccountReleases = 0;
+  row.actualSalesProceeds = 0;
 }
 
 function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
@@ -415,6 +566,14 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     inputs.stream === "sale" ||
     inputs.exitStrategy === "sale" ||
     inputs.businessModel === "DEV_FOR_SALE";
+
+  console.log("🔍 [DEBUG ENGINE CORE] Starting runFinancingEngineCore:", {
+    isCommercial: inputs.financingModel === "commercial",
+    jurisdiction: inputs.jurisdiction,
+    constructionPeriod: inputs.constructionPeriodMonths,
+    saleHorizon: isSaleStream ? resolveSaleHorizonLastMonth(inputs) : "N/A",
+    totalMonths: isSaleStream ? resolveSaleHorizonLastMonth(inputs) + 1 : "N/A",
+  });
 
   /** Last month index (e.g. CP=42, MY residential sale → M66). */
   const lastMonthIndex = isSaleStream
@@ -545,8 +704,14 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       ? inputs.totalConstructionCosts
       : totalConstructionCosts;
 
+  const selectedModelGlobal = (
+    inputs.escrowWithdrawalMode ||
+    inputs.withdrawalMethod ||
+    ""
+  ).toLowerCase();
+
   if (
-    inputs.jurisdiction === "MALAYSIA" &&
+    (inputs.jurisdiction === "MALAYSIA" || selectedModelGlobal === "malaysia") &&
     inputs.hdaDepositEnabled !== false
   ) {
     const hdaPctPoints = inputs.hdaDepositPct ?? 3;
@@ -603,15 +768,30 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     row.salesProceeds = salesThisMonth;
 
     const isResidential = !isCommercial;
+    const selectedModel = (
+      inputs.escrowWithdrawalMode ||
+      inputs.withdrawalMethod ||
+      ""
+    ).toLowerCase();
+    const useAustraliaTrust =
+      inputs.jurisdiction === "AUSTRALIA" || selectedModel === "australia";
+    const useUaeEscrow =
+      inputs.jurisdiction === "UAE_SA" || selectedModel === "uae";
+    const useMalaysiaEscrow =
+      inputs.jurisdiction === "MALAYSIA" || selectedModel === "malaysia";
+    const applyEscrowRules =
+      isResidential &&
+      selectedModel !== "none" &&
+      (useUaeEscrow || useMalaysiaEscrow || useAustraliaTrust);
 
-    if (isCommercial) {
+    if (isCommercial || !applyEscrowRules) {
       row.ncf = salesThisMonth - row.totalOutflowsInclLand;
     }
 
     // Interest Calculation (1-Month Offset: Interest on M-1 balance) — residential escrow/trust only
     let interestEarned = 0;
-    if (isResidential && m > 0) {
-      if (inputs.jurisdiction === 'AUSTRALIA') {
+    if (applyEscrowRules && m > 0) {
+      if (useAustraliaTrust) {
         interestEarned = state.trustAccountBalance * (inputs.trustAccountDepositRatePct / 12);
       } else {
         interestEarned = state.escrowBalance * (inputs.escrowDepositRatePct / 12);
@@ -620,305 +800,90 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
 
     // Fee Calculation (1-Month Offset: Avg of prev 12 months)
     let feePayable = 0;
-    if (isResidential && m === 0) {
+    if (applyEscrowRules && m === 0) {
       feePayable = inputs.escrowSetupFee;
-    } else if (isResidential && m >= 12 && (m - 1) % 12 === 0) {
+    } else if (applyEscrowRules && m >= 12 && (m - 1) % 12 === 0) {
       // Annual fee calculation
-      const avgBal = inputs.jurisdiction === 'AUSTRALIA' 
-        ? state.feeAvgBalanceSum / 12 // Trust Account Avg
-        : state.feeAvgBalanceSum / 12; // Escrow Avg
-      const feeRate = inputs.jurisdiction === 'AUSTRALIA' 
-        ? inputs.trustAccountFeePct 
+      const avgBal = state.feeAvgBalanceSum / 12;
+      const feeRate = useAustraliaTrust
+        ? inputs.trustAccountFeePct
         : inputs.escrowManagementFeePct;
-      feePayable = avgBal * (feeRate / 12); // Monthly equivalent of annual fee? Or annual fee payable monthly?
       // User said: "Average(M0 to M12) x % Management fee payable at M13"
       // Usually management fee is annual % applied to balance.
       // Let's assume the rate provided is Annual %.
-      feePayable = avgBal * feeRate; 
-      
+      feePayable = avgBal * feeRate;
+
       state.feeAvgBalanceSum = 0;
       state.feeAvgBalanceCount = 0;
     }
-    
-    // Update Fee Averages (residential only)
-    if (isResidential) {
-      const balanceForAvg =
-        inputs.jurisdiction === 'AUSTRALIA' ? state.trustAccountBalance : state.escrowBalance;
+
+    // Update Fee Averages (residential escrow/trust only)
+    if (applyEscrowRules) {
+      const balanceForAvg = useAustraliaTrust
+        ? state.trustAccountBalance
+        : state.escrowBalance;
       state.feeAvgBalanceSum += balanceForAvg;
       state.feeAvgBalanceCount++;
     }
 
-    // --- ESCROW / TRUST LOGIC (residential only) ---
-    if (isResidential && inputs.jurisdiction === 'UAE_SA') {
-      // Safety: Ensure interval is valid (3 or 6)
-      const interval = inputs.certificationIntervalMonths;
-      const safeInterval = interval === 3 || interval === 6 ? interval : 6;
+    // --- ESCROW / TRUST ROUTER (Strategy Pattern) ---
+    const isCommercialCheck = inputs.financingModel === "commercial";
 
-      if (m === 0 && process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log(`🏗️ [Engine Interval]: Input=${interval}, Using=${safeInterval}`);
-      }
+    console.log(`🔍 [DEBUG ENGINE ROUTER] Month ${m}:`, {
+      isCommercialCheck,
+      selectedModel,
+      jurisdiction: inputs.jurisdiction,
+    });
 
-      row.escrowInterest = interestEarned;
-      row.escrowAccountFees = feePayable;
-
-      // --- PROGRESS WITHDRAWAL (interval certification + 1‑month lag) ---
-      // Cert on M{interval}, M{2×interval}, … within construction; withdrawal the following month.
-      // Eligible = MIN(period outflows excl. land, escrow at cert after this month’s sales / interest / fees).
-      const monthlyOutflowExclLand =
-        row.constructionCosts + row.softCosts + row.powc;
-
-      state.costsSinceLastCert += monthlyOutflowExclLand;
-
-      const cp = inputs.constructionPeriodMonths;
-      const isCertMonth = m > 0 && m <= cp && m % safeInterval === 0;
-
-      // Balance available at certification month (before this month’s withdrawal is applied)
-      const escrowAtCertMonth =
-        state.escrowBalance + salesThisMonth + interestEarned - feePayable;
-
-      if (isCertMonth) {
-        const eligibleAmount = Math.min(
-          state.costsSinceLastCert,
-          Math.max(0, escrowAtCertMonth)
-        );
-        state.pendingWithdrawal = eligibleAmount;
-        state.costsSinceLastCert = 0;
-      }
-
-      const isWithdrawalMonth =
-        m - 1 > 0 && m - 1 <= cp && (m - 1) % safeInterval === 0;
-
-      if (isWithdrawalMonth && state.pendingWithdrawal > 0) {
-        row.progressWithdrawal = state.pendingWithdrawal;
-        state.pendingWithdrawal = 0;
-      } else {
-        row.progressWithdrawal = 0;
-      }
-
-      // --- UAE/SA escrow balance: inflows & outflows first (sales, interest, fees, certified withdrawal) ---
-      const balanceAfterFlows =
-        state.escrowBalance +
-        salesThisMonth +
-        interestEarned -
-        feePayable -
-        row.progressWithdrawal;
-
-      // --- UAE/SA escrow releases (surplus above retention + final liquidation at CP+12) ---
-      const retentionFloor = totalSales * 0.05;
-      const finalReleaseMonth = inputs.constructionPeriodMonths + 12;
-
-      let releaseAmount = 0;
-      if (m >= inputs.constructionPeriodMonths + 1) {
-        if (m === finalReleaseMonth) {
-          releaseAmount = balanceAfterFlows;
-          state.escrowBalance = 0;
-        } else {
-          const surplus = balanceAfterFlows - retentionFloor;
-          if (surplus > 0) {
-            releaseAmount = surplus;
-            state.escrowBalance = retentionFloor;
-          } else {
-            releaseAmount = 0;
-            state.escrowBalance = balanceAfterFlows;
-          }
-        }
-      } else {
-        state.escrowBalance = balanceAfterFlows;
-      }
-
-      row.escrowReleases = releaseAmount;
-      row.escrowBalance = state.escrowBalance;
-
-    } else if (isResidential && inputs.jurisdiction === 'MALAYSIA') {
-      // --- M0: lodge HDA deposit into escrow (frozen until VP+24) ---
-      if (m === 0 && state.hdaDepositAmount > 0) {
-        state.escrowBalance += state.hdaDepositAmount;
-      }
-
-      row.escrowInterest = interestEarned;
-      if (m === inputs.constructionPeriodMonths + 24 && state.hdaDepositAmount > 0) {
-        const hdaInterest =
-          state.hdaDepositAmount *
-          inputs.escrowDepositRatePct *
-          (inputs.constructionPeriodMonths / 12);
-        row.escrowInterest += hdaInterest;
-      }
-
-      row.escrowAccountFees = feePayable;
-
-      // --- Malaysia HDA withdrawal separation ---
-      state.totalActualSalesCollected += salesThisMonth;
-
-      const balanceAfterInflows =
-        state.escrowBalance + salesThisMonth + interestEarned - feePayable;
-
-      const isConstruction = m <= inputs.constructionPeriodMonths;
-      const monthsSinceVP = m - inputs.constructionPeriodMonths;
-      const hdaFloor =
-        state.hdaDepositAmount > 0 && !state.hdaDepositReleased
-          ? state.hdaDepositAmount
-          : 0;
-
-      let progressWithdrawal = 0;
-      let escrowRelease = 0;
-
-      if (isConstruction) {
-        const currentProgress =
-          inputs.sCurveMonthly[m] ?? row.progressPct ?? 0;
-        const stage1Withdrawal = salesThisMonth * 0.1;
-
-        let milestoneEntitlement = 0;
-        const propertyType = normalizeMalaysiaPropertyType(
-          inputs.malaysiaPropertyType ??
-            (inputs as { propertyType?: MalaysiaPropertyType }).propertyType
-        );
-        const applicableMilestones =
-          filterMalaysiaMilestonesForPropertyType(propertyType);
-
-        if (process.env.NODE_ENV === 'development' && currentProgress >= 85) {
-          console.log('🇲🇾 [Malaysia Milestone Check]:', {
-            month: m,
-            currentProgress,
-            malaysiaPropertyType: inputs.malaysiaPropertyType,
-            propertyType,
-            applicableMilestones: applicableMilestones.map((ms) => ms.id),
-          });
-        }
-
-        for (const milestone of applicableMilestones) {
-          if (
-            currentProgress >= milestone.threshold &&
-            !state.malaysiaPaidMilestones.includes(milestone.id)
-          ) {
-            const entitlement =
-              state.totalActualSalesCollected * milestone.percent;
-            milestoneEntitlement += entitlement;
-            state.malaysiaPaidMilestones.push(milestone.id);
-
-            if (process.env.NODE_ENV === 'development') {
-              console.log(
-                `✅ [Milestone Paid]: ${milestone.id} (${milestone.label}) - ${milestone.percent * 100}% = MYR ${entitlement.toLocaleString()}`
-              );
-            }
-          }
-        }
-
-        if (process.env.NODE_ENV === 'development' && milestoneEntitlement > 0) {
-          console.log(
-            `📊 [Total Milestone Entitlement]: MYR ${milestoneEntitlement.toLocaleString()}`
-          );
-        }
-
-        const totalEntitlement = stage1Withdrawal + milestoneEntitlement;
-        const withdrawableBalance = Math.max(0, balanceAfterInflows - hdaFloor);
-        progressWithdrawal = Math.min(totalEntitlement, withdrawableBalance);
-      } else {
-        let retentionPercent = 0;
-        if (monthsSinceVP >= 1 && monthsSinceVP <= 8) {
-          retentionPercent = 0.05;
-        } else if (monthsSinceVP >= 9 && monthsSinceVP <= 23) {
-          retentionPercent = 0.025;
-        } else if (monthsSinceVP === 24) {
-          retentionPercent = 0;
-        }
-
-        const gdvOrSales =
-          state.totalActualSalesCollected ||
-          inputs.projectedGDV ||
-          totalSales;
-        const requiredRetention = gdvOrSales * retentionPercent;
-        const hdaLocked = monthsSinceVP < 24 ? hdaFloor : 0;
-        const minimumEscrowBalance = requiredRetention + hdaLocked;
-        const surplus = balanceAfterInflows - minimumEscrowBalance;
-        if (surplus > 0) {
-          escrowRelease = surplus;
-        }
-
-        if (monthsSinceVP === 24 && !state.hdaDepositReleased) {
-          state.hdaDepositReleased = true;
-          state.hdaDepositAmount = 0;
-        }
-      }
-
-      row.progressWithdrawal = progressWithdrawal;
-      row.escrowReleases = escrowRelease;
-      row.retentionRelease = isConstruction ? 0 : escrowRelease;
-
-      state.escrowBalance =
-        balanceAfterInflows - progressWithdrawal - escrowRelease;
-      row.escrowBalance = state.escrowBalance;
-
-    } else if (isResidential && inputs.jurisdiction === 'AUSTRALIA') {
-      const depositPct = (inputs.auDepositPct ?? 10) / 100;
-      const balancePct = (inputs.auBalancePct ?? 90) / 100;
-      const constructionEnd = inputs.constructionPeriodMonths;
-      const monthsSinceConstructionEnd = m - constructionEnd;
-
-      row.lockedInSales = salesThisMonth;
-      state.cumuLockedSales += salesThisMonth;
-      row.cumuLockedInSales = state.cumuLockedSales;
-
-      row.trustAccountInterest = interestEarned;
-      row.trustAccountFees = feePayable;
-
-      row.escrowReleases = 0;
-      row.actualSalesProceeds = 0;
-      row.trustAccountReleases = 0;
-
-      // Balance payments (90%): paid at settlement, not held in trust
-      if (m > constructionEnd) {
-        if (!state.auConstructionBalancePaid) {
-          row.actualSalesProceeds +=
-            state.auConstructionSalesCumulative * balancePct;
-          state.auConstructionBalancePaid = true;
-        }
-        row.actualSalesProceeds += salesThisMonth * balancePct;
-      }
-
-      // --- AUSTRALIA TRUST ACCOUNT RELEASE LOGIC ---
-      if (m <= constructionEnd) {
-        const depositAmount = row.lockedInSales * depositPct;
-        state.auConstructionSalesCumulative += salesThisMonth;
-        state.trustAccountBalance += depositAmount + interestEarned - feePayable;
-        row.trustAccountReleases = 0;
-      } else {
-        state.trustAccountBalance += interestEarned - feePayable;
-
-        const totalGDV = inputs.projectedGDV || state.cumuLockedSales || totalSales;
-        const retentionFloor = totalGDV * 0.05;
-
-        // Event A: 1 month after construction ends — release above 5% GDV floor
-        if (monthsSinceConstructionEnd === 1) {
-          const excess = state.trustAccountBalance - retentionFloor;
-          const releaseAmount = Math.max(0, excess);
-
-          row.trustAccountReleases = releaseAmount;
-          state.trustAccountBalance -= releaseAmount;
-        }
-        // Event B: 12 months after construction ends — final retention release
-        else if (monthsSinceConstructionEnd === 12) {
-          const finalReleaseAmount = state.trustAccountBalance;
-
-          row.trustAccountReleases = finalReleaseAmount;
-          state.trustAccountBalance = 0;
-        }
-        // Interim months 2–11: no trust releases
-        else {
-          row.trustAccountReleases = 0;
-        }
-      }
-
-      row.escrowReleases = row.trustAccountReleases;
-      row.cumuTrustAccount = state.trustAccountBalance;
-      row.escrowBalance = state.trustAccountBalance;
+    if (isCommercialCheck || selectedModel === "none") {
+      // Strategy D: Non-Escrow (Commercial OR "Other" Residential selecting Non-Escrow)
+      applyNonEscrowLogic(row, state, inputs, salesThisMonth);
+    } else if (inputs.jurisdiction === "UAE_SA" || selectedModel === "uae") {
+      // Strategy A: UAE/KSA Escrow
+      applyUaeKsaEscrowLogic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        totalSales,
+        interestEarned,
+        feePayable
+      );
+    } else if (inputs.jurisdiction === "MALAYSIA" || selectedModel === "malaysia") {
+      // Strategy B: Malaysia HDA
+      applyMalaysiaHdaLogic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        interestEarned,
+        feePayable,
+        totalSales
+      );
+    } else if (inputs.jurisdiction === "AUSTRALIA" || selectedModel === "australia") {
+      // Strategy C: Australia 10/90
+      applyAustralia1090Logic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        interestEarned,
+        feePayable,
+        totalSales
+      );
+    } else {
+      // Fallback for "OTHER" jurisdiction with no model selected: Default to Non-Escrow
+      applyNonEscrowLogic(row, state, inputs, salesThisMonth);
     }
 
     // --- NET CASH FLOW ---
-    if (isResidential) {
-      // Residential: cash = funds actually received (escrowed sales do not count until released).
+    if (applyEscrowRules) {
+      // Residential escrow/trust: cash = funds actually received (escrowed sales do not count until released).
       let availableInflows = 0;
-      if (inputs.jurisdiction === "AUSTRALIA") {
+      if (useAustraliaTrust) {
         availableInflows = row.actualSalesProceeds + row.trustAccountReleases;
       } else {
         availableInflows = row.progressWithdrawal + row.escrowReleases;
@@ -934,7 +899,9 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       const requiredCash = inputs.cashEquityRequired || 0;
       row.capitalCash = Math.max(0, requiredCash - prefAmount);
       row.capitalHdaDeposit =
-        inputs.jurisdiction === "MALAYSIA" ? state.hdaDepositAmount : 0;
+        inputs.jurisdiction === "MALAYSIA" || selectedModel === "malaysia"
+          ? state.hdaDepositAmount
+          : 0;
       state.cumulativeEquity = row.capitalLand + row.capitalCash;
       row.prefDrawdown = inputs.prefSharesEnabled ? Math.max(0, inputs.prefSharesAmount) : 0;
       state.prefSharesBalance = row.prefDrawdown;
@@ -1076,7 +1043,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
 
     // --- LOAN DRAWDOWN (construction period only) ---
     if (isConstructionPhase) {
-      if (!isCommercial && inputs.jurisdiction === "AUSTRALIA") {
+      if (!isCommercial && useAustraliaTrust) {
         // --- 10/90 GAP FILL WITH 70% LTV CAP & EQUITY SWITCH ---
         if (projectedBalance < -1e-6) {
           const deficitAmount = -projectedBalance;
@@ -1111,7 +1078,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         const fundingGap = -projectedBalance;
         let room = Math.max(0, inputs.approvedCreditFacility - state.rcfBalance);
 
-        if (inputs.jurisdiction === "UAE_SA") {
+        if (inputs.jurisdiction === "UAE_SA" || selectedModel === "uae") {
           const cumuCosts =
             inputs.monthlyCosts.construction.slice(0, m + 1).reduce((a, b) => a + b, 0) +
             inputs.monthlyCosts.soft.slice(0, m + 1).reduce((a, b) => a + b, 0) +
@@ -1156,7 +1123,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       row.cumulativeNcf < 0 &&
       m > 0 &&
       !isCommercial &&
-      inputs.jurisdiction !== "AUSTRALIA"
+      !useAustraliaTrust
     ) {
       const plug = -row.cumulativeNcf;
       const facilityHeadroom = inputs.approvedCreditFacility - state.rcfBalance;

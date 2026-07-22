@@ -1,5 +1,5 @@
 /** Escrow withdrawal method selected in Component 4 Step 5. */
-export type EscrowWithdrawalMode = "malaysia" | "uae" | "australia";
+export type EscrowWithdrawalMode = "malaysia" | "uae" | "australia" | "none";
 
 export type MalaysiaPropertyType = "HIGH_RISE" | "LANDED";
 
@@ -21,4 +21,4 @@ export type EscrowConfigUpdateField = <K extends keyof EscrowConfigFormFields>(
 ) => void;
 
 /** Country bucket for escrow tab visibility (Component 4 Step 5). */
-export type EscrowCountryBucket = "MY" | "UAE" | "SA" | "AU" | "VN" | "TH";
+export type EscrowCountryBucket = "MY" | "SA" | "UAE" | "AU" | "VN" | "TH" | "OTHER";

@@ -156,18 +156,6 @@ const COUNTRIES = [
     cities: ["Kuala Lumpur", "Penang", "Johor Bahru"],
   },
   {
-    name: "Vietnam",
-    code: "VN",
-    currency: ["VND", "USD"],
-    cities: ["Ho Chi Minh City", "Hanoi", "Da Nang"],
-  },
-  {
-    name: "Thailand",
-    code: "TH",
-    currency: ["THB", "USD"],
-    cities: ["Bangkok", "Phuket", "Chiang Mai"],
-  },
-  {
     name: "Australia",
     code: "AU",
     currency: ["AUD", "USD"],
@@ -179,8 +167,6 @@ const CURRENCY_LABELS: Record<string, string> = {
   AED: "AED - UAE Dirham",
   SAR: "SAR - Saudi Riyal",
   MYR: "MYR - Malaysian Ringgit",
-  VND: "VND - Vietnamese Dong",
-  THB: "THB - Thai Baht",
   AUD: "AUD - Australian Dollar",
   USD: "USD - US Dollar",
 };
@@ -336,55 +322,6 @@ const PROFILE_DEFAULTS: Record<
     constructionCostPerKey: 220000,
     adrBenchmark: 150,
     occupancyBenchmark: 75,
-    regionBucket: "southeast_asia",
-  },
-
-  // === VIETNAM ===
-  "Vietnam:Ho Chi Minh City:Business:5": {
-    softCostPercent: 8.0,
-    powcPercent: 5.0,
-    ffePercent: 20.0,
-    constructionCostPerKey: 4500,
-    adrBenchmark: 2800,
-    occupancyBenchmark: 72,
-    regionBucket: "southeast_asia",
-  },
-  "Vietnam:Ho Chi Minh City:Business:4": {
-    softCostPercent: 7.5,
-    powcPercent: 4.5,
-    ffePercent: 16.0,
-    constructionCostPerKey: 3500,
-    adrBenchmark: 1800,
-    occupancyBenchmark: 70,
-    regionBucket: "southeast_asia",
-  },
-
-  // === THAILAND ===
-  "Thailand:Bangkok:Business:5": {
-    softCostPercent: 8.0,
-    powcPercent: 5.0,
-    ffePercent: 20.0,
-    constructionCostPerKey: 5500,
-    adrBenchmark: 3500,
-    occupancyBenchmark: 75,
-    regionBucket: "southeast_asia",
-  },
-  "Thailand:Bangkok:Business:4": {
-    softCostPercent: 7.5,
-    powcPercent: 4.5,
-    ffePercent: 16.0,
-    constructionCostPerKey: 4200,
-    adrBenchmark: 2200,
-    occupancyBenchmark: 73,
-    regionBucket: "southeast_asia",
-  },
-  "Thailand:Phuket:Resort:5": {
-    softCostPercent: 9.0,
-    powcPercent: 5.5,
-    ffePercent: 26.0,
-    constructionCostPerKey: 7500,
-    adrBenchmark: 5500,
-    occupancyBenchmark: 70,
     regionBucket: "southeast_asia",
   },
 
@@ -544,7 +481,9 @@ function getBenchmarkSource(country: string, city: string): string {
   if (c.includes("kuwait") || c.includes("qatar") || c.includes("bahrain") || c.includes("oman")) return "GCC Cost Database";
   if (c.includes("kingdom") || c.includes("london")) return "RICS Cost Database";
   if (c.includes("malaysia") || c.includes("kuala")) return "JKR / Malaysia Cost Data";
+  if (c.includes("australia") || c.includes("sydney") || c.includes("melbourne")) return "Industry benchmarks";
   if (c.includes("united states") || c.includes("new york")) return "RSMeans / US Benchmarks";
+  // All other countries (Thailand, Vietnam, Indonesia, etc.) fall under "Others"
   return "Industry benchmarks";
 }
 
