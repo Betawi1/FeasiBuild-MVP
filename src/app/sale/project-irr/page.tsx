@@ -5,7 +5,7 @@ import useFinModelStore from "@/store/useFinModelStore";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { BenchmarkBanner } from "@/components/BenchmarkBanner";
 import { solveAnnualIRR, type CashFlowPoint } from "@/lib/irr-calculations";
-import { buildSaleCashflowDetailProfile } from "@/lib/sale-cash-preview-profile";
+import { buildSalePreFinancingCashFlows } from "@/lib/sale-cash-preview-profile";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 
 type SalePhase = "construction" | "sales" | "handover";
@@ -29,42 +29,30 @@ export default function SaleProjectIrrPage() {
   );
 
   const currency = projectInfo.currency || "AED";
-  const constructionPeriod = cashOutflows.constructionPeriod || 30;
   const postCompletionBuffer = 6;
-  const totalMonths = constructionPeriod + postCompletionBuffer; // last month index
-  const months = useMemo(
-    () => Array.from({ length: totalMonths + 1 }, (_, i) => i),
-    [totalMonths]
+
+  // Same NCF as Cash Flow Preview / project-irr preview — no CapEx recalculation.
+  const preFinancing = useMemo(
+    () =>
+      buildSalePreFinancingCashFlows(cashOutflows, cashInflows, projectInfo, {
+        postCompletionBuffer,
+      }),
+    [cashOutflows, cashInflows, projectInfo]
   );
 
-  // --- UNIFIED CALCULATION PIPELINE (matches `/sale/preview/project-irr`) ---
-  const detail = useMemo(
-    () => buildSaleCashflowDetailProfile(cashOutflows, projectInfo),
-    [cashOutflows, projectInfo]
+  const constructionPeriod = preFinancing.constructionPeriod;
+  const months = preFinancing.months;
+  const totalMonths = months.length > 0 ? months[months.length - 1] : 0;
+  const ncfSeries = preFinancing.net;
+
+  const cashFlows: CashFlowPoint[] = useMemo(
+    () =>
+      ncfSeries.map((amount, month) => ({
+        month,
+        amount,
+      })),
+    [ncfSeries]
   );
-
-  const cashFlows: CashFlowPoint[] = useMemo(() => {
-    const inflowByMonth = new Map<number, number>();
-    for (const p of cashInflows.monthlyInflowSchedule || []) {
-      inflowByMonth.set(p.month, (inflowByMonth.get(p.month) || 0) + (p.amount || 0));
-    }
-
-    const flows: CashFlowPoint[] = [];
-    for (let m = 0; m <= totalMonths; m++) {
-      const inflow = inflowByMonth.get(m) || 0;
-      const outflow =
-        m <= constructionPeriod ? detail.monthlyTotal[m] || 0 : 0;
-      flows.push({ month: m, amount: inflow - outflow });
-    }
-    return flows;
-  }, [
-    cashInflows.monthlyInflowSchedule,
-    detail.monthlyTotal,
-    totalMonths,
-    constructionPeriod,
-  ]);
-
-  const ncfSeries = useMemo(() => cashFlows.map((cf) => cf.amount), [cashFlows]);
 
   const solved = useMemo(
     () => solveAnnualIRR(cashFlows, 1e-7, 100),
@@ -123,33 +111,18 @@ export default function SaleProjectIrrPage() {
     });
   }, [monthlyPoints]);
 
-  const inflowByMonth = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const p of cashInflows.monthlyInflowSchedule || []) {
-      map.set(p.month, (map.get(p.month) || 0) + (p.amount || 0));
-    }
-    return map;
-  }, [cashInflows.monthlyInflowSchedule]);
-
   const chartData = useMemo(() => {
     const cumMap = new Map<number, number>();
     for (const row of cumulativePoints) cumMap.set(row.month, row.cumulative || 0);
-    const ncfMap = new Map<number, number>();
-    for (const row of monthlyPoints) ncfMap.set(row.month, row.amount || 0);
 
-    return months.map((m) => {
-      const inflow = inflowByMonth.get(m) || 0;
-      const net = ncfMap.get(m) || 0;
-      const outflow = Math.max(0, inflow - net); // net = inflow - outflow
-      return {
-        month: m,
-        inflow,
-        outflow,
-        net,
-        cumulative: cumMap.get(m) || 0,
-      };
-    });
-  }, [months, inflowByMonth, monthlyPoints, cumulativePoints]);
+    return months.map((m) => ({
+      month: m,
+      inflow: preFinancing.inflow[m] || 0,
+      outflow: preFinancing.outflow[m] || 0,
+      net: preFinancing.net[m] || 0,
+      cumulative: cumMap.get(m) || 0,
+    }));
+  }, [months, preFinancing, cumulativePoints]);
 
   const maxAbsNcf = useMemo(
     () => Math.max(1e3, ...monthlyPoints.map((p) => Math.abs(p.amount))),

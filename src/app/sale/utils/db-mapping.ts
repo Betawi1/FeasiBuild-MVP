@@ -20,6 +20,7 @@ export function mapBuildingSubTypeToDBKey(
     residential_high_rise: "residential-hi-rise",
     commercial_landed: "commercial-landed",
     commercial_strata_office: "commercial-strata-office",
+    commercial_strata_warehouse: "commercial-strata-warehouse",
   };
 
   return mapping[buildingSubType] ?? null;

@@ -409,6 +409,11 @@ export function buildFinancingEnginePreview(params: {
   const monthlyConstruction = padArray(outflowProfile.construction || [], engineMonths);
   const monthlySoft = padArray(outflowProfile.softCosts || [], engineMonths);
   const monthlyPowc = padArray(outflowProfile.powc || [], engineMonths);
+  const isSaleWarehouse =
+    projectInfo.buildingSubType === "commercial_strata_warehouse";
+  const monthlyFfe = isSaleWarehouse
+    ? padArray(outflowProfile.ffe || [], engineMonths)
+    : padArray([], engineMonths);
 
   const monthlySalesInflows = extendMonthlySalesInflowsToEngineTimeline(
     monthlySalesInflowsFromInflowSchedule(monthlyInflowSchedule, engineMonths),
@@ -494,6 +499,7 @@ export function buildFinancingEnginePreview(params: {
       construction: monthlyConstruction,
       soft: monthlySoft,
       powc: monthlyPowc,
+      ffe: monthlyFfe,
     },
     landCost,
     monthlySalesInflows,
@@ -593,6 +599,7 @@ export function mapEngineRowsToUae(rows: EngineMonthlyRow[]): UaeCashFlowRow[] {
     constructionCosts: r.constructionCosts,
     softCosts: r.softCosts,
     powc: r.powc,
+    ffe: r.ffe || 0,
     totalOutflowsExclLand: r.totalOutflowsExclLand,
     landCost: r.landCost,
     totalOutflowsInclLand: r.totalOutflowsInclLand,

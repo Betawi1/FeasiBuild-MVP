@@ -16,6 +16,11 @@ export interface SlideChart {
   height?: string;
   /** Tailwind width class, e.g. w-full */
   width?: string;
+  /**
+   * Optional dual-axis assignment for line+column / dual-line charts.
+   * UI may map left → primary Y-axis and right → secondary Y-axis.
+   */
+  yAxes?: { left: string[]; right: string[] };
 }
 
 export interface SlideTable {
@@ -430,6 +435,18 @@ export interface TitleSlideData {
   btrGradeLabel?: string;
   /** e.g. "High-Rise" from residential benchmark segment */
   btrSegmentLabel?: string;
+  /** When true, title uses warehouse / industrial format */
+  isWarehouse?: boolean;
+  /** e.g. "Grade A" from warehouse quality grade */
+  warehouseGradeLabel?: string;
+  /** e.g. "Bulk Distribution" from warehouse sub-type */
+  warehouseSegmentLabel?: string;
+  /** When true, title uses data centre format */
+  isDataCentre?: boolean;
+  /** e.g. "Tier III" */
+  dataCentreTierLabel?: string;
+  /** e.g. "Colocation" */
+  dataCentreSegmentLabel?: string;
   /** When true, title uses sale stream format */
   isSaleStream?: boolean;
   /** e.g. "Landed Housing Estate" */
@@ -531,8 +548,19 @@ export interface SaleConstructionCostLine {
   amount: number;
 }
 
+export interface SaleWarehouseDevelopmentCostLine {
+  label: string;
+  area?: number;
+  rate?: number;
+  amount: number;
+}
+
 export interface SaleDevelopmentCostsData {
   currency: string;
+  /** When set, Development Assumptions renders warehouse CapEx categories. */
+  warehouseCostLines?: SaleWarehouseDevelopmentCostLine[];
+  /** Optional lines shown after contingency (e.g. FF&E). */
+  warehousePostContingencyLines?: SaleWarehouseDevelopmentCostLine[];
   constructionCosts: {
     building: SaleConstructionCostLine;
     parking: SaleConstructionCostLine;
@@ -762,6 +790,64 @@ export interface OfficeDevelopmentAssumptionsData {
   costBreakdown: import("@/lib/feasibility/build-operational-cost-breakdown").OperationalCostBreakdown;
 }
 
+/** Warehouse CapEx breakdown row for Development Assumptions slide. */
+export interface WarehouseCostBreakdownRow {
+  component: string;
+  totalCost: number;
+  costPerSqft: number;
+  percentage: number;
+}
+
+export interface WarehouseDevelopmentAssumptionsData {
+  currency: string;
+  totalGfa: number;
+  totalAllInCost: number;
+  totalAllInCostPerSqft: number;
+  isIndustrialPark: boolean;
+  breakdown: WarehouseCostBreakdownRow[];
+}
+
+export interface DataCentreCostBreakdownRow {
+  component: string;
+  totalCost: number;
+  costPerMw: number;
+  percentage: number;
+}
+
+export interface DataCentreDevelopmentAssumptionsData {
+  currency: string;
+  itLoadMw: number;
+  whiteSpaceSqft: number;
+  totalAllInCost: number;
+  totalAllInCostPerMw: number;
+  tierLevel: string;
+  pue: number;
+  breakdown: DataCentreCostBreakdownRow[];
+}
+
+export interface DataCentreCompetitiveAnalysisData {
+  currency: string;
+  competitorPricing: Array<{ name: string; pricePerKw: number }>;
+  competitorPUE: Array<{ name: string; pue: number }>;
+  latencyToHubs: Array<{ hub: string; latencyMs: number }>;
+  subjectPricePerKw: number;
+  subjectPUE: number;
+}
+
+export interface DataCentreOperationalAssumptionsData {
+  currency: string;
+  itLoadMw: number;
+  whiteSpaceSqft: number;
+  revenueRows: Array<{ source: string; amount: number; sharePct: number }>;
+  totalRevenue: number;
+  opexRows: Array<{
+    category: string;
+    amount: number;
+    shareOfRevenuePct: number;
+  }>;
+  totalOpex: number;
+}
+
 export interface OfficeOperationalRevenuesData {
   currency: string;
   officeGla: number;
@@ -848,6 +934,11 @@ export interface RetailTenantProfileData {
   catchmentRadius: string;
   primaryDemographics: string[];
   waleYears: number;
+  /** Optional WALE range from AI enrichment */
+  waleMin?: number;
+  waleMax?: number;
+  /** Pie chart unit label: GLA | Units | Capacity */
+  unitLabel?: string;
 }
 
 export interface RetailMarketSummaryData {
@@ -923,6 +1014,10 @@ export type FeasibilitySlideData =
   | MallOperationalPnLData
   | OfficeOperationalPnLData
   | OfficeDevelopmentAssumptionsData
+  | WarehouseDevelopmentAssumptionsData
+  | DataCentreDevelopmentAssumptionsData
+  | DataCentreCompetitiveAnalysisData
+  | DataCentreOperationalAssumptionsData
   | OfficeOperationalRevenuesData
   | OfficeOperationalExpensesData
   | BTROperationalPnLData
@@ -957,6 +1052,13 @@ export interface FeasibilitySlide {
   bulletPoints?: string[];
   charts?: SlideChart[];
   tables?: SlideTable[];
+  /**
+   * Optional KPI summary (e.g. supply pipeline Existing / Pipeline / Subject share).
+   * Prefer alongside `tables` for specialized templates.
+   */
+  summaryTable?: {
+    rows: Array<{ label: string; value: string | number }>;
+  };
   /** Presentation layout hint for 16:9 slide rendering */
   layout?: "split" | "default" | "full-width";
   /** Structured payload for specialized slide templates */
@@ -998,6 +1100,39 @@ export interface AggregatedProjectData {
   revenueByYear: number[];
   ebitdaByYear: number[];
   netIncomeByYear: number[];
+}
+
+/** Warehouse / industrial metrics for feasibility report generators. */
+export interface WarehouseMetrics {
+  warehouseSubType: string; // e.g., "Bulk Distribution", "Cold Storage"
+  qualityGrade: string; // e.g., "Grade A"
+  warehouseBua: number;
+  landArea: number;
+  numberOfUnits: number; // 1 for single warehouse, >1 for industrial park
+  baseRentYear1: number;
+  yardRateYear1: number;
+  leaseUpYears: number;
+  openingOccupancy: number;
+  stabilizedOccupancy: number;
+  rentEscalation: number;
+}
+
+/** Data centre metrics for feasibility report generators. */
+export interface DataCentreMetrics {
+  segment: string; // e.g., "Colocation", "Edge"
+  tierLevel: string; // e.g., "Tier III"
+  positioning: string; // e.g., "Premium"
+  itLoadMw: number;
+  itLoadKw: number;
+  whiteSpaceSqft: number;
+  totalBuildingGfa: number;
+  landArea: number;
+  pue: number;
+  leaseRatePerKwMonth: number;
+  leaseRatePerSqftMonth: number;
+  occupancyRate: number;
+  annualEscalationPct: number;
+  constructionPeriod: number;
 }
 
 /** Layer 1 bundle shaped for Section A & D components (Components 1–4). */
@@ -1079,11 +1214,13 @@ export interface FeasibilityProjectBundle {
   residentialSegment?: string;
   residentialPositioning?: string;
   residentialFurnishingLevel?: string;
+  warehouseMetrics?: WarehouseMetrics;
+  dataCentreMetrics?: DataCentreMetrics;
 }
 
 export type FinancialSlideType =
   | "Development Assumptions"
-  | "Hotel Development Schedule"
+  | "Development Schedule"
   | "Cash Flow"
   | "Term Loan"
   | "Profit and Loss"

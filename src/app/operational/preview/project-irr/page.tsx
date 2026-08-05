@@ -26,6 +26,7 @@ import {
   computeOperatingTotalNetCashFlows,
   OPERATIONAL_ASSET_LABELS,
 } from "@/lib/operational-project-irr-pnl";
+import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
 import {
   calculateCapitalMetrics,
   calculateIRRYearly,
@@ -253,6 +254,11 @@ export default function OperationalPreviewProjectIRRPage() {
   const tableDataColumnCount = npvColumns.length;
   const TABLE_COL_SPAN = tableDataColumnCount + 2;
 
+  const warehouseCapex = useMemo(
+    () => resolveWarehouseCapexBases(cashOutflows),
+    [cashOutflows]
+  );
+
   const pnl = useMemo(
     () =>
       computeOperationalProjectIrrPnl(buildingType, {
@@ -266,6 +272,17 @@ export default function OperationalPreviewProjectIRRPage() {
         officeDepreciation,
         residentialOpex,
         residentialDepreciation,
+        warehouseRevenue: cashInflows?.warehouseRevenue,
+        warehouseOtherIncome: cashInflows?.warehouseOtherIncome,
+        warehouseOpEx: cashInflows?.warehouseOpEx,
+        warehouseDepreciation: cashInflows?.warehouseDepreciation,
+        warehouseBuildingCost: warehouseCapex.buildingCost,
+        warehouseSiteImprovementsCost: warehouseCapex.siteImprovementsCost,
+        projectInfo,
+        dataCentreRevenue: cashInflows?.dataCentreRevenue,
+        dataCentreOtherIncome: cashInflows?.dataCentreOtherIncome,
+        dataCentreOpEx: cashInflows?.dataCentreOpEx,
+        dataCentreDepreciation: cashInflows?.dataCentreDepreciation,
         constructionCost: cashOutflows.constructionCost || 0,
         ffe: cashOutflows.ffe || 0,
       }),
@@ -281,6 +298,17 @@ export default function OperationalPreviewProjectIRRPage() {
       officeDepreciation,
       residentialOpex,
       residentialDepreciation,
+      cashInflows?.warehouseRevenue,
+      cashInflows?.warehouseOtherIncome,
+      cashInflows?.warehouseOpEx,
+      cashInflows?.warehouseDepreciation,
+      warehouseCapex.buildingCost,
+      warehouseCapex.siteImprovementsCost,
+      projectInfo,
+      cashInflows?.dataCentreRevenue,
+      cashInflows?.dataCentreOtherIncome,
+      cashInflows?.dataCentreOpEx,
+      cashInflows?.dataCentreDepreciation,
       cashOutflows.constructionCost,
       cashOutflows.ffe,
     ]
@@ -920,7 +948,8 @@ export default function OperationalPreviewProjectIRRPage() {
         </h2>
         <p className="mb-4 text-slate-400">
           Complete Component 1 and Component 2 for your asset type (Hotel,
-          Retail, Office, or Residential) to view the Project IRR preview.
+          Retail, Office, Residential, Warehouse, or Data Centre) to view the
+          Project IRR preview.
         </p>
         <Link
           href={cashOutflowsHref}

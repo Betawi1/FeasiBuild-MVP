@@ -17,16 +17,25 @@ import useSaleModelStore, {
   type CashOutflows,
   type ProjectInfo,
 } from "@/store/useSaleModelStore";
-import AIRecommendationBox from "@/components/AIRecommendationBox";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
+import DetailedAllocationSection from "@/components/cash-outflows/DetailedAllocationSection";
+import CashOutflowsReviewSummary from "@/components/cash-outflows/CashOutflowsReviewSummary";
+import SaleWarehouseBuildingConfigStep from "./steps/SaleWarehouseBuildingConfigStep";
+import SaleWarehouseConstructionCostsStep, {
+  validateSaleWarehouseConstructionCosts,
+} from "./steps/SaleWarehouseConstructionCostsStep";
+import SaleWarehouseConstructionPhasingStep, {
+  validateSaleWarehouseConstructionPhasing,
+} from "./steps/SaleWarehouseConstructionPhasingStep";
+import SaleWarehouseReviewSummaryStep from "./steps/SaleWarehouseReviewSummaryStep";
 import {
   DEFAULT_POWC_ALLOCATION,
   DEFAULT_SOFT_COST_ALLOCATION,
 } from "@/lib/cash-outflow-default-allocations";
 import {
-  POWC_STEP13_TIMING_NOTES,
-  SOFT_COSTS_TIMING_NOTES,
-} from "@/lib/cash-outflow-powc-timing";
+  DEFAULT_WAREHOUSE_COSTS,
+  type WarehouseCosts,
+} from "@/store/useFinModelStore";
 import {
   getStreamPrefix,
   useStreamPrefix,
@@ -181,6 +190,13 @@ const SALE_BUILDING_SUBTYPES: Array<{
     examples: "Office building (G+4+) with strata titles",
     keyCharacteristics: "Individual office units for sale, investor buyers",
   },
+  {
+    id: "commercial_strata_warehouse",
+    baseType: "warehouse",
+    subType: "Commercial - Strata Warehouse",
+    examples: "Single warehouse, Industrial park, Logistics hub",
+    keyCharacteristics: "Strata titles for individual units, B2B buyers, logistics rent",
+  },
 ];
 
 function getBenchmarkSource(country: string, city: string): string {
@@ -208,6 +224,7 @@ const SALE_SUBTYPE_TO_AI_ASSET: Record<
   residential_high_rise: "sale-residential-highrise",
   commercial_landed: "sale-commercial-landed",
   commercial_strata_office: "sale-commercial-strata",
+  commercial_strata_warehouse: "sale-warehouse",
 };
 
 function CashOutflowsPageContent() {
@@ -238,6 +255,11 @@ function CashOutflowsPageContent() {
 
   const isSaleLandedProduct = useMemo(
     () => Boolean(projectInfo.buildingSubType?.includes("landed")),
+    [projectInfo.buildingSubType]
+  );
+
+  const isSaleWarehouseProduct = useMemo(
+    () => projectInfo.buildingSubType === "commercial_strata_warehouse",
     [projectInfo.buildingSubType]
   );
 
@@ -288,9 +310,59 @@ function CashOutflowsPageContent() {
     return Math.round(saleableLand / (1 - commonPct / 100));
   }, [salesLandedTotalSaleableLandArea, projectInfo.salesLandedCommonAreaPct]);
 
+  // Warehouse Auto-Calcs
+  const salesWarehouseTotalFloors = useMemo(() => {
+    if (!isSaleWarehouseProduct) return 0;
+    return projectInfo.salesWarehouseSingle?.floors || 1;
+  }, [isSaleWarehouseProduct, projectInfo.salesWarehouseSingle]);
+
+  const salesWarehouseTotalBUA = useMemo(() => {
+    if (!isSaleWarehouseProduct) return 0;
+    const config = projectInfo.salesWarehouseConfigType;
+    if (config === "single-warehouse") {
+      return projectInfo.salesWarehouseSingle?.bua || 0;
+    }
+    if (config === "industrial-park") {
+      const units = projectInfo.salesWarehousePark?.numberOfUnits || 0;
+      const buaPerUnit = projectInfo.salesWarehouseSingle?.bua || 0;
+      return units * buaPerUnit;
+    }
+    return 0;
+  }, [
+    isSaleWarehouseProduct,
+    projectInfo.salesWarehouseConfigType,
+    projectInfo.salesWarehousePark,
+    projectInfo.salesWarehouseSingle,
+  ]);
+
+  const salesWarehouseTotalLandArea = useMemo(() => {
+    if (!isSaleWarehouseProduct) return 0;
+    const config = projectInfo.salesWarehouseConfigType;
+    if (config === "single-warehouse") {
+      return projectInfo.salesWarehouseSingle?.landArea || 0;
+    }
+    if (config === "industrial-park") {
+      if (projectInfo.salesWarehousePark?.totalLandArea) {
+        return projectInfo.salesWarehousePark.totalLandArea;
+      }
+      const units = projectInfo.salesWarehousePark?.numberOfUnits || 0;
+      const unitLand = projectInfo.salesWarehouseSingle?.landArea || 0;
+      const warehouseLand = units * unitLand;
+      const pct =
+        projectInfo.salesWarehousePark?.commonInfrastructureAreaPct || 0;
+      return warehouseLand + Math.round(warehouseLand * (pct / 100));
+    }
+    return 0;
+  }, [
+    isSaleWarehouseProduct,
+    projectInfo.salesWarehouseConfigType,
+    projectInfo.salesWarehouseSingle,
+    projectInfo.salesWarehousePark,
+  ]);
+
   // Sync High-Rise Step 5 BUA data to Cash Outflows state when entering Step 6
   useEffect(() => {
-    if (!isSaleLandedProduct && currentStep === 5) {
+    if (!isSaleLandedProduct && !isSaleWarehouseProduct && currentStep === 5) {
       const updates: Partial<CashOutflows> = {};
       if (projectInfo.salesHighRiseTotalBUA) {
         updates.buildingBUA = projectInfo.salesHighRiseTotalBUA;
@@ -309,6 +381,7 @@ function CashOutflowsPageContent() {
     }
   }, [
     isSaleLandedProduct,
+    isSaleWarehouseProduct,
     currentStep,
     projectInfo.salesHighRiseTotalBUA,
     projectInfo.salesHighRiseBasementBUA,
@@ -337,9 +410,45 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
+  // Sync Warehouse Step 5 BUA to Cash Outflows when entering Step 6
+  useEffect(() => {
+    if (isSaleWarehouseProduct && currentStep === 5) {
+      const updates: Partial<CashOutflows> = {
+        basementBUA: 0,
+        parkingBUA: 0,
+      };
+      if (salesWarehouseTotalBUA) {
+        updates.buildingBUA = salesWarehouseTotalBUA;
+      }
+      updateCashOutflowsForStream(updates);
+      if ((projectInfo.salesHighRiseSaleableRatio ?? 0) !== 100) {
+        updateProjectInfoForStream({ salesHighRiseSaleableRatio: 100 });
+      }
+      console.log("🔗 Synced Warehouse Step 5 BUA to Cash Outflows:", updates);
+    }
+  }, [
+    isSaleWarehouseProduct,
+    currentStep,
+    salesWarehouseTotalBUA,
+    projectInfo.salesHighRiseSaleableRatio,
+    updateCashOutflowsForStream,
+    updateProjectInfoForStream,
+  ]);
+
+  // Warehouse / Industrial: entire BUA is saleable
+  useEffect(() => {
+    if (!isSaleWarehouseProduct) return;
+    if ((projectInfo.salesHighRiseSaleableRatio ?? 0) === 100) return;
+    updateProjectInfoForStream({ salesHighRiseSaleableRatio: 100 });
+  }, [
+    isSaleWarehouseProduct,
+    projectInfo.salesHighRiseSaleableRatio,
+    updateProjectInfoForStream,
+  ]);
+
   // Sync High-Rise Step 5 Land Area to Cash Outflows state when entering Step 9
   useEffect(() => {
-    if (!isSaleLandedProduct && currentStep === 8) {
+    if (!isSaleLandedProduct && !isSaleWarehouseProduct && currentStep === 8) {
       if (projectInfo.salesHighRiseLandArea) {
         updateCashOutflowsForStream({ landArea: projectInfo.salesHighRiseLandArea });
         console.log(
@@ -350,6 +459,7 @@ function CashOutflowsPageContent() {
     }
   }, [
     isSaleLandedProduct,
+    isSaleWarehouseProduct,
     currentStep,
     projectInfo.salesHighRiseLandArea,
     updateCashOutflowsForStream,
@@ -373,6 +483,24 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
+  // Sync Warehouse Step 5 Land Area to Cash Outflows when entering Step 9
+  useEffect(() => {
+    if (isSaleWarehouseProduct && currentStep === 8) {
+      if (salesWarehouseTotalLandArea) {
+        updateCashOutflowsForStream({ landArea: salesWarehouseTotalLandArea });
+        console.log(
+          "🔗 Synced Warehouse Step 5 Land Area to Cash Outflows:",
+          salesWarehouseTotalLandArea
+        );
+      }
+    }
+  }, [
+    isSaleWarehouseProduct,
+    currentStep,
+    salesWarehouseTotalLandArea,
+    updateCashOutflowsForStream,
+  ]);
+
   // Sales AI Research Trigger (Step 6 — currentStep 5)
   useEffect(() => {
     if (currentStep !== 5) return;
@@ -391,10 +519,14 @@ function CashOutflowsPageContent() {
     }
 
     // Create the unique fingerprint with version prefix
-    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.buildingSubType}-${projectInfo.salesMarketPositioning || "unspecified"}-${projectInfo.salesFinishingStandard || "unspecified"}-${
-      isSaleLandedProduct
-        ? `${projectInfo.salesLandedNumUnits}-${projectInfo.salesLandedBUAperUnit}-${salesLandedTotalLandArea}-${projectInfo.salesLandedSaleableRatio}`
-        : `${projectInfo.salesHighRiseTotalBUA}-${projectInfo.salesHighRiseBasementBUA}-${projectInfo.salesHighRiseLandArea}-${projectInfo.salesHighRiseSaleableRatio}`
+    const researchKey = `${AI_CACHE_VERSION}:${projectInfo.country}-${projectInfo.city}-${projectInfo.subMarket || "general"}-${projectInfo.buildingSubType}-${
+      isSaleWarehouseProduct
+        ? `${projectInfo.salesWarehouseSubType || "unspecified"}-${projectInfo.salesQualityGrade || "unspecified"}-${projectInfo.salesWarehouseConfigType || "unspecified"}-${salesWarehouseTotalBUA}-${salesWarehouseTotalLandArea}`
+        : `${projectInfo.salesMarketPositioning || "unspecified"}-${projectInfo.salesFinishingStandard || "unspecified"}-${
+            isSaleLandedProduct
+              ? `${projectInfo.salesLandedNumUnits}-${projectInfo.salesLandedBUAperUnit}-${salesLandedTotalLandArea}-${projectInfo.salesLandedSaleableRatio}`
+              : `${projectInfo.salesHighRiseTotalBUA}-${projectInfo.salesHighRiseBasementBUA}-${projectInfo.salesHighRiseLandArea}-${projectInfo.salesHighRiseSaleableRatio}`
+          }`
     }`;
 
     const savedFingerprint = cashOutflows?.aiResearchData?._researchKey;
@@ -444,28 +576,60 @@ function CashOutflowsPageContent() {
         subMarket: projectInfo.subMarket,
         coordinates: projectInfo.coordinates,
       },
-      buildingConfig: isSaleLandedProduct
+      buildingConfig: isSaleWarehouseProduct
         ? {
-            numUnits: projectInfo.salesLandedNumUnits,
-            buaPerUnit: projectInfo.salesLandedBUAperUnit,
-            landAreaPerUnit: projectInfo.salesLandedLandAreaPerUnit,
-            commonAreaPct: projectInfo.salesLandedCommonAreaPct,
-            totalLandArea: salesLandedTotalLandArea,
-            totalBUA: salesLandedTotalBUA,
-            positioning: projectInfo.salesMarketPositioning,
+            warehouseSubType: projectInfo.salesWarehouseSubType,
+            qualityGrade: projectInfo.salesQualityGrade,
+            configurationType: projectInfo.salesWarehouseConfigType,
+            operatingSegment: projectInfo.salesWarehouseSubType,
+            positioning: projectInfo.salesQualityGrade,
+            singleWarehouseBUA: projectInfo.salesWarehouseSingle?.bua,
+            singleWarehouseFloors: projectInfo.salesWarehouseSingle?.floors,
+            singleWarehouseClearHeight:
+              projectInfo.salesWarehouseSingle?.clearHeight,
+            singleWarehouseDockDoors:
+              projectInfo.salesWarehouseSingle?.dockDoors,
+            singleWarehouseDriveInDoors:
+              projectInfo.salesWarehouseSingle?.driveInDoors,
+            singleWarehouseLandArea:
+              projectInfo.salesWarehouseSingle?.landArea,
+            numUnits: projectInfo.salesWarehousePark?.numberOfUnits,
+            totalUnits: projectInfo.salesWarehousePark?.numberOfUnits,
+            warehouseLandAreaPerUnit:
+              projectInfo.salesWarehousePark?.warehouseLandArea,
+            commonInfrastructureAreaPct:
+              projectInfo.salesWarehousePark?.commonInfrastructureAreaPct,
+            totalLandArea: salesWarehouseTotalLandArea,
+            landArea: salesWarehouseTotalLandArea,
+            plotArea: salesWarehouseTotalLandArea,
+            totalBUA: salesWarehouseTotalBUA,
+            totalBuildingBUA: salesWarehouseTotalBUA,
+            upperFloors: projectInfo.salesWarehouseSingle?.floors,
+            marketPositioning: projectInfo.salesMarketPositioning,
             furnishingLevel: projectInfo.salesFinishingStandard,
           }
-        : {
-            basements: projectInfo.salesHighRiseBasements,
-            podiums: projectInfo.salesHighRisePodiums,
-            upperFloors: projectInfo.salesHighRiseUpperFloors,
-            totalBUA: projectInfo.salesHighRiseTotalBUA,
-            basementBUA: projectInfo.salesHighRiseBasementBUA,
-            podiumBUA: projectInfo.salesHighRisePodiumBUA,
-            landArea: projectInfo.salesHighRiseLandArea,
-            positioning: projectInfo.salesMarketPositioning,
-            furnishingLevel: projectInfo.salesFinishingStandard,
-          },
+        : isSaleLandedProduct
+          ? {
+              numUnits: projectInfo.salesLandedNumUnits,
+              buaPerUnit: projectInfo.salesLandedBUAperUnit,
+              landAreaPerUnit: projectInfo.salesLandedLandAreaPerUnit,
+              commonAreaPct: projectInfo.salesLandedCommonAreaPct,
+              totalLandArea: salesLandedTotalLandArea,
+              totalBUA: salesLandedTotalBUA,
+              positioning: projectInfo.salesMarketPositioning,
+              furnishingLevel: projectInfo.salesFinishingStandard,
+            }
+          : {
+              basements: projectInfo.salesHighRiseBasements,
+              podiums: projectInfo.salesHighRisePodiums,
+              upperFloors: projectInfo.salesHighRiseUpperFloors,
+              totalBUA: projectInfo.salesHighRiseTotalBUA,
+              basementBUA: projectInfo.salesHighRiseBasementBUA,
+              podiumBUA: projectInfo.salesHighRisePodiumBUA,
+              landArea: projectInfo.salesHighRiseLandArea,
+              positioning: projectInfo.salesMarketPositioning,
+              furnishingLevel: projectInfo.salesFinishingStandard,
+            },
     };
 
     const triggerResearch = async () => {
@@ -490,16 +654,156 @@ function CashOutflowsPageContent() {
           const patch: Partial<CashOutflows> = {
             aiResearchData: dataWithFingerprint,
           };
-          if (rates?.building_rate_psf) patch.buildingRate = rates.building_rate_psf;
-          if (rates?.parking_rate_psf) patch.parkingRate = rates.parking_rate_psf;
-          if (rates?.basement_rate_psf) patch.basementRate = rates.basement_rate_psf;
-          if (isSaleLandedProduct && rates?.infrastructure_rate_psf) {
-            patch.infrastructureRate = rates.infrastructure_rate_psf;
+
+          if (isSaleWarehouseProduct) {
+            const wr = (rates || {}) as {
+              building_rate_psf?: number;
+              site_yard_rate_psf?: number;
+              car_parking_cost_per_space?: number;
+              car_parking_rate_per_stall?: number;
+              trailer_parking_cost_per_space?: number;
+              trailer_parking_rate_per_stall?: number;
+              dock_door_cost_per_unit?: number;
+              dock_door_cost?: number;
+              drive_in_door_cost_per_unit?: number;
+              drive_in_door_cost?: number;
+              infrastructure_rate_psf?: number;
+              common_infrastructure_rate_psf?: number;
+              racking_shelving_cost_per_unit?: number;
+              refrigeration_cost_per_unit?: number;
+              automation_conveyors_cost_per_unit?: number;
+              professional_fees_percent?: number;
+            };
+            const carPark =
+              wr.car_parking_cost_per_space ?? wr.car_parking_rate_per_stall;
+            const trailerPark =
+              wr.trailer_parking_cost_per_space ??
+              wr.trailer_parking_rate_per_stall;
+            const dockDoor =
+              wr.dock_door_cost_per_unit ?? wr.dock_door_cost;
+            const driveInDoor =
+              wr.drive_in_door_cost_per_unit ?? wr.drive_in_door_cost;
+            const commonInfra =
+              wr.common_infrastructure_rate_psf ?? wr.infrastructure_rate_psf;
+            const profFees =
+              wr.professional_fees_percent ?? soft?.sc_percentage;
+
+            if (wr.building_rate_psf) {
+              patch.warehouseBuildingRate = wr.building_rate_psf;
+            }
+            if (wr.site_yard_rate_psf != null) {
+              patch.warehouseSiteYardRate = wr.site_yard_rate_psf;
+            }
+            if (carPark != null) patch.warehouseCarParkingRate = carPark;
+            if (trailerPark != null) {
+              patch.warehouseTrailerParkingRate = trailerPark;
+            }
+            if (dockDoor != null) patch.warehouseDockDoorCost = dockDoor;
+            if (driveInDoor != null) {
+              patch.warehouseDriveInDoorCost = driveInDoor;
+            }
+            if (wr.racking_shelving_cost_per_unit != null) {
+              patch.warehouseRackingCostPerUnit =
+                wr.racking_shelving_cost_per_unit;
+            }
+            if (wr.refrigeration_cost_per_unit != null) {
+              patch.warehouseRefrigerationCostPerUnit =
+                wr.refrigeration_cost_per_unit;
+            }
+            if (wr.automation_conveyors_cost_per_unit != null) {
+              patch.warehouseAutomationCostPerUnit =
+                wr.automation_conveyors_cost_per_unit;
+            }
+            if (commonInfra != null) {
+              patch.warehouseCommonInfraRate = commonInfra;
+            }
+            if (profFees != null) {
+              patch.warehouseProfFeesPercent = profFees;
+            }
+
+            const isPark =
+              projectInfo.salesWarehouseConfigType === "industrial-park";
+            const nextCosts: WarehouseCosts = {
+              ...DEFAULT_WAREHOUSE_COSTS,
+              ...cashOutflows.warehouseCosts,
+              buildingShellRate:
+                wr.building_rate_psf ??
+                cashOutflows.warehouseCosts?.buildingShellRate ??
+                (isPark ? 100 : DEFAULT_WAREHOUSE_COSTS.buildingShellRate),
+              siteYardRate:
+                wr.site_yard_rate_psf ??
+                cashOutflows.warehouseCosts?.siteYardRate ??
+                DEFAULT_WAREHOUSE_COSTS.siteYardRate,
+              carParkingRate:
+                carPark ??
+                cashOutflows.warehouseCosts?.carParkingRate ??
+                DEFAULT_WAREHOUSE_COSTS.carParkingRate,
+              trailerParkingRate:
+                trailerPark ??
+                cashOutflows.warehouseCosts?.trailerParkingRate ??
+                DEFAULT_WAREHOUSE_COSTS.trailerParkingRate,
+              costPerDockDoor:
+                dockDoor ??
+                cashOutflows.warehouseCosts?.costPerDockDoor ??
+                DEFAULT_WAREHOUSE_COSTS.costPerDockDoor,
+              costPerDriveInDoor:
+                driveInDoor ??
+                cashOutflows.warehouseCosts?.costPerDriveInDoor ??
+                DEFAULT_WAREHOUSE_COSTS.costPerDriveInDoor,
+              infrastructureRate:
+                commonInfra ??
+                cashOutflows.warehouseCosts?.infrastructureRate ??
+                DEFAULT_WAREHOUSE_COSTS.infrastructureRate,
+              roadRate:
+                commonInfra ??
+                cashOutflows.warehouseCosts?.roadRate ??
+                DEFAULT_WAREHOUSE_COSTS.roadRate,
+              rackingCost:
+                wr.racking_shelving_cost_per_unit ??
+                cashOutflows.warehouseCosts?.rackingCost ??
+                DEFAULT_WAREHOUSE_COSTS.rackingCost,
+              refrigerationCost:
+                wr.refrigeration_cost_per_unit ??
+                cashOutflows.warehouseCosts?.refrigerationCost ??
+                DEFAULT_WAREHOUSE_COSTS.refrigerationCost,
+              automationCost:
+                wr.automation_conveyors_cost_per_unit ??
+                cashOutflows.warehouseCosts?.automationCost ??
+                DEFAULT_WAREHOUSE_COSTS.automationCost,
+              professionalFeesPct:
+                profFees ??
+                cashOutflows.warehouseCosts?.professionalFeesPct ??
+                DEFAULT_WAREHOUSE_COSTS.professionalFeesPct,
+            };
+            patch.warehouseCosts = nextCosts;
+            patch.warehouseBuildingRate = nextCosts.buildingShellRate;
+            patch.warehouseSiteYardRate = nextCosts.siteYardRate;
+          } else {
+            if (rates?.building_rate_psf) {
+              patch.buildingRate = rates.building_rate_psf;
+            }
+            if (rates?.parking_rate_psf) {
+              patch.parkingRate = rates.parking_rate_psf;
+            }
+            if (rates?.basement_rate_psf) {
+              patch.basementRate = rates.basement_rate_psf;
+            }
+            if (isSaleLandedProduct && rates?.infrastructure_rate_psf) {
+              patch.infrastructureRate = rates.infrastructure_rate_psf;
+            }
           }
           if (soft?.sc_percentage != null)
             patch.softCostPercent = soft.sc_percentage;
           if (soft?.powc_percentage != null)
             patch.powcPercent = soft.powc_percentage;
+          {
+            const ffeRec =
+              soft?.ffe_percentage?.recommended ??
+              (typeof soft?.ffe_percentage === "number"
+                ? soft.ffe_percentage
+                : undefined);
+            if (ffeRec != null) patch.ffePercent = ffeRec;
+          }
           if (c1?.land_rate_psf) patch.landRate = c1.land_rate_psf;
           if (c1?.construction_period?.months) {
             patch.constructionPeriod = c1.construction_period.months;
@@ -588,6 +892,7 @@ function CashOutflowsPageContent() {
   }, [
     currentStep,
     isSaleLandedProduct,
+    isSaleWarehouseProduct,
     projectInfo.country,
     projectInfo.city,
     projectInfo.subMarket,
@@ -596,6 +901,11 @@ function CashOutflowsPageContent() {
     projectInfo.buildingSubType,
     projectInfo.salesMarketPositioning,
     projectInfo.salesFinishingStandard,
+    projectInfo.salesWarehouseSubType,
+    projectInfo.salesQualityGrade,
+    projectInfo.salesWarehouseConfigType,
+    projectInfo.salesWarehouseSingle,
+    projectInfo.salesWarehousePark,
     projectInfo.salesHighRiseBasements,
     projectInfo.salesHighRisePodiums,
     projectInfo.salesHighRiseUpperFloors,
@@ -611,6 +921,8 @@ function CashOutflowsPageContent() {
     projectInfo.salesLandedSaleableRatio,
     salesLandedTotalLandArea,
     salesLandedTotalBUA,
+    salesWarehouseTotalBUA,
+    salesWarehouseTotalLandArea,
     cashOutflows?.aiResearchData,
     performResearch,
     updateCashOutflowsForStream,
@@ -942,9 +1254,30 @@ function CashOutflowsPageContent() {
       ? infrastructureRate * salesLandedTotalLandArea
       : 0;
 
+  const isSaleWarehousePark =
+    projectInfo.salesWarehouseConfigType === "industrial-park";
+
+  const warehouseCosts = cashOutflows.warehouseCosts;
+  const warehouseBaseCC = warehouseCosts
+    ? (warehouseCosts.buildingShellCost || 0) +
+      (warehouseCosts.siteYardWorksCost || 0) +
+      (warehouseCosts.loadingAccessCost || 0) +
+      (warehouseCosts.specialisedSystemsCost || 0) +
+      (warehouseCosts.commonInfrastructureCost || 0) +
+      (warehouseCosts.professionalFees || 0)
+    : salesWarehouseTotalBUA * (cashOutflows.warehouseBuildingRate ?? 0) +
+      salesWarehouseTotalLandArea * (cashOutflows.warehouseSiteYardRate ?? 0) +
+      (cashOutflows.warehouseLoadingAccessCost ?? 0) +
+      (cashOutflows.warehouseSpecialisedSystemsCost ?? 0) +
+      (isSaleWarehousePark
+        ? cashOutflows.warehouseCommonInfraCost ?? 0
+        : 0);
+
   // Base construction cost (CC before contingency) — not the same as store `constructionCost`
   // after “Generate”, which is CC including contingency.
-  const baseCC = buildingCost + parkingCost + basementCost + infrastructureCosts;
+  const standardBaseCC =
+    buildingCost + parkingCost + basementCost + infrastructureCosts;
+  const baseCC = isSaleWarehouseProduct ? warehouseBaseCC : standardBaseCC;
   const contingencyAmount =
     baseCC * (cashOutflows.contingencyPercent / 100);
   const ccWithContingency = baseCC + contingencyAmount; // CC incl. contingency (CC%)
@@ -954,8 +1287,12 @@ function CashOutflowsPageContent() {
     ccWithContingency * (cashOutflows.softCostPercent / 100);
   const powc =
     ccWithContingency * (cashOutflows.powcPercent / 100);
+  const ffe = isSaleWarehouseProduct
+    ? ccWithContingency * (cashOutflows.ffePercent / 100)
+    : 0;
 
-  const developmentCost = ccWithContingency + softCosts + powc; // DC (no FFE in Sale stream)
+  const developmentCost =
+    ccWithContingency + softCosts + powc + ffe; // DC (+ FFE for warehouse)
   const landCost = cashOutflows.landArea * cashOutflows.landRate; // LC
   const totalDevelopmentCost = developmentCost + landCost; // TDC
 
@@ -1041,6 +1378,7 @@ function CashOutflowsPageContent() {
   const aiLandRate = aiC1?.land_rate_psf;
   const aiScPct = aiC1?.soft_costs?.sc_percentage;
   const aiPowcPct = aiC1?.soft_costs?.powc_percentage;
+  const aiFfePct = aiC1?.soft_costs?.ffe_percentage?.recommended;
   const aiScurve = aiC1?.s_curve;
   const aiPowcBreakdown = aiC1?.powc_breakdown;
   const aiScBreakdown = aiC1?.sc_breakdown;
@@ -1051,6 +1389,7 @@ function CashOutflowsPageContent() {
   const mvpInfraRate = step6Recommendations?.constructionCosts.infrastructureRate ?? 0;
   const mvpScPct = saleRecommendations?.softCosts.scPercent;
   const mvpPowcPct = saleRecommendations?.softCosts.powcPercent;
+  const mvpFfePct = saleRecommendations?.softCosts.ffePercent;
   const mvpStage1 = saleRecommendations?.constructionStages?.allocation.stage1Percent;
   const mvpStage2 = saleRecommendations?.constructionStages?.allocation.stage2Percent;
   const mvpStage3 = saleRecommendations?.constructionStages?.allocation.stage3Percent;
@@ -1062,6 +1401,7 @@ function CashOutflowsPageContent() {
   const benchInfraRate = aiInfraRate ?? mvpInfraRate;
   const benchScPct = aiScPct ?? mvpScPct;
   const benchPowcPct = aiPowcPct ?? mvpPowcPct;
+  const benchFfePct = aiFfePct ?? mvpFfePct;
   const benchStage1 = aiScurve?.stage_1_pct ?? mvpStage1;
   const benchStage2 = aiScurve?.stage_2_pct ?? mvpStage2;
   const benchStage3 = aiScurve?.stage_3_pct ?? mvpStage3;
@@ -1177,7 +1517,7 @@ function CashOutflowsPageContent() {
 
   useEffect(() => {
     if (currentStep !== 7 || !saleRecommendations?.softCosts) return;
-    if (aiScPct != null || aiPowcPct != null) return;
+    if (aiScPct != null || aiPowcPct != null || aiFfePct != null) return;
 
     const rates = saleRecommendations.softCosts;
     const updates: Partial<CashOutflows> = {};
@@ -1185,6 +1525,9 @@ function CashOutflowsPageContent() {
     if (!cashOutflows.softCostPercent)
       updates.softCostPercent = rates.scPercent;
     if (!cashOutflows.powcPercent) updates.powcPercent = rates.powcPercent;
+    if (isSaleWarehouseProduct && !cashOutflows.ffePercent && rates.ffePercent) {
+      updates.ffePercent = rates.ffePercent;
+    }
 
     if (Object.keys(updates).length > 0) {
       updateCashOutflowsForStream(updates);
@@ -1194,17 +1537,26 @@ function CashOutflowsPageContent() {
     saleRecommendations,
     cashOutflows.softCostPercent,
     cashOutflows.powcPercent,
+    cashOutflows.ffePercent,
+    isSaleWarehouseProduct,
+    aiScPct,
+    aiPowcPct,
+    aiFfePct,
     updateCashOutflowsForStream,
   ]);
 
   const isSCManual = isRateOverride(cashOutflows.softCostPercent, benchScPct);
   const isPOWCManual = isRateOverride(cashOutflows.powcPercent, benchPowcPct);
-  const isAnySCPOWCManual = isSCManual || isPOWCManual;
+  const isFFEManual =
+    isSaleWarehouseProduct &&
+    isRateOverride(cashOutflows.ffePercent || 0, benchFfePct);
+  const isAnySCPOWCManual = isSCManual || isPOWCManual || isFFEManual;
 
   const resetScPowcToBenchmark = () => {
     updateCashOutflowsForStream({
       ...(benchScPct != null ? { softCostPercent: benchScPct } : {}),
       ...(benchPowcPct != null ? { powcPercent: benchPowcPct } : {}),
+      ...(benchFfePct != null ? { ffePercent: benchFfePct } : {}),
     });
   };
 
@@ -1446,36 +1798,112 @@ function CashOutflowsPageContent() {
     }
 
     if (step === 3) {
-      if (!projectInfo.salesMarketPositioning?.trim()) {
-        newErrors.salesMarketPositioning = "Market positioning is required.";
-      }
-      if (!projectInfo.salesFinishingStandard?.trim()) {
-        newErrors.salesFinishingStandard = "Finishing standard is required.";
+      if (isSaleWarehouseProduct) {
+        if (!projectInfo.salesWarehouseSubType) {
+          newErrors.salesWarehouseSubType = "Warehouse sub-type is required.";
+        }
+        if (!projectInfo.salesQualityGrade) {
+          newErrors.salesQualityGrade = "Quality grade is required.";
+        }
+      } else {
+        if (!projectInfo.salesMarketPositioning?.trim()) {
+          newErrors.salesMarketPositioning = "Market positioning is required.";
+        }
+        if (!projectInfo.salesFinishingStandard?.trim()) {
+          newErrors.salesFinishingStandard = "Finishing standard is required.";
+        }
       }
     }
 
     if (step === 4) {
-      if (bc.basements < 0)
-        newErrors.basements = "Basements cannot be negative.";
-      if (bc.podiumFloors < 0)
-        newErrors.podiumFloors = "Podium/parking floors cannot be negative.";
-      if (bc.towerFloors <= 0)
-        newErrors.towerFloors = "Tower floors must be greater than 0.";
+      if (isSaleWarehouseProduct) {
+        if (!projectInfo.salesWarehouseConfigType) {
+          newErrors.salesWarehouseConfigType =
+            "Select Single Warehouse or Industrial Park.";
+        }
+        if (
+          projectInfo.salesWarehouseConfigType === "single-warehouse" &&
+          (!projectInfo.salesWarehouseSingle?.bua ||
+            projectInfo.salesWarehouseSingle.bua <= 0)
+        ) {
+          newErrors.salesWarehouseBUA = "BUA is required.";
+        }
+        if (
+          projectInfo.salesWarehouseConfigType === "industrial-park" &&
+          (!projectInfo.salesWarehousePark?.numberOfUnits ||
+            projectInfo.salesWarehousePark.numberOfUnits <= 0)
+        ) {
+          newErrors.salesWarehouseParkUnits = "Number of units is required.";
+        }
+        if (
+          projectInfo.salesWarehouseConfigType === "industrial-park" &&
+          (projectInfo.salesWarehousePark?.numberOfUnits || 0) > 0 &&
+          (projectInfo.salesWarehousePark?.numberOfUnits || 0) < 4
+        ) {
+          newErrors.salesWarehouseParkUnits =
+            "Industrial parks require at least 4 units.";
+        }
+        if (salesWarehouseTotalLandArea <= 0) {
+          newErrors.salesWarehouseLandArea =
+            "Total land area must be greater than 0.";
+        }
+      } else {
+        if (bc.basements < 0)
+          newErrors.basements = "Basements cannot be negative.";
+        if (bc.podiumFloors < 0)
+          newErrors.podiumFloors = "Podium/parking floors cannot be negative.";
+        if (bc.towerFloors <= 0)
+          newErrors.towerFloors = "Tower floors must be greater than 0.";
+      }
     }
 
     if (step === 5) {
-      if (cashOutflows.buildingBUA <= 0)
-        newErrors.buildingBUA = "Building BUA must be greater than 0.";
-      if (cashOutflows.buildingRate <= 0)
-        newErrors.buildingRate = "Building rate must be greater than 0.";
-      if (cashOutflows.parkingBUA < 0)
-        newErrors.parkingBUA = "Parking BUA cannot be negative.";
-      if (cashOutflows.parkingRate < 0)
-        newErrors.parkingRate = "Parking rate cannot be negative.";
-      if (cashOutflows.basementBUA < 0)
-        newErrors.basementBUA = "Basement BUA cannot be negative.";
-      if (cashOutflows.basementRate < 0)
-        newErrors.basementRate = "Basement rate cannot be negative.";
+      if (isSaleWarehouseProduct) {
+        if (salesWarehouseTotalBUA <= 0) {
+          newErrors.buildingBUA = "Building BUA must be greater than 0.";
+        }
+        const buildingRate =
+          cashOutflows.warehouseCosts?.buildingShellRate ??
+          cashOutflows.warehouseBuildingRate ??
+          0;
+        if (!buildingRate || buildingRate <= 0) {
+          newErrors.warehouseBuildingRate = "Building rate is required.";
+          newErrors.buildingShellRate = "Building rate is required.";
+        }
+        const siteYardRate =
+          cashOutflows.warehouseCosts?.siteYardRate ??
+          cashOutflows.warehouseSiteYardRate;
+        if (siteYardRate == null || siteYardRate < 0) {
+          newErrors.warehouseSiteYardRate =
+            "Site & yard rate is required and cannot be negative.";
+          newErrors.siteYardRate =
+            "Site & yard rate is required and cannot be negative.";
+        }
+        Object.assign(
+          newErrors,
+          validateSaleWarehouseConstructionCosts({
+            warehouseCosts: cashOutflows.warehouseCosts,
+            salesWarehouseConfigType: projectInfo.salesWarehouseConfigType,
+          })
+        );
+        if (warehouseBaseCC <= 0) {
+          newErrors.warehouseBaseCC =
+            "Total warehouse construction cost must be greater than 0.";
+        }
+      } else {
+        if (cashOutflows.buildingBUA <= 0)
+          newErrors.buildingBUA = "Building BUA must be greater than 0.";
+        if (cashOutflows.buildingRate <= 0)
+          newErrors.buildingRate = "Building rate must be greater than 0.";
+        if (cashOutflows.parkingBUA < 0)
+          newErrors.parkingBUA = "Parking BUA cannot be negative.";
+        if (cashOutflows.parkingRate < 0)
+          newErrors.parkingRate = "Parking rate cannot be negative.";
+        if (cashOutflows.basementBUA < 0)
+          newErrors.basementBUA = "Basement BUA cannot be negative.";
+        if (cashOutflows.basementRate < 0)
+          newErrors.basementRate = "Basement rate cannot be negative.";
+      }
     }
 
     if (step === 6) {
@@ -1493,6 +1921,34 @@ function CashOutflowsPageContent() {
       if (cashOutflows.powcPercent < 0 || cashOutflows.powcPercent > 20) {
         newErrors.powcPercent =
           "POWC % should be between 0% and 20% of CC incl. contingency.";
+      }
+      if (
+        isSaleWarehouseProduct &&
+        (cashOutflows.ffePercent < 0 || cashOutflows.ffePercent > 40)
+      ) {
+        newErrors.ffePercent =
+          "FF&E % should be between 0% and 40% of CC incl. contingency.";
+      }
+      const powcAlloc =
+        cashOutflows.powcAllocation ?? { ...DEFAULT_POWC_ALLOCATION };
+      const powcTotal =
+        powcAlloc.siteEstablishment +
+        powcAlloc.overhead +
+        powcAlloc.authorityFees;
+      if (Math.abs(powcTotal - 100) > 0.01) {
+        newErrors.powcAllocation =
+          "POWC allocation (Site + Overhead + Authority) must equal 100%.";
+      }
+      const softAlloc =
+        cashOutflows.softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
+      const softTotal =
+        softAlloc.architect +
+        softAlloc.projectManagement +
+        softAlloc.engineering +
+        softAlloc.geotechnical +
+        softAlloc.otherFees;
+      if (Math.abs(softTotal - 100) > 0.01) {
+        newErrors.softCostAllocation = "Soft costs allocation must equal 100%.";
       }
     }
 
@@ -1514,37 +1970,32 @@ function CashOutflowsPageContent() {
     }
 
     if (step === 11) {
-      const sa = cashOutflows.stageAllocation;
-      const totalStagePercent =
-        (sa.stage1Percent || 0) +
-        (sa.stage2Percent || 0) +
-        (sa.stage3Percent || 0) +
-        (sa.stage4Percent || 0);
-      if (totalStagePercent !== 100) {
-        newErrors.stages = "Stage allocation must sum to 100% of CC%.";
-      }
-      if (
-        (sa.stage1Percent || 0) <= 0 ||
-        (sa.stage2Percent || 0) <= 0 ||
-        (sa.stage3Percent || 0) <= 0 ||
-        (sa.stage4Percent || 0) <= 0
-      ) {
-        newErrors.stages = "Each stage must have a positive percentage.";
-      }
-    }
-
-    if (step === 12) {
-      const powcAlloc =
-        cashOutflows.powcAllocation ?? { ...DEFAULT_POWC_ALLOCATION };
-      const powcTotal = powcAlloc.siteEstablishment + powcAlloc.overhead + powcAlloc.authorityFees;
-      if (Math.abs(powcTotal - 100) > 0.01) {
-        newErrors.powcAllocation = "POWC allocation (Site + Overhead + Authority) must equal 100%.";
-      }
-      const softAlloc =
-        cashOutflows.softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
-      const softTotal = softAlloc.architect + softAlloc.projectManagement + softAlloc.engineering + softAlloc.geotechnical + softAlloc.otherFees;
-      if (Math.abs(softTotal - 100) > 0.01) {
-        newErrors.softCostAllocation = "Soft costs allocation must equal 100%.";
+      if (isSaleWarehouseProduct) {
+        Object.assign(
+          newErrors,
+          validateSaleWarehouseConstructionPhasing({
+            warehousePhasing: cashOutflows.warehousePhasing,
+            constructionPeriod: cashOutflows.constructionPeriod,
+          })
+        );
+      } else {
+        const sa = cashOutflows.stageAllocation;
+        const totalStagePercent =
+          (sa.stage1Percent || 0) +
+          (sa.stage2Percent || 0) +
+          (sa.stage3Percent || 0) +
+          (sa.stage4Percent || 0);
+        if (totalStagePercent !== 100) {
+          newErrors.stages = "Stage allocation must sum to 100% of CC%.";
+        }
+        if (
+          (sa.stage1Percent || 0) <= 0 ||
+          (sa.stage2Percent || 0) <= 0 ||
+          (sa.stage3Percent || 0) <= 0 ||
+          (sa.stage4Percent || 0) <= 0
+        ) {
+          newErrors.stages = "Each stage must have a positive percentage.";
+        }
       }
     }
 
@@ -1576,7 +2027,28 @@ function CashOutflowsPageContent() {
         cashOutflows.parkingBUA * cashOutflows.parkingRate;
       const basementCost =
         cashOutflows.basementBUA * cashOutflows.basementRate;
-      const baseConstructionCost = buildingCost + parkingCost + basementCost;
+      const infrastructureCosts =
+        isSaleLandedProduct
+          ? (cashOutflows.infrastructureRate ?? 0) * salesLandedTotalLandArea
+          : 0;
+      const warehouseHardCost = warehouseCosts
+        ? (warehouseCosts.buildingShellCost || 0) +
+          (warehouseCosts.siteYardWorksCost || 0) +
+          (warehouseCosts.loadingAccessCost || 0) +
+          (warehouseCosts.specialisedSystemsCost || 0) +
+          (warehouseCosts.commonInfrastructureCost || 0) +
+          (warehouseCosts.professionalFees || 0)
+        : salesWarehouseTotalBUA * (cashOutflows.warehouseBuildingRate ?? 0) +
+          salesWarehouseTotalLandArea *
+            (cashOutflows.warehouseSiteYardRate ?? 0) +
+          (cashOutflows.warehouseLoadingAccessCost ?? 0) +
+          (cashOutflows.warehouseSpecialisedSystemsCost ?? 0) +
+          (projectInfo.salesWarehouseConfigType === "industrial-park"
+            ? cashOutflows.warehouseCommonInfraCost ?? 0
+            : 0);
+      const baseConstructionCost = isSaleWarehouseProduct
+        ? warehouseHardCost
+        : buildingCost + parkingCost + basementCost + infrastructureCosts;
       const contingencyAmount =
         baseConstructionCost * (cashOutflows.contingencyPercent / 100);
       const constructionCost = baseConstructionCost + contingencyAmount;
@@ -1585,7 +2057,11 @@ function CashOutflowsPageContent() {
         constructionCost * (cashOutflows.softCostPercent / 100);
       const powc =
         constructionCost * (cashOutflows.powcPercent / 100);
-      const developmentCost = constructionCost + softCosts + powc;
+      // FF&E % of CC incl. contingency (warehouse only)
+      const ffe = isSaleWarehouseProduct
+        ? (constructionCost * (cashOutflows.ffePercent || 0)) / 100
+        : 0;
+      const developmentCost = constructionCost + softCosts + powc + ffe;
       const landCost =
         cashOutflows.landArea * cashOutflows.landRate;
       const tdc = developmentCost + landCost;
@@ -1596,11 +2072,26 @@ function CashOutflowsPageContent() {
         landCost,
         softCosts,
         powc,
-        ffe: 0,
+        ffe,
         softCostsTotal: softCosts,
         powcTotal: powc,
         tdc,
+        ...(isSaleWarehouseProduct
+          ? {
+              buildingBUA: salesWarehouseTotalBUA,
+              buildingRate:
+                warehouseCosts?.buildingShellRate ??
+                cashOutflows.warehouseBuildingRate ??
+                0,
+              parkingBUA: 0,
+              basementBUA: 0,
+              landArea: salesWarehouseTotalLandArea || cashOutflows.landArea,
+            }
+          : {}),
       });
+      if (isSaleWarehouseProduct) {
+        updateProjectInfoForStream({ salesHighRiseSaleableRatio: 100 });
+      }
 
       console.log("💾 [Component 1] Derived values saved:", {
         constructionCost,
@@ -1880,6 +2371,9 @@ function CashOutflowsPageContent() {
                           updateProjectInfoForStream({
                             buildingType: s.baseType,
                             buildingSubType: s.id,
+                            ...(s.id === "commercial_strata_warehouse"
+                              ? { salesHighRiseSaleableRatio: 100 }
+                              : {}),
                           });
                           logSaleCashOutflow("buildingSubType", s.id, 3);
                         }}
@@ -1933,10 +2427,146 @@ function CashOutflowsPageContent() {
             </div>
           )}
 
-          {/* Step 4: Market Segmentation & Positioning */}
-          {currentStep === 3 && (
+          {/* Step 4: Market Segmentation & Positioning (or Warehouse Segment) */}
+          {currentStep === 3 &&
+            (isSaleWarehouseProduct ? (
+              <div className="space-y-8">
+                <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
+                  Warehouse Segment & Positioning
+                </h2>
+                <p className="text-sm text-slate-400">
+                  Choose your warehouse sub-type and quality grade. These selections
+                  determine technical specifications in Step 5.
+                </p>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-white">
+                    Warehouse Sub-Type
+                  </h3>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {(
+                      [
+                        {
+                          value: "bulk-distribution",
+                          label: "Bulk / Distribution",
+                          desc: "Large-scale, high-bay storage & distribution",
+                        },
+                        {
+                          value: "last-mile-urban",
+                          label: "Last-Mile / Urban",
+                          desc: "Smaller facilities closer to population centres",
+                        },
+                        {
+                          value: "multi-storey",
+                          label: "Multi-Storey",
+                          desc: "Land-scarce urban locations, multiple levels",
+                        },
+                        {
+                          value: "cold-storage",
+                          label: "Cold Storage",
+                          desc: "Temperature-controlled facilities (higher cost)",
+                        },
+                        {
+                          value: "light-manufacturing",
+                          label: "Light Manufacturing / Workshop",
+                          desc: "Combined warehouse + light industrial",
+                        },
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          updateProjectInfoForStream({
+                            salesWarehouseSubType: option.value,
+                          });
+                        }}
+                        className={`relative flex cursor-pointer flex-col rounded-xl border-2 p-4 text-left transition-all ${
+                          projectInfo.salesWarehouseSubType === option.value
+                            ? "border-emerald-500 bg-emerald-500/10"
+                            : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                        }`}
+                      >
+                        <h4 className="font-semibold text-white">{option.label}</h4>
+                        <p className="mt-1 text-xs text-slate-400">{option.desc}</p>
+                        {projectInfo.salesWarehouseSubType === option.value && (
+                          <div className="absolute right-3 top-3 text-emerald-400">
+                            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path
+                                fillRule="evenodd"
+                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {fieldError("salesWarehouseSubType") && (
+                    <p className="text-sm text-red-400">
+                      {fieldError("salesWarehouseSubType")}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-white">Quality Grade</h3>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {(
+                      [
+                        {
+                          value: "grade-a",
+                          label: "Grade A",
+                          desc: "Modern, high-spec, prime location",
+                        },
+                        {
+                          value: "grade-b",
+                          label: "Grade B",
+                          desc: "Functional, secondary location",
+                        },
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          updateProjectInfoForStream({
+                            salesQualityGrade: option.value,
+                          });
+                        }}
+                        className={`relative flex cursor-pointer flex-col rounded-xl border-2 p-4 text-left transition-all ${
+                          projectInfo.salesQualityGrade === option.value
+                            ? "border-emerald-500 bg-emerald-500/10"
+                            : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                        }`}
+                      >
+                        <h4 className="font-semibold text-white">{option.label}</h4>
+                        <p className="mt-1 text-xs text-slate-400">{option.desc}</p>
+                        {projectInfo.salesQualityGrade === option.value && (
+                          <div className="absolute right-3 top-3 text-emerald-400">
+                            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path
+                                fillRule="evenodd"
+                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {fieldError("salesQualityGrade") && (
+                    <p className="text-sm text-red-400">
+                      {fieldError("salesQualityGrade")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
             <div className="space-y-8">
-              <h2 className="text-xl font-bold text-white border-b border-slate-700 pb-4">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 Market Segmentation & Positioning
               </h2>
 
@@ -2146,14 +2776,48 @@ function CashOutflowsPageContent() {
                 )}
               </div>
             </div>
-          )}
+            ))}
 
           {/* Step 5: Building Configuration */}
           {currentStep === 4 && (
             <div className="space-y-6">
               {streamPrefix === "/sale" ? (
+                isSaleWarehouseProduct ? (
+                  <SaleWarehouseBuildingConfigStep
+                    errors={{
+                      ...(fieldError("salesWarehouseConfigType")
+                        ? {
+                            salesWarehouseConfigType: String(
+                              fieldError("salesWarehouseConfigType")
+                            ),
+                          }
+                        : {}),
+                      ...(fieldError("salesWarehouseBUA")
+                        ? {
+                            salesWarehouseBUA: String(
+                              fieldError("salesWarehouseBUA")
+                            ),
+                          }
+                        : {}),
+                      ...(fieldError("salesWarehouseLandArea")
+                        ? {
+                            salesWarehouseLandArea: String(
+                              fieldError("salesWarehouseLandArea")
+                            ),
+                          }
+                        : {}),
+                      ...(fieldError("salesWarehouseParkUnits")
+                        ? {
+                            salesWarehouseParkUnits: String(
+                              fieldError("salesWarehouseParkUnits")
+                            ),
+                          }
+                        : {}),
+                    }}
+                  />
+                ) : (
                 <>
-                  <h2 className="border-b border-slate-700 pb-4 text-xl font-bold capitalize text-white">
+                  <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold capitalize text-white">
                     {isSaleLandedProduct ? "Landed" : "High-Rise"} Configuration
                   </h2>
 
@@ -2536,6 +3200,7 @@ function CashOutflowsPageContent() {
                     </div>
                   )}
                 </>
+                )
               ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div>
@@ -2602,6 +3267,27 @@ function CashOutflowsPageContent() {
 
           {/* Step 6: Construction Costs */}
           {currentStep === 5 && (
+            isSaleWarehouseProduct ? (
+              <SaleWarehouseConstructionCostsStep
+                errors={{
+                  ...validateSaleWarehouseConstructionCosts({
+                    warehouseCosts: cashOutflows.warehouseCosts,
+                    salesWarehouseConfigType:
+                      projectInfo.salesWarehouseConfigType,
+                  }),
+                  ...(fieldError("warehouseBaseCC")
+                    ? {
+                        warehouseBaseCC: String(
+                          fieldError("warehouseBaseCC")
+                        ),
+                      }
+                    : {}),
+                  ...(fieldError("buildingBUA")
+                    ? { buildingBUA: String(fieldError("buildingBUA")) }
+                    : {}),
+                }}
+              />
+            ) : (
             <div>
               {renderSaleBenchmarkBar({
                 hasManualOverride: isStep6Manual,
@@ -2614,20 +3300,21 @@ function CashOutflowsPageContent() {
                     : undefined,
               })}
 
-              <h2 className="text-xl font-semibold text-white mb-6">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 Construction Costs (CC)
               </h2>
-              <p className="text-sm text-slate-400 mb-4">
-                Enter built-up areas (BUA) and benchmark construction rates for each
-                component.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                  <p className="mb-4 text-sm text-slate-400">
+                    Enter built-up areas (BUA) and benchmark construction rates for each
+                    component.
+                  </p>
+                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-200">
                     Superstructure / Main Building
                   </h3>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-300">
                       Building BUA (sqft)
                     </label>
                     <input
@@ -2638,7 +3325,7 @@ function CashOutflowsPageContent() {
                           : projectInfo.salesHighRiseTotalBUA || 0
                       }
                       readOnly
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
                     />
                     <p className="mt-1 text-xs text-amber-400">
                       🔒 Locked: To change, go back to Step 5
@@ -2680,14 +3367,14 @@ function CashOutflowsPageContent() {
                     Parking & Basements
                   </h3>
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-300">
                       Parking / Podium BUA (sqft)
                     </label>
                     <input
                       type="number"
                       value={projectInfo.salesHighRisePodiumBUA || 0}
                       readOnly
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
                     />
                     <p className="mt-1 text-xs text-amber-400">
                       🔒 Locked: To change, go back to Step 5
@@ -2736,14 +3423,14 @@ function CashOutflowsPageContent() {
                     </p>
                   )}
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-300">
                       Basement BUA (sqft)
                     </label>
                     <input
                       type="number"
                       value={projectInfo.salesHighRiseBasementBUA || 0}
                       readOnly
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
+                      className="w-full cursor-not-allowed rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-400"
                     />
                     <p className="mt-1 text-xs text-amber-400">
                       🔒 Locked: To change, go back to Step 5
@@ -2843,8 +3530,8 @@ function CashOutflowsPageContent() {
 
               {/* Infrastructure Costs - Landed Developments (Sale stream) */}
               {streamPrefix === "/sale" ? (
-                <div className="mt-6 pt-6 border-t border-slate-700">
-                  <div className="mb-6 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                <div className="mt-6 border-t border-slate-700 pt-6">
+                  <div className="mb-6 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
                     <p className="text-sm text-slate-400">
                       ℹ️ <span className="font-semibold text-slate-200">Infrastructure Costs</span>{" "}
                       apply to <span className="font-semibold text-slate-200">Landed Developments</span>{" "}
@@ -2856,11 +3543,11 @@ function CashOutflowsPageContent() {
                     </p>
                   </div>
 
-                  <h4 className="text-sm font-semibold text-white mb-4">
+                  <h4 className="mb-4 text-sm font-semibold text-white">
                     Infrastructure Costs (Landed Developments)
                   </h4>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <AiInput
                       label={`Infrastructure Rate (${projectInfo.currency}/sqft)`}
                       value={cashOutflows.infrastructureRate ?? benchInfraRate ?? 0}
@@ -2873,9 +3560,9 @@ function CashOutflowsPageContent() {
                     />
 
                     <div>
-                      <label className="block text-sm text-slate-400 mb-2">
+                      <label className="mb-2 block text-sm text-slate-400">
                         Total Land Area (sqft)
-                        <span className="text-xs text-slate-500 ml-2">
+                        <span className="ml-2 text-xs text-slate-500">
                           (from Step 5)
                         </span>
                       </label>
@@ -2884,31 +3571,30 @@ function CashOutflowsPageContent() {
                         value={salesLandedTotalLandArea}
                         readOnly
                         disabled
-                        className="w-full px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-slate-400"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-2 text-slate-400"
                       />
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="mt-1 text-xs text-slate-500">
                         Auto-populated from Step 5
                       </p>
                     </div>
 
                     <div>
-                      <label className="block text-sm text-slate-400 mb-2">
+                      <label className="mb-2 block text-sm text-slate-400">
                         Infrastructure Costs
                       </label>
-                      <div className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 font-semibold">
+                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 font-semibold text-emerald-400">
                         {infrastructureCosts.toLocaleString(undefined, {
                           maximumFractionDigits: 0,
                         })}{" "}
                         {projectInfo.currency}
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="mt-1 text-xs text-slate-500">
                         Rate × Total Land Area
                       </p>
                     </div>
                   </div>
                 </div>
               ) : null}
-
               <div className="mt-6 border-t border-slate-800 pt-4">
                 <p className="text-sm text-slate-300">
                   Total Construction Cost (CC) before contingency:{" "}
@@ -2921,6 +3607,7 @@ function CashOutflowsPageContent() {
                 </p>
               </div>
             </div>
+            )
           )}
 
 
@@ -2937,7 +3624,7 @@ function CashOutflowsPageContent() {
                   {projectInfo.country}
                 </span>
               </div>
-              <h2 className="text-xl font-semibold text-white mb-4">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 Contingency on CC
               </h2>
               <p className="text-sm text-slate-400 mb-4">
@@ -3007,12 +3694,14 @@ function CashOutflowsPageContent() {
               {renderSaleBenchmarkBar({
                 hasManualOverride: isStep8Manual,
                 onReset:
-                  benchScPct != null || benchPowcPct != null
+                  benchScPct != null ||
+                  benchPowcPct != null ||
+                  benchFfePct != null
                     ? handleResetStep8
                     : undefined,
               })}
 
-              <h2 className="text-xl font-semibold text-white mb-4">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 SC, POWC & DC
               </h2>
 
@@ -3020,7 +3709,7 @@ function CashOutflowsPageContent() {
                 SC and POWC percentages apply to CC including contingency.
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className={`grid grid-cols-1 gap-6 mb-6 ${isSaleWarehouseProduct ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
                 <div>
                   <AiInput
                     label="Soft Costs % of CC incl. contingency (SC%)"
@@ -3054,6 +3743,27 @@ function CashOutflowsPageContent() {
                     </p>
                   )}
                 </div>
+
+                {isSaleWarehouseProduct && (
+                  <div>
+                    <AiInput
+                      label="FF&E % of CC incl. contingency (FFE%)"
+                      type="percentage"
+                      value={cashOutflows.ffePercent || benchFfePct || 0}
+                      onChange={(v) =>
+                        updateFormData("ffePercent", Number(v) || 0)
+                      }
+                      isAiGenerated={!!aiFfePct}
+                      isManualOverride={isFFEManual}
+                      helperText="Furniture, fixtures & equipment"
+                    />
+                    {fieldError("ffePercent") && (
+                      <p className="mt-1 text-sm text-red-400">
+                        {fieldError("ffePercent")}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="mt-6 border-t border-slate-800 pt-4 space-y-1 text-sm text-slate-300">
@@ -3075,8 +3785,20 @@ function CashOutflowsPageContent() {
                     {projectInfo.currency}
                   </span>
                 </p>
+                {isSaleWarehouseProduct && (
+                  <p>
+                    FF&amp;E:{" "}
+                    <span className="font-semibold text-emerald-400">
+                      {ffe.toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}{" "}
+                      {projectInfo.currency}
+                    </span>
+                  </p>
+                )}
                 <p>
-                  Development Cost (DC = CC% + SC + POWC):{" "}
+                  Development Cost (DC = CC% + SC + POWC
+                  {isSaleWarehouseProduct ? " + FFE" : ""}):{" "}
                   <span className="font-semibold text-emerald-400">
                     {developmentCost.toLocaleString(undefined, {
                       maximumFractionDigits: 0,
@@ -3085,6 +3807,22 @@ function CashOutflowsPageContent() {
                   </span>
                 </p>
               </div>
+
+              <DetailedAllocationSection
+                powcAllocation={cashOutflows.powcAllocation}
+                softCostAllocation={cashOutflows.softCostAllocation}
+                onPowcChange={(powcAllocation) =>
+                  updateCashOutflowsForStream({ powcAllocation })
+                }
+                onSoftCostChange={(softCostAllocation) =>
+                  updateCashOutflowsForStream({ softCostAllocation })
+                }
+                powcError={fieldError("powcAllocation")}
+                softCostError={fieldError("softCostAllocation")}
+                aiPowcBreakdown={aiPowcBreakdown}
+                aiScBreakdown={aiScBreakdown}
+                onResetToBenchmark={resetAllocationsToBenchmark}
+              />
             </div>
           )}
 
@@ -3096,7 +3834,7 @@ function CashOutflowsPageContent() {
                 onReset: benchLandRate != null ? handleResetStep9 : undefined,
               })}
 
-              <h2 className="text-xl font-semibold text-white mb-4">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 Land Costs (LC)
               </h2>
 
@@ -3204,7 +3942,7 @@ function CashOutflowsPageContent() {
                   {projectInfo.country}
                 </span>
               </div>
-              <h2 className="text-xl font-semibold text-white mb-4">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 TDC & Ratio Checks
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -3316,7 +4054,7 @@ function CashOutflowsPageContent() {
                   {projectInfo.country}
                 </span>
               </div>
-              <h2 className="text-xl font-semibold text-white mb-4">
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
                 Construction Period (with AI Hint)
               </h2>
               <p className="text-sm text-slate-400 mb-4">
@@ -3387,6 +4125,15 @@ function CashOutflowsPageContent() {
 
           {/* Step 12: Construction Stages */}
           {currentStep === 11 && (
+            isSaleWarehouseProduct ? (
+              <SaleWarehouseConstructionPhasingStep
+                errors={validateSaleWarehouseConstructionPhasing({
+                  warehousePhasing: cashOutflows.warehousePhasing,
+                  constructionPeriod: cashOutflows.constructionPeriod,
+                })}
+              />
+            ) : (
+
             <div>
               {renderSaleBenchmarkBar({
                 hasManualOverride: isStep12Manual,
@@ -3400,8 +4147,8 @@ function CashOutflowsPageContent() {
                     : undefined,
               })}
 
-              <h2 className="text-xl font-semibold text-white mb-4">
-                Construction Stages (M0 to Finishes)
+              <h2 className="mb-6 border-b border-slate-700 pb-4 text-xl font-bold text-white">
+                Construction Phasing (S-Curve)
               </h2>
               <p className="text-sm text-slate-400 mb-6">
                 Break down CC% (construction cost including contingency) into
@@ -3587,607 +4334,58 @@ function CashOutflowsPageContent() {
                 </p>
               </div>
             </div>
+            )
           )}
 
-          {/* Step 13: POWC & SC Allocation + Summary */}
+          {/* Step 13: Review & Summary (read-only) */}
           {currentStep === 12 && (
-            <div className="space-y-8">
-              {renderSaleBenchmarkBar({
-                hasManualOverride: isStep13Manual,
-                onReset:
-                  isStep13Manual && (aiPowcBreakdown || aiScBreakdown)
-                    ? resetAllocationsToBenchmark
-                    : undefined,
-              })}
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-4">
-                  Detailed Allocation & Summary
-                </h2>
-                <p className="text-sm text-slate-400 mb-4">
-                  Define how POWC is distributed over the programme, review standard SC
-                  allocation, then confirm all inputs before generating the model.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <AIRecommendationBox
-                    title="POWC Allocation"
-                    source={`Based on 2024 ${projectInfo.city || "market"} ${projectInfo.buildingType || "residential"} data`}
-                    sourceDetail={`Source: ${getBenchmarkSource(projectInfo.country, projectInfo.city)}`}
-                    explanation={`Step 12 timing: ${POWC_STEP13_TIMING_NOTES}`}
-                  >
-                    <div className="space-y-4">
-                      {(() => {
-                        const powcAlloc =
-                          cashOutflows.powcAllocation ?? {
-                            ...DEFAULT_POWC_ALLOCATION,
-                          };
-                        const powcTotal =
-                          powcAlloc.siteEstablishment +
-                          powcAlloc.overhead +
-                          powcAlloc.authorityFees;
-
-                        const aiSite = aiPowcBreakdown?.site_establishment_pct;
-                        const aiOverhead = aiPowcBreakdown?.overhead_pct;
-                        const aiAuthority = aiPowcBreakdown?.authority_fees_pct;
-
-                        const siteMatchesAi =
-                          aiSite != null &&
-                          !isRateOverride(powcAlloc.siteEstablishment, aiSite);
-                        const overheadMatchesAi =
-                          aiOverhead != null &&
-                          !isRateOverride(powcAlloc.overhead, aiOverhead);
-                        const authorityMatchesAi =
-                          aiAuthority != null &&
-                          !isRateOverride(powcAlloc.authorityFees, aiAuthority);
-
-                        const allocInputClass = (matchesAi: boolean, hasAi: boolean) =>
-                          `w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                            matchesAi
-                              ? "border-2 border-blue-500"
-                              : hasAi
-                                ? "border-2 border-amber-500"
-                                : "border border-slate-600"
-                          }`;
-
-                        return (
-                          <>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Site Establishment
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Mobilization, temporary facilities, site prep
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={powcAlloc.siteEstablishment}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      powcAllocation: {
-                                        ...powcAlloc,
-                                        siteEstablishment: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    siteMatchesAi,
-                                    aiSite != null
-                                  )}
-                                />
-                                {aiSite != null && (
-                                  <span
-                                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                      siteMatchesAi
-                                        ? "bg-blue-500/20 text-blue-400"
-                                        : "bg-amber-500/20 text-amber-400"
-                                    }`}
-                                  >
-                                    {siteMatchesAi ? "AI" : "Override"}
-                                  </span>
-                                )}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Overhead Costs
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Admin, HSE, Management, site staff
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={powcAlloc.overhead}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      powcAllocation: {
-                                        ...powcAlloc,
-                                        overhead: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    overheadMatchesAi,
-                                    aiOverhead != null
-                                  )}
-                                />
-                                {aiOverhead != null && (
-                                  <span
-                                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                      overheadMatchesAi
-                                        ? "bg-blue-500/20 text-blue-400"
-                                        : "bg-amber-500/20 text-amber-400"
-                                    }`}
-                                  >
-                                    {overheadMatchesAi ? "AI" : "Override"}
-                                  </span>
-                                )}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Authority Fees
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Telco, power, water, drainage, permits
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={powcAlloc.authorityFees}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      powcAllocation: {
-                                        ...powcAlloc,
-                                        authorityFees: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    authorityMatchesAi,
-                                    aiAuthority != null
-                                  )}
-                                />
-                                {aiAuthority != null && (
-                                  <span
-                                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                      authorityMatchesAi
-                                        ? "bg-blue-500/20 text-blue-400"
-                                        : "bg-amber-500/20 text-amber-400"
-                                    }`}
-                                  >
-                                    {authorityMatchesAi ? "AI" : "Override"}
-                                  </span>
-                                )}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between border-t border-slate-700 pt-4">
-                              <label className="text-sm font-semibold text-slate-200">
-                                Total
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`font-semibold ${
-                                    powcTotal === 100
-                                      ? "text-emerald-400"
-                                      : "text-amber-400"
-                                  }`}
-                                >
-                                  {powcTotal.toFixed(1)}%
-                                </span>
-                                <span className="text-slate-400">%</span>
-                                {powcTotal === 100 ? (
-                                  <span className="text-sm text-emerald-400">
-                                    ✅
-                                  </span>
-                                ) : (
-                                  <span className="text-sm text-amber-400">
-                                    ⚠️ Must equal 100%
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {fieldError("powcAllocation") && (
-                              <p className="text-sm text-red-400">
-                                {fieldError("powcAllocation")}
-                              </p>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </AIRecommendationBox>
-
-                  <AIRecommendationBox
-                    title="Soft Costs Allocation"
-                    source={`Based on 2024 ${projectInfo.city || "market"} ${projectInfo.buildingType || "residential"} data`}
-                    sourceDetail={`Source: ${getBenchmarkSource(projectInfo.country, projectInfo.city)}`}
-                    explanation={`Percentages below are shares of total soft costs (Step 12). Aggregate cash timing: ${SOFT_COSTS_TIMING_NOTES}`}
-                  >
-                    <div className="space-y-4">
-                      {(() => {
-                        const softAlloc =
-                          cashOutflows.softCostAllocation ?? {
-                            ...DEFAULT_SOFT_COST_ALLOCATION,
-                          };
-                        const softCostsTotal =
-                          softAlloc.architect +
-                          softAlloc.projectManagement +
-                          softAlloc.engineering +
-                          softAlloc.geotechnical +
-                          softAlloc.otherFees;
-
-                        const aiArchitect = aiScBreakdown?.architect_pct;
-                        const aiPm = aiScBreakdown?.pm_pct;
-                        const aiEngineering = aiScBreakdown?.engineering_pct;
-                        const aiGeotech = aiScBreakdown?.geotech_pct;
-                        const aiOther = aiScBreakdown?.other_pct;
-
-                        const architectMatchesAi =
-                          aiArchitect != null &&
-                          !isRateOverride(softAlloc.architect, aiArchitect);
-                        const pmMatchesAi =
-                          aiPm != null &&
-                          !isRateOverride(softAlloc.projectManagement, aiPm);
-                        const engineeringMatchesAi =
-                          aiEngineering != null &&
-                          !isRateOverride(softAlloc.engineering, aiEngineering);
-                        const geotechMatchesAi =
-                          aiGeotech != null &&
-                          !isRateOverride(softAlloc.geotechnical, aiGeotech);
-                        const otherMatchesAi =
-                          aiOther != null &&
-                          !isRateOverride(softAlloc.otherFees, aiOther);
-
-                        const allocInputClass = (
-                          matchesAi: boolean,
-                          hasAi: boolean
-                        ) =>
-                          `w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                            matchesAi
-                              ? "border-2 border-blue-500"
-                              : hasAi
-                                ? "border-2 border-amber-500"
-                                : "border border-slate-600"
-                          }`;
-
-                        const renderBadge = (
-                          matchesAi: boolean,
-                          hasAi: boolean
-                        ) =>
-                          hasAi ? (
-                            <span
-                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                matchesAi
-                                  ? "bg-blue-500/20 text-blue-400"
-                                  : "bg-amber-500/20 text-amber-400"
-                              }`}
-                            >
-                              {matchesAi ? "AI" : "Override"}
-                            </span>
-                          ) : null;
-
-                        return (
-                          <>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Main Architect
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Design, drawings, site supervision
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={softAlloc.architect}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      softCostAllocation: {
-                                        ...softAlloc,
-                                        architect: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    architectMatchesAi,
-                                    aiArchitect != null
-                                  )}
-                                />
-                                {renderBadge(
-                                  architectMatchesAi,
-                                  aiArchitect != null
-                                )}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Project Management
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Owner&apos;s rep, coordination, reporting
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={softAlloc.projectManagement}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      softCostAllocation: {
-                                        ...softAlloc,
-                                        projectManagement: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    pmMatchesAi,
-                                    aiPm != null
-                                  )}
-                                />
-                                {renderBadge(pmMatchesAi, aiPm != null)}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Engineering Consultant
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Structural, MEP, civil engineering
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={softAlloc.engineering}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      softCostAllocation: {
-                                        ...softAlloc,
-                                        engineering: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    engineeringMatchesAi,
-                                    aiEngineering != null
-                                  )}
-                                />
-                                {renderBadge(
-                                  engineeringMatchesAi,
-                                  aiEngineering != null
-                                )}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Geotechnical Consultant
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Soil investigation, foundation recommendations
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={softAlloc.geotechnical}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      softCostAllocation: {
-                                        ...softAlloc,
-                                        geotechnical: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    geotechMatchesAi,
-                                    aiGeotech != null
-                                  )}
-                                />
-                                {renderBadge(
-                                  geotechMatchesAi,
-                                  aiGeotech != null
-                                )}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between rounded-lg bg-slate-900/50 p-3">
-                              <div>
-                                <label className="text-sm font-medium text-slate-200">
-                                  Other Fees
-                                </label>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  Legal, insurance, marketing, miscellaneous
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={softAlloc.otherFees}
-                                  onChange={(e) => {
-                                    const newValue =
-                                      parseFloat(e.target.value) || 0;
-                                    updateCashOutflowsForStream({
-                                      softCostAllocation: {
-                                        ...softAlloc,
-                                        otherFees: newValue,
-                                      },
-                                    });
-                                  }}
-                                  className={allocInputClass(
-                                    otherMatchesAi,
-                                    aiOther != null
-                                  )}
-                                />
-                                {renderBadge(otherMatchesAi, aiOther != null)}
-                                <span className="text-slate-400">%</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between border-t border-slate-700 pt-4">
-                              <label className="text-sm font-semibold text-slate-200">
-                                Total
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`font-semibold ${
-                                    softCostsTotal === 100
-                                      ? "text-emerald-400"
-                                      : "text-amber-400"
-                                  }`}
-                                >
-                                  {softCostsTotal.toFixed(1)}%
-                                </span>
-                                <span className="text-slate-400">%</span>
-                                {softCostsTotal === 100 ? (
-                                  <span className="text-sm text-emerald-400">
-                                    ✅
-                                  </span>
-                                ) : (
-                                  <span className="text-sm text-amber-400">
-                                    ⚠️ Must equal 100%
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {fieldError("softCostAllocation") && (
-                              <p className="text-sm text-red-400">
-                                {fieldError("softCostAllocation")}
-                              </p>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </AIRecommendationBox>
-                </div>
-              </div>
-
-              {/* Summary */}
-              <div className="border-t border-slate-800 pt-6">
-                <h3 className="text-lg font-semibold text-white mb-4">
-                  Summary: Cash Outflows Inputs
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div className="space-y-1">
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Location:</span>{" "}
-                      {projectInfo.city || "—"},{" "}
-                      {projectInfo.country || "—"}
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Currency:</span>{" "}
-                      {projectInfo.currency}
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Building Type:</span>{" "}
-                      {projectInfo.buildingType}
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Configuration:</span>{" "}
-                      {projectInfo.buildingConfig.basements}B / {projectInfo.buildingConfig.podiumFloors}P /{" "}
-                      {projectInfo.buildingConfig.towerFloors}T
-                    </p>
-                    {projectInfo.buildingConfig.hasRetailComponent && (
-                      <p className="text-slate-300">
-                        <span className="text-slate-400">
-                          Retail Component:
-                        </span>{" "}
-                        {projectInfo.buildingConfig.retailPercentage}% of podium/ground BUA
-                      </p>
-                    )}
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Construction Period:</span>{" "}
-                      {cashOutflows.constructionPeriod} months
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">CC% (incl. contingency):</span>{" "}
-                      {ccWithContingency.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}{" "}
-                      {projectInfo.currency}
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Soft Costs (SC):</span>{" "}
-                      {softCosts.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}{" "}
-                      {projectInfo.currency} ({cashOutflows.softCostPercent}%)
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">POWC:</span>{" "}
-                      {powc.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}{" "}
-                      {projectInfo.currency} ({cashOutflows.powcPercent}%)
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">Land Cost (LC):</span>{" "}
-                      {landCost.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}{" "}
-                      {projectInfo.currency}
-                    </p>
-                    <p className="text-slate-300">
-                      <span className="text-slate-400">TDC (DC + LC):</span>{" "}
-                      <span className="font-semibold text-emerald-400">
-                        {totalDevelopmentCost.toLocaleString(undefined, {
-                          maximumFractionDigits: 0,
-                        })}{" "}
-                        {projectInfo.currency}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+            isSaleWarehouseProduct ? (
+              <SaleWarehouseReviewSummaryStep
+                currency={projectInfo.currency}
+                city={projectInfo.city}
+                country={projectInfo.country}
+                softCosts={softCosts}
+                softCostPercent={cashOutflows.softCostPercent}
+                powc={powc}
+                powcPercent={cashOutflows.powcPercent}
+                ffe={ffe}
+                ffePercent={cashOutflows.ffePercent}
+                contingencyAmount={contingencyAmount}
+                contingencyPercent={cashOutflows.contingencyPercent}
+                landCost={landCost}
+                totalProjectCost={totalDevelopmentCost}
+                constructionPeriodMonths={cashOutflows.constructionPeriod}
+                totalGfa={salesWarehouseTotalBUA}
+              />
+            ) : (
+            <CashOutflowsReviewSummary
+              currency={projectInfo.currency}
+              city={projectInfo.city}
+              country={projectInfo.country}
+              buildingTypeLabel={
+                projectInfo.buildingSubType
+                  ? projectInfo.buildingSubType.replace(/_/g, " ")
+                  : projectInfo.buildingType
+              }
+              configLabel={
+                isSaleLandedProduct
+                  ? `${projectInfo.buildingConfig.landedUnits ?? 0} units`
+                  : `${projectInfo.buildingConfig.basements}B / ${projectInfo.buildingConfig.podiumFloors}P / ${projectInfo.buildingConfig.towerFloors}T`
+              }
+              constructionPeriodMonths={cashOutflows.constructionPeriod}
+              landArea={cashOutflows.landArea}
+              landCost={landCost}
+              buildingGfa={cashOutflows.buildingBUA}
+              buildingCost={buildingCost + parkingCost + basementCost}
+              softCosts={softCosts}
+              softCostPercent={cashOutflows.softCostPercent}
+              powc={powc}
+              powcPercent={cashOutflows.powcPercent}
+              contingencyAmount={contingencyAmount}
+              contingencyPercent={cashOutflows.contingencyPercent}
+              totalProjectCost={totalDevelopmentCost}
+            />
+            )
           )}
 
         </div>

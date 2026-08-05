@@ -2,20 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useFinModelStore from "@/store/useFinModelStore";
-import { buildSaleCashflowDetailProfile } from "@/lib/sale-cash-preview-profile";
+import { buildSalePreFinancingCashFlows } from "@/lib/sale-cash-preview-profile";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { BenchmarkBanner } from "@/components/BenchmarkBanner";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 import { exportToCSV } from "@/lib/downloads/exportToCSV";
 import { exportToExcel } from "@/lib/downloads/exportToExcel";
 
-type MonthPoint = { month: number; amount: number };
-
 export default function PreviewCashInflowsPage() {
   const streamPrefix = useStreamPrefix();
   const projectInfo = useFinModelStore((s) => s.sale.projectInfo);
   const cashOutflows = useFinModelStore((s) => s.sale.cashOutflows);
   const cashInflows = useFinModelStore((s) => s.sale.cashInflows);
+
+  const isSaleWarehouseProduct =
+    projectInfo.buildingSubType === "commercial_strata_warehouse";
 
   useEffect(() => {
     const ci = cashInflows as Record<string, unknown>;
@@ -32,19 +33,20 @@ export default function PreviewCashInflowsPage() {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement | null>(null);
 
-  // Sales period = Construction Period + Post-Completion Buffer
-  const constructionPeriod = cashOutflows.constructionPeriod || 30;
-  const postCompletionBuffer = 6;
-  const totalMonths = constructionPeriod + postCompletionBuffer; // 36 => M0..M36 (37 points)
-  const months = useMemo(
-    () => Array.from({ length: totalMonths + 1 }, (_, i) => i),
-    [totalMonths]
+  // Same pre-financing NCF as Project IRR (shared helper — no divergent recalculation).
+  const preFinancing = useMemo(
+    () => buildSalePreFinancingCashFlows(cashOutflows, cashInflows, projectInfo),
+    [cashOutflows, cashInflows, projectInfo]
   );
 
-  const detail = useMemo(
-    () => buildSaleCashflowDetailProfile(cashOutflows, projectInfo),
-    [cashOutflows, projectInfo]
-  );
+  const constructionPeriod = preFinancing.constructionPeriod;
+  const postCompletionBuffer = 6;
+  const totalMonths = constructionPeriod + postCompletionBuffer; // 36 => M0..M36 (37 points)
+  const months = preFinancing.months;
+  const detail = preFinancing.detail;
+  const inflowSeries = preFinancing.inflow;
+  const outflowSeries = preFinancing.outflow;
+  const netSeries = preFinancing.net;
 
   // Stage boundaries for headers (construction months only)
   const sa = cashOutflows.stageAllocation;
@@ -59,20 +61,6 @@ export default function PreviewCashInflowsPage() {
     Math.round(constructionPeriod * ((s1Pct + s2Pct) / 100)) - stage1Months
   );
   const stage3Months = Math.max(0, constructionPeriod - stage1Months - stage2Months);
-
-  const inflowsByMonth = useMemo(() => {
-    const schedule: MonthPoint[] = cashInflows.monthlyInflowSchedule || [];
-    const map = new Map<number, number>();
-    for (const p of schedule) {
-      map.set(p.month, (map.get(p.month) || 0) + (p.amount || 0));
-    }
-    return map;
-  }, [cashInflows.monthlyInflowSchedule]);
-
-  const inflowSeries = useMemo(
-    () => months.map((m) => inflowsByMonth.get(m) || 0),
-    [months, inflowsByMonth]
-  );
 
   // Split monthly inflows into unit vs bulk sales using the same share
   // percentage that `/preview/financing` and other previews rely on.
@@ -92,27 +80,15 @@ export default function PreviewCashInflowsPage() {
       constructionCost: cashOutflows.constructionCost,
       firstInflow: unitInflowSeries[1] || bulkInflowSeries[1],
       expectsFullFigures: (cashOutflows.landCost || 0) > 1000000,
+      netM0: netSeries[0],
     });
   }, [
     cashOutflows.landCost,
     cashOutflows.constructionCost,
     unitInflowSeries,
     bulkInflowSeries,
+    netSeries,
   ]);
-
-  const outflowSeries = useMemo(() => {
-    const padded = Array(totalMonths + 1).fill(0);
-    // detail.monthlyTotal aligns to indices 0..constructionPeriod
-    for (let m = 0; m <= Math.min(constructionPeriod, totalMonths); m++) {
-      padded[m] = detail.monthlyTotal[m] || 0;
-    }
-    return padded;
-  }, [detail.monthlyTotal, constructionPeriod, totalMonths]);
-
-  const netSeries = useMemo(
-    () => months.map((m) => (inflowSeries[m] || 0) - (outflowSeries[m] || 0)),
-    [months, inflowSeries, outflowSeries]
-  );
 
   const cumulativeSeries = useMemo(() => {
     let running = 0;
@@ -159,6 +135,21 @@ export default function PreviewCashInflowsPage() {
     return padded;
   }, [detail.powcTotal, constructionPeriod, totalMonths]);
 
+  const ffeSeries = useMemo(() => {
+    const padded = Array(totalMonths + 1).fill(0);
+    if (!isSaleWarehouseProduct) return padded;
+    const src = detail.warehouseMonthlyCosts?.ffe || [];
+    for (let m = 0; m <= Math.min(constructionPeriod, totalMonths); m++) {
+      padded[m] = src[m] || 0;
+    }
+    return padded;
+  }, [
+    isSaleWarehouseProduct,
+    detail.warehouseMonthlyCosts,
+    constructionPeriod,
+    totalMonths,
+  ]);
+
   useEffect(() => {
     console.log("🔗 [Sync Check]:", {
       inflowsPOWC_M1: powcSeries[1],
@@ -190,6 +181,7 @@ export default function PreviewCashInflowsPage() {
   const totalConstruction = constructionSeries.reduce((s, v) => s + v, 0);
   const totalSoft = softCostsSeries.reduce((s, v) => s + v, 0);
   const totalPowc = powcSeries.reduce((s, v) => s + v, 0);
+  const totalFfe = ffeSeries.reduce((s, v) => s + v, 0);
   const totalOutflowAll = outflowSeries.reduce((s, v) => s + v, 0);
   const totalNetAll = netSeries.reduce((s, v) => s + v, 0);
   const cumulativeFinal = cumulativeSeries[cumulativeSeries.length - 1] || 0;
@@ -258,6 +250,15 @@ export default function PreviewCashInflowsPage() {
       roundToWhole(totalSoft),
     ];
 
+    const ffeRow: (string | number | null)[] = [
+      "FF&E",
+      ...months.map((m) => {
+        const k = roundToWhole(ffeSeries[m] || 0);
+        return k > 0 ? k : null;
+      }),
+      roundToWhole(totalFfe),
+    ];
+
     const powcRow: (string | number | null)[] = [
       "POWC",
       ...months.map((m) => roundToWhole(powcSeries[m] || 0)),
@@ -289,6 +290,7 @@ export default function PreviewCashInflowsPage() {
       totalInflowRow,
       landRow,
       constructionRow,
+      ...(isSaleWarehouseProduct ? [ffeRow] : []),
       softRow,
       powcRow,
       totalOutflowRow,
@@ -305,16 +307,19 @@ export default function PreviewCashInflowsPage() {
     landSeries,
     constructionSeries,
     softCostsSeries,
+    ffeSeries,
     powcSeries,
     outflowSeries,
     netSeries,
     cumulativeSeries,
     hasBulkSales,
+    isSaleWarehouseProduct,
     totalUnitInflowAll,
     totalBulkInflowAll,
     totalInflowAll,
     totalLand,
     totalSoft,
+    totalFfe,
     totalPowc,
     totalOutflowAll,
     totalNetAll,
@@ -571,6 +576,27 @@ export default function PreviewCashInflowsPage() {
                   {formatNumber(roundToWhole(cashOutflows.constructionCost || 0))}
                 </td>
               </tr>
+              {isSaleWarehouseProduct && (
+                <tr>
+                  <td className="sticky left-0 border-r border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-200">
+                    FF&amp;E
+                  </td>
+                  {months.map((m) => {
+                    const ffeValue = roundToWhole(ffeSeries[m] || 0);
+                    return (
+                      <td
+                        key={m}
+                        className="border-b border-slate-700/50 px-2 py-3 text-center text-xs text-slate-400"
+                      >
+                        {ffeValue > 0 ? formatNumber(ffeValue) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="border-b border-slate-700 px-4 py-3 text-right text-sm font-medium text-slate-200">
+                    {formatNumber(roundToWhole(totalFfe))}
+                  </td>
+                </tr>
+              )}
               <tr>
                 <td className="sticky left-0 border-r border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-300">
                   Soft Costs

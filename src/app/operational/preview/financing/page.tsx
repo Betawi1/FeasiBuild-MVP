@@ -16,6 +16,7 @@ import { exportToCSV } from "@/lib/downloads/exportToCSV";
 import { exportToExcel } from "@/lib/downloads/exportToExcel";
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
 import { computeOperationalProjectIrrPnl } from "@/lib/operational-project-irr-pnl";
+import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
 import {
   streamKeyFromPrefix,
   useStreamPrefix,
@@ -154,6 +155,9 @@ export default function FinancingPreviewPage({
   const officeHoldSnapshot = useFinModelStore((s) => s[finStream].officeHoldSnapshot);
   const residentialHoldSnapshot = useFinModelStore(
     (s) => s[finStream].residentialHoldSnapshot
+  );
+  const operationalCashInflows = useFinModelStore(
+    (s) => s.operational.cashInflows
   );
   const cashInflows = useFinModelStore((s) => s.cashInflows);
   // C4 + preview must use operational stream financing (not global `state.financing`)
@@ -1922,39 +1926,57 @@ export default function FinancingPreviewPage({
 
   const loanAtCompletion = dynamicLoanAtCompletion || loanAtCompletionLegacy;
   
-  /** Asset-aware hold P&L (hotel / retail / office / residential) — same basis as Project IRR preview. */
-  const operationalPnl = useMemo(
-    () =>
-      computeOperationalProjectIrrPnl(buildingType, {
-        hotelSnapshot: hotelHoldSnapshot,
-        retailSnapshot: retailHoldSnapshot,
-        officeSnapshot: officeHoldSnapshot,
-        residentialSnapshot: residentialHoldSnapshot,
-        retailOpex: projectInfo.retailOpex,
-        retailDepreciation: projectInfo.retailDepreciation,
-        officeOpex: projectInfo.officeOpex,
-        officeDepreciation: projectInfo.officeDepreciation,
-        residentialOpex: projectInfo.residentialOpex,
-        residentialDepreciation: projectInfo.residentialDepreciation,
-        constructionCost: cashOutflows.constructionCost || 0,
-        ffe: cashOutflows.ffe || 0,
-      }),
-    [
-      buildingType,
-      hotelHoldSnapshot,
-      retailHoldSnapshot,
-      officeHoldSnapshot,
-      residentialHoldSnapshot,
-      projectInfo.retailOpex,
-      projectInfo.retailDepreciation,
-      projectInfo.officeOpex,
-      projectInfo.officeDepreciation,
-      projectInfo.residentialOpex,
-      projectInfo.residentialDepreciation,
-      cashOutflows.constructionCost,
-      cashOutflows.ffe,
-    ]
-  );
+  /** Asset-aware hold P&L (hotel / retail / office / residential / warehouse) — same basis as Project IRR preview. */
+  const operationalPnl = useMemo(() => {
+    const warehouseCapex = resolveWarehouseCapexBases(cashOutflows);
+    return computeOperationalProjectIrrPnl(buildingType, {
+      hotelSnapshot: hotelHoldSnapshot,
+      retailSnapshot: retailHoldSnapshot,
+      officeSnapshot: officeHoldSnapshot,
+      residentialSnapshot: residentialHoldSnapshot,
+      retailOpex: projectInfo.retailOpex,
+      retailDepreciation: projectInfo.retailDepreciation,
+      officeOpex: projectInfo.officeOpex,
+      officeDepreciation: projectInfo.officeDepreciation,
+      residentialOpex: projectInfo.residentialOpex,
+      residentialDepreciation: projectInfo.residentialDepreciation,
+      warehouseRevenue: operationalCashInflows?.warehouseRevenue,
+      warehouseOtherIncome: operationalCashInflows?.warehouseOtherIncome,
+      warehouseOpEx: operationalCashInflows?.warehouseOpEx,
+      warehouseDepreciation: operationalCashInflows?.warehouseDepreciation,
+      warehouseBuildingCost: warehouseCapex.buildingCost,
+      warehouseSiteImprovementsCost: warehouseCapex.siteImprovementsCost,
+      projectInfo,
+      dataCentreRevenue: operationalCashInflows?.dataCentreRevenue,
+      dataCentreOtherIncome: operationalCashInflows?.dataCentreOtherIncome,
+      dataCentreOpEx: operationalCashInflows?.dataCentreOpEx,
+      dataCentreDepreciation: operationalCashInflows?.dataCentreDepreciation,
+      constructionCost: cashOutflows.constructionCost || 0,
+      ffe: cashOutflows.ffe || 0,
+    });
+  }, [
+    buildingType,
+    hotelHoldSnapshot,
+    retailHoldSnapshot,
+    officeHoldSnapshot,
+    residentialHoldSnapshot,
+    projectInfo.retailOpex,
+    projectInfo.retailDepreciation,
+    projectInfo.officeOpex,
+    projectInfo.officeDepreciation,
+    projectInfo.residentialOpex,
+    projectInfo.residentialDepreciation,
+    operationalCashInflows?.warehouseRevenue,
+    operationalCashInflows?.warehouseOtherIncome,
+    operationalCashInflows?.warehouseOpEx,
+    operationalCashInflows?.warehouseDepreciation,
+    operationalCashInflows?.dataCentreRevenue,
+    operationalCashInflows?.dataCentreOtherIncome,
+    operationalCashInflows?.dataCentreOpEx,
+    operationalCashInflows?.dataCentreDepreciation,
+    projectInfo,
+    cashOutflows,
+  ]);
 
   /** Operating-year revenue (Y1–Y10): retail = base + % rent + other income; hotel = room revenue; etc. */
   const operationalRevenueForOpYear = useCallback(

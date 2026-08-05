@@ -110,10 +110,19 @@ export function buildSaleDevelopmentCostsData(
   const c = bundle.currency;
   const projectInfo = useFinModelStore.getState().sale.projectInfo;
   const detail = buildSaleCashflowDetailProfile(co, projectInfo);
+  const isWarehouse =
+    projectInfo.buildingSubType === "commercial_strata_warehouse";
+  const wt = detail.warehouseTotals;
 
-  const buildingAmt = (co.buildingBUA || 0) * (co.buildingRate || 0);
-  const parkingAmt = (co.parkingBUA || 0) * (co.parkingRate || 0);
-  const basementAmt = (co.basementBUA || 0) * (co.basementRate || 0);
+  const buildingAmt = isWarehouse
+    ? wt.buildingShell
+    : (co.buildingBUA || 0) * (co.buildingRate || 0);
+  const parkingAmt = isWarehouse
+    ? wt.loadingAccess
+    : (co.parkingBUA || 0) * (co.parkingRate || 0);
+  const basementAmt = isWarehouse
+    ? wt.specialisedSystems
+    : (co.basementBUA || 0) * (co.basementRate || 0);
   const bc = projectInfo.buildingConfig;
   const landedSaleable =
     (bc.landedUnits ?? 0) * (bc.landedLandAreaPerUnit ?? 0);
@@ -121,14 +130,25 @@ export function buildSaleDevelopmentCostsData(
     landedSaleable > 0 ? landedSaleable / 0.7 : co.landArea || 0;
   const isLanded = projectInfo.buildingSubType?.includes("landed");
   const infraArea = isLanded ? landedLandArea : co.landArea || 0;
-  const infraRate = co.infrastructureRate ?? 0;
-  const infraAmt = infraArea * infraRate;
+  const infraRate = isWarehouse
+    ? infraArea > 0
+      ? wt.siteYard / infraArea
+      : 0
+    : (co.infrastructureRate ?? 0);
+  const infraAmt = isWarehouse ? wt.siteYard : infraArea * infraRate;
 
-  const subtotalBeforeContingency =
-    buildingAmt + parkingAmt + basementAmt + infraAmt;
+  const subtotalBeforeContingency = isWarehouse
+    ? wt.buildingShell +
+      wt.siteYard +
+      wt.loadingAccess +
+      wt.specialisedSystems +
+      wt.commonInfra +
+      wt.professionalFees
+    : buildingAmt + parkingAmt + basementAmt + infraAmt;
   const contingencyPct = co.contingencyPercent || 0;
-  const contingencyAmt =
-    subtotalBeforeContingency * (contingencyPct / 100);
+  const contingencyAmt = isWarehouse
+    ? wt.contingency
+    : subtotalBeforeContingency * (contingencyPct / 100);
   const totalConstruction =
     co.constructionCost || subtotalBeforeContingency + contingencyAmt;
   const softAmt = co.softCostsTotal ?? co.softCosts ?? 0;
@@ -158,22 +178,68 @@ export function buildSaleDevelopmentCostsData(
           return { name: `Stage ${i + 1}`, period: `M${start}–M${end}` };
         });
 
+  const buildingRate = isWarehouse
+    ? (co.buildingBUA || 0) > 0
+      ? wt.buildingShell / (co.buildingBUA || 1)
+      : (co.warehouseBuildingRate ?? 0)
+    : co.buildingRate || 0;
+
+  const warehouseCostLines = isWarehouse
+    ? [
+        {
+          label: "Building & Shell",
+          area: co.buildingBUA || 0,
+          rate: buildingRate,
+          amount: wt.buildingShell,
+        },
+        {
+          label: "Site & Yard Works",
+          area: co.landArea || 0,
+          rate: infraRate,
+          amount: wt.siteYard,
+        },
+        {
+          label: "Loading & Access",
+          amount: wt.loadingAccess,
+        },
+        {
+          label: "Specialised Systems",
+          amount: wt.specialisedSystems,
+        },
+        ...(wt.commonInfra > 0
+          ? [{ label: "Common Infrastructure", amount: wt.commonInfra }]
+          : []),
+        {
+          label: "Professional Fees",
+          amount: wt.professionalFees,
+        },
+      ]
+    : undefined;
+
+  const warehousePostContingencyLines = isWarehouse
+    ? wt.ffe > 0
+      ? [{ label: "FF&E", amount: wt.ffe }]
+      : []
+    : undefined;
+
   return {
     currency: c,
+    warehouseCostLines,
+    warehousePostContingencyLines,
     constructionCosts: {
       building: {
         bua: co.buildingBUA || 0,
-        rate: co.buildingRate || 0,
+        rate: buildingRate,
         amount: buildingAmt,
       },
       parking: {
-        bua: co.parkingBUA || 0,
-        rate: co.parkingRate || 0,
+        bua: isWarehouse ? 0 : co.parkingBUA || 0,
+        rate: isWarehouse ? 0 : co.parkingRate || 0,
         amount: parkingAmt,
       },
       basement: {
-        bua: co.basementBUA || 0,
-        rate: co.basementRate || 0,
+        bua: isWarehouse ? 0 : co.basementBUA || 0,
+        rate: isWarehouse ? 0 : co.basementRate || 0,
         amount: basementAmt,
       },
       infrastructure: {

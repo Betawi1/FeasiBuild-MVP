@@ -8,7 +8,7 @@ import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailTenantProfileData } from "@/types/feasibility";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-const COLORS = ["#4c1d95", "#0d9488", "#f59e0b", "#3b82f6", "#ef4444", "#6366f1"];
+const COLORS = ["#8b5cf6", "#10b981", "#f59e0b", "#3b82f6", "#ef4444", "#06b6d4"];
 
 interface Props extends SlideEditingProps {
   data: RetailTenantProfileData;
@@ -33,6 +33,12 @@ export default function RetailTenantProfileSlide({
     });
   };
 
+  const unitLabel = data.unitLabel ?? "GLA";
+  const waleLabel =
+    data.waleMin != null && data.waleMax != null
+      ? `${data.waleMin} – ${data.waleMax}`
+      : String(data.waleYears);
+
   return (
     <SlideContainer>
       <SlideHeader
@@ -43,7 +49,7 @@ export default function RetailTenantProfileSlide({
       <div className="flex-1 grid grid-cols-2 gap-6 min-h-0 overflow-hidden">
         <div className="min-h-0 flex flex-col">
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
-            Target tenant mix (% of GLA)
+            Target tenant mix (% of {unitLabel})
           </h3>
           <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
@@ -71,7 +77,7 @@ export default function RetailTenantProfileSlide({
             </ResponsiveContainer>
           </div>
           <p className="text-[10px] text-emerald-600 mt-1 shrink-0">
-            Target WALE: {data.waleYears} years · Catchment: {data.catchmentRadius}
+            Target WALE: {waleLabel} years · Catchment: {data.catchmentRadius}
           </p>
         </div>
         <div className="space-y-3 overflow-y-auto">

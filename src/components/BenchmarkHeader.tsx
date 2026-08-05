@@ -92,6 +92,18 @@ export default function BenchmarkHeader({
       displayCountry,
     ].filter(Boolean);
     benchmarkText = parts.join(" · ");
+  } else if (assetType === "warehouse") {
+    const subTypeLabel = formatToken(segment);
+    const gradeLabel = formatToken(positioning);
+    const displayCountry =
+      country === "United Arab Emirates" ? "UAE" : country || "—";
+    benchmarkText = `Warehouse / Industrial · ${displayCountry} · ${subTypeLabel || "—"} · ${gradeLabel || "—"}`;
+  } else if (assetType === "data_centre") {
+    const segmentLabel = formatToken(segment) || "Colocation";
+    const positioningLabel = formatToken(positioning) || "Tier III";
+    const displayCountry =
+      country === "United Arab Emirates" ? "UAE" : country || "—";
+    benchmarkText = `Data Centre · ${displayCountry} · ${segmentLabel} · ${positioningLabel}`;
   }
 
   return (

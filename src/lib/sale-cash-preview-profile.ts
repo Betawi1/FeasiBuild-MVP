@@ -3,9 +3,15 @@
  * No FFE. POWC authority timing differs from `allocatePowcSubMonthlyFromStep13` (M0/M1 early).
  */
 
-import type { CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
+import type { CashInflows, CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
 import type { CashOutflowProfile, CashOutflowStageHeader } from "@/store/useFinModelStore";
+import {
+  generateWarehousePhasingSCurve,
+  type WarehousePhasing,
+  type WarehouseSubType,
+} from "@/store/useFinModelStore";
 import type { PowcAllocationFractions } from "@/lib/cash-outflow-default-allocations";
+import { allocateFfeMonthly } from "@/lib/cash-outflow-ffe-timing";
 
 import { allocatePowcSubMonthlyFromStep13 } from "@/lib/cash-outflow-powc-timing";
 import {
@@ -28,6 +34,31 @@ export type SalePreviewLine = {
   total: number;
 };
 
+export type SaleWarehouseMonthlyCosts = {
+  buildingShell: MonthlySeries;
+  siteYard: MonthlySeries;
+  loadingAccess: MonthlySeries;
+  specialisedSystems: MonthlySeries;
+  commonInfra: MonthlySeries;
+  contingency: MonthlySeries;
+  ffe: MonthlySeries;
+  /** Included in Construction Cost (total); shown as its own preview row. */
+  professionalFees: MonthlySeries;
+};
+
+export type SaleWarehouseCostTotals = {
+  buildingShell: number;
+  siteYard: number;
+  loadingAccess: number;
+  specialisedSystems: number;
+  commonInfra: number;
+  contingency: number;
+  ffe: number;
+  professionalFees: number;
+  /** Hard CapEx + contingency + land (excludes FFE — shown as its own row). */
+  totalConstruction: number;
+};
+
 export type SaleCashflowDetailProfile = {
   months: number[];
   stages: CashOutflowStageHeader[];
@@ -42,7 +73,37 @@ export type SaleCashflowDetailProfile = {
   /** Land M0 + construction + soft + POWC (no FFE) */
   monthlyTotal: MonthlySeries;
   cumulative: MonthlySeries;
+  warehouseMonthlyCosts: SaleWarehouseMonthlyCosts;
+  warehouseTotals: SaleWarehouseCostTotals;
 };
+
+function emptyWarehouseMonthlyCosts(len: number): SaleWarehouseMonthlyCosts {
+  const zeros = () => Array.from({ length: len }, () => 0);
+  return {
+    buildingShell: zeros(),
+    siteYard: zeros(),
+    loadingAccess: zeros(),
+    specialisedSystems: zeros(),
+    commonInfra: zeros(),
+    contingency: zeros(),
+    ffe: zeros(),
+    professionalFees: zeros(),
+  };
+}
+
+function emptyWarehouseTotals(): SaleWarehouseCostTotals {
+  return {
+    buildingShell: 0,
+    siteYard: 0,
+    loadingAccess: 0,
+    specialisedSystems: 0,
+    commonInfra: 0,
+    contingency: 0,
+    ffe: 0,
+    professionalFees: 0,
+    totalConstruction: 0,
+  };
+}
 
 function sumArr(a: number[]): number {
   return a.reduce((s, v) => s + (v || 0), 0);
@@ -56,6 +117,204 @@ function normalizeToTarget(arr: number[], target: number): number[] {
   const next = [...arr];
   next[next.length - 1] = (next[next.length - 1] ?? 0) + diff;
   return next;
+}
+
+/** Spread `total` by monthly % weights (array sums to ~100). Length = period + 1 (incl. M0). */
+function allocateByPhasingPct(
+  total: number,
+  pcts: number[] | undefined,
+  monthCount: number
+): number[] {
+  const out = new Array(monthCount).fill(0);
+  if (total <= 0 || monthCount <= 0) return out;
+  if (!pcts || pcts.length === 0) {
+    return allocateEqualAcrossConstructionMonths(total, monthCount - 1);
+  }
+  for (let m = 0; m < monthCount; m++) {
+    out[m] = total * ((pcts[m] || 0) / 100);
+  }
+  return normalizeToTarget(out, total);
+}
+
+/** Equal across M1…M{period}; M0 = 0. */
+function allocateEqualAcrossConstructionMonths(
+  total: number,
+  period: number
+): number[] {
+  const monthCount = Math.max(0, period) + 1;
+  const out = new Array(monthCount).fill(0);
+  if (total <= 0 || period <= 0) return out;
+  const each = total / period;
+  for (let m = 1; m <= period; m++) out[m] = each;
+  return normalizeToTarget(out, total);
+}
+
+function toOpsWarehouseSubType(
+  subType?: string | null
+): WarehouseSubType {
+  const map: Record<string, WarehouseSubType> = {
+    "bulk-distribution": "BULK_DISTRIBUTION",
+    "last-mile-urban": "LAST_MILE_URBAN",
+    "multi-storey": "MULTI_STOREY",
+    "cold-storage": "COLD_STORAGE",
+    "light-manufacturing": "LIGHT_MANUFACTURING",
+    BULK_DISTRIBUTION: "BULK_DISTRIBUTION",
+    LAST_MILE_URBAN: "LAST_MILE_URBAN",
+    MULTI_STOREY: "MULTI_STOREY",
+    COLD_STORAGE: "COLD_STORAGE",
+    LIGHT_MANUFACTURING: "LIGHT_MANUFACTURING",
+  };
+  return (subType && map[subType]) || "BULK_DISTRIBUTION";
+}
+
+function buildSaleWarehouseCapExBreakdown(
+  cashOutflows: CashOutflows,
+  projectInfo: ProjectInfo,
+  constructionPeriod: number,
+  totalMonths: number
+): {
+  warehouseMonthlyCosts: SaleWarehouseMonthlyCosts;
+  warehouseTotals: SaleWarehouseCostTotals;
+} {
+  if (
+    projectInfo.buildingSubType !== "commercial_strata_warehouse" ||
+    totalMonths <= 0
+  ) {
+    return {
+      warehouseMonthlyCosts: emptyWarehouseMonthlyCosts(totalMonths),
+      warehouseTotals: emptyWarehouseTotals(),
+    };
+  }
+
+  const isPark =
+    projectInfo.salesWarehouseConfigType === "industrial-park";
+  const costs = cashOutflows.warehouseCosts;
+
+  const buildingShell =
+    costs?.buildingShellCost ??
+    (cashOutflows.warehouseBuildingRate ?? 0) *
+      (cashOutflows.buildingBUA || 0);
+  const siteYard =
+    costs?.siteYardWorksCost ??
+    (cashOutflows.warehouseSiteYardRate ?? 0) *
+      (cashOutflows.landArea || 0);
+  const loadingAccess =
+    costs?.loadingAccessCost ?? cashOutflows.warehouseLoadingAccessCost ?? 0;
+  const specialisedSystems =
+    costs?.specialisedSystemsCost ??
+    cashOutflows.warehouseSpecialisedSystemsCost ??
+    0;
+  const commonInfra = isPark
+    ? costs?.commonInfrastructureCost ??
+      cashOutflows.warehouseCommonInfraCost ??
+      0
+    : 0;
+  const professionalFees = costs?.professionalFees ?? 0;
+
+  const hardBase =
+    buildingShell +
+    siteYard +
+    loadingAccess +
+    specialisedSystems +
+    commonInfra +
+    professionalFees;
+
+  const contingency =
+    cashOutflows.baseConstructionCost != null &&
+    (cashOutflows.constructionCost || 0) > 0
+      ? Math.max(
+          0,
+          (cashOutflows.constructionCost || 0) -
+            (cashOutflows.baseConstructionCost || hardBase)
+        )
+      : hardBase * ((cashOutflows.contingencyPercent || 0) / 100);
+
+  const constructionWithContingency =
+    cashOutflows.constructionCost || hardBase + contingency;
+
+  const ffe =
+    cashOutflows.ffe && cashOutflows.ffe > 0
+      ? cashOutflows.ffe
+      : constructionWithContingency * ((cashOutflows.ffePercent || 0) / 100);
+
+  const phasing: WarehousePhasing =
+    cashOutflows.warehousePhasing ||
+    generateWarehousePhasingSCurve(
+      constructionPeriod,
+      toOpsWarehouseSubType(projectInfo.salesWarehouseSubType)
+    );
+
+  const buildingShellMonthly = allocateByPhasingPct(
+    buildingShell,
+    phasing.buildingShell,
+    totalMonths
+  );
+  const siteYardMonthly = allocateByPhasingPct(
+    siteYard,
+    phasing.siteYardWorks,
+    totalMonths
+  );
+  const loadingAccessMonthly = allocateByPhasingPct(
+    loadingAccess,
+    phasing.loadingAccess,
+    totalMonths
+  );
+  const specialisedSystemsMonthly = allocateByPhasingPct(
+    specialisedSystems,
+    phasing.specialisedSystems,
+    totalMonths
+  );
+  const commonInfraMonthly = allocateByPhasingPct(
+    commonInfra,
+    phasing.buildingShell,
+    totalMonths
+  );
+  const professionalFeesMonthly = allocateEqualAcrossConstructionMonths(
+    professionalFees,
+    constructionPeriod
+  );
+  const contingencyMonthly = allocateEqualAcrossConstructionMonths(
+    contingency,
+    constructionPeriod
+  );
+
+  const hardMonthly = Array.from({ length: totalMonths }, (_, m) =>
+    (buildingShellMonthly[m] || 0) +
+    (siteYardMonthly[m] || 0) +
+    (loadingAccessMonthly[m] || 0) +
+    (specialisedSystemsMonthly[m] || 0) +
+    (commonInfraMonthly[m] || 0) +
+    (professionalFeesMonthly[m] || 0)
+  );
+
+  const ffeMonthly = allocateFfeMonthly(ffe, hardMonthly);
+
+  const totalConstruction =
+    hardBase + contingency + (cashOutflows.landCost || 0);
+
+  return {
+    warehouseMonthlyCosts: {
+      buildingShell: buildingShellMonthly,
+      siteYard: siteYardMonthly,
+      loadingAccess: loadingAccessMonthly,
+      specialisedSystems: specialisedSystemsMonthly,
+      commonInfra: commonInfraMonthly,
+      contingency: contingencyMonthly,
+      ffe: ffeMonthly,
+      professionalFees: professionalFeesMonthly,
+    },
+    warehouseTotals: {
+      buildingShell,
+      siteYard,
+      loadingAccess,
+      specialisedSystems,
+      commonInfra,
+      contingency,
+      ffe,
+      professionalFees,
+      totalConstruction,
+    },
+  };
 }
 
 /** Site/overhead from shared Step 13 rules; authority uses Sale preview timing (M0/M1 + last 3). */
@@ -391,6 +650,8 @@ export function buildSaleCashflowDetailProfile(
       powcLines: [],
       monthlyTotal: [],
       cumulative: [],
+      warehouseMonthlyCosts: emptyWarehouseMonthlyCosts(0),
+      warehouseTotals: emptyWarehouseTotals(),
     };
   }
 
@@ -719,6 +980,13 @@ export function buildSaleCashflowDetailProfile(
     }
   }
 
+  const warehouseBreakdown = buildSaleWarehouseCapExBreakdown(
+    cashOutflows,
+    projectInfo,
+    constructionPeriod,
+    totalMonths
+  );
+
   return {
     months,
     stages,
@@ -731,6 +999,8 @@ export function buildSaleCashflowDetailProfile(
     powcLines: powcChildLines,
     monthlyTotal,
     cumulative,
+    warehouseMonthlyCosts: warehouseBreakdown.warehouseMonthlyCosts,
+    warehouseTotals: warehouseBreakdown.warehouseTotals,
   };
 }
 
@@ -758,5 +1028,67 @@ export function saleDetailToCashflowProfileShape(
     monthlyTotal: d.monthlyTotal,
     cumulative: d.cumulative,
     stages: d.stages,
+  };
+}
+
+export type SalePreFinancingCashFlows = {
+  months: number[];
+  constructionPeriod: number;
+  inflow: MonthlySeries;
+  outflow: MonthlySeries;
+  net: MonthlySeries;
+  detail: SaleCashflowDetailProfile;
+};
+
+/**
+ * Single source of truth for Components 1+2 pre-financing cash flows.
+ * Used by `/preview/cash-inflows` and `/preview/project-irr` so NCF matches exactly.
+ */
+export function buildSalePreFinancingCashFlows(
+  cashOutflows: CashOutflows,
+  cashInflows: Pick<CashInflows, "monthlyInflowSchedule">,
+  projectInfo: ProjectInfo,
+  options?: { postCompletionBuffer?: number }
+): SalePreFinancingCashFlows {
+  const constructionPeriod = cashOutflows.constructionPeriod || 30;
+  const postCompletionBuffer = options?.postCompletionBuffer ?? 6;
+  const lastMonthIndex = constructionPeriod + postCompletionBuffer;
+  const months = Array.from({ length: lastMonthIndex + 1 }, (_, i) => i);
+  const detail = buildSaleCashflowDetailProfile(cashOutflows, projectInfo);
+  const isWarehouse =
+    projectInfo.buildingSubType === "commercial_strata_warehouse";
+
+  const inflowByMonth = new Map<number, number>();
+  for (const p of cashInflows.monthlyInflowSchedule || []) {
+    inflowByMonth.set(
+      p.month,
+      (inflowByMonth.get(p.month) || 0) + (p.amount || 0)
+    );
+  }
+
+  const inflow = months.map((m) => inflowByMonth.get(m) || 0);
+
+  const outflow = months.map((m) => {
+    if (m > constructionPeriod) return 0;
+    if (isWarehouse) {
+      const land = m === 0 ? cashOutflows.landCost || 0 : 0;
+      const construction = detail.construction[m] || 0;
+      const soft = detail.softCostsTotal[m] || 0;
+      const powc = detail.powcTotal[m] || 0;
+      const ffe = detail.warehouseMonthlyCosts?.ffe?.[m] || 0;
+      return land + construction + soft + powc + ffe;
+    }
+    return detail.monthlyTotal[m] || 0;
+  });
+
+  const net = months.map((m) => (inflow[m] || 0) - (outflow[m] || 0));
+
+  return {
+    months,
+    constructionPeriod,
+    inflow,
+    outflow,
+    net,
+    detail,
   };
 }

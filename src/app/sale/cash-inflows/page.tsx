@@ -45,6 +45,11 @@ function CashInflowsPageContent() {
     [projectInfo.buildingSubType]
   );
 
+  const isSaleWarehouseProduct = useMemo(
+    () => projectInfo.buildingSubType === "commercial_strata_warehouse",
+    [projectInfo.buildingSubType]
+  );
+
   // Sale Development stream (8 steps)
   const totalSteps = 8; // indices 0–7
 
@@ -78,9 +83,11 @@ function CashInflowsPageContent() {
   // Sync Step 5 Saleable BUA Ratio to Cash Inflows state when entering Component 2 Step 1
   useEffect(() => {
     if (currentStep === 0) {
-      const ratio = isSaleLandedProduct
-        ? projectInfo.salesLandedSaleableRatio
-        : projectInfo.salesHighRiseSaleableRatio;
+      const ratio = isSaleWarehouseProduct
+        ? 100
+        : isSaleLandedProduct
+          ? projectInfo.salesLandedSaleableRatio
+          : projectInfo.salesHighRiseSaleableRatio;
       if (ratio !== undefined) {
         updateCashInflows({ saleableBUARatio: ratio });
         console.log("🔗 Synced Step 5 Saleable BUA Ratio to Cash Inflows:", ratio);
@@ -88,6 +95,7 @@ function CashInflowsPageContent() {
     }
   }, [
     isSaleLandedProduct,
+    isSaleWarehouseProduct,
     currentStep,
     projectInfo.salesLandedSaleableRatio,
     projectInfo.salesHighRiseSaleableRatio,
@@ -910,6 +918,7 @@ function CashInflowsPageContent() {
       residential_high_rise: "Residential - High-Rise",
       commercial_landed: "Commercial - Landed",
       commercial_strata_office: "Commercial - Strata Office",
+      commercial_strata_warehouse: "Commercial - Strata Warehouse",
     };
     return mapping[sub || ""] || sub || "—";
   };
@@ -1003,15 +1012,20 @@ function CashInflowsPageContent() {
                 <input
                   type="number"
                   value={
-                    isSaleLandedProduct
-                      ? projectInfo.salesLandedSaleableRatio ?? 0
-                      : projectInfo.salesHighRiseSaleableRatio ?? 0
+                    isSaleWarehouseProduct
+                      ? 100
+                      : isSaleLandedProduct
+                        ? projectInfo.salesLandedSaleableRatio ?? 0
+                        : projectInfo.salesHighRiseSaleableRatio ?? 0
                   }
                   readOnly
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
                 />
                 <p className="mt-1 text-xs text-amber-400">
-                  🔒 Locked: To change, go back to Component 1 Step 5
+                  🔒 Locked:{" "}
+                  {isSaleWarehouseProduct
+                    ? "Warehouse / Industrial BUA is 100% saleable"
+                    : "To change, go back to Component 1 Step 5"}
                 </p>
                 {fieldError("saleableBUARatio") && (
                   <p className="mt-1 text-sm text-red-400">
@@ -1019,8 +1033,9 @@ function CashInflowsPageContent() {
                   </p>
                 )}
                 <p className="text-xs text-slate-500">
-                  Typical residential/office projects range from 70–90% saleable BUA
-                  depending on corridor and core efficiency.
+                  {isSaleWarehouseProduct
+                    ? "Single warehouse and industrial park projects treat the full BUA as saleable."
+                    : "Typical residential/office projects range from 70–90% saleable BUA depending on corridor and core efficiency."}
                 </p>
               </div>
             </div>

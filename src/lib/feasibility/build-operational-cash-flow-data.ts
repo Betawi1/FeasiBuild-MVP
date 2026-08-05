@@ -12,12 +12,21 @@ import type { FeasibilityProjectBundle } from "@/types/feasibility";
 import {
   buildCashOutflowProfile,
   type CashOutflows,
+  type DataCentreDepreciation,
+  type DataCentreOpEx,
+  type DataCentreOtherIncome,
+  type DataCentreRevenue,
   type OfficeDepreciationConfig,
   type OfficeOpexConfig,
+  type ProjectInfo,
   type ResidentialDepreciationConfig,
   type ResidentialOpexConfig,
   type RetailDepreciationConfig,
   type RetailOpexConfig,
+  type WarehouseDepreciation,
+  type WarehouseOpEx,
+  type WarehouseOtherIncome,
+  type WarehouseRevenue,
 } from "@/store/useFinModelStore";
 import type {
   OperationalHotelHoldSnapshot,
@@ -25,6 +34,7 @@ import type {
   OperationalResidentialHoldSnapshot,
   OperationalRetailHoldSnapshot,
 } from "@/lib/operational-pnl";
+import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
 
 const YEAR_COUNT = 13;
 const TERMINAL_VALUE_COL_INDEX = 12;
@@ -73,6 +83,7 @@ function toThousandsSeries(values: number[]): number[] {
 export type OperationalCashFlowContext = {
   cashOutflows: CashOutflows;
   buildingType?: string;
+  projectInfo?: ProjectInfo;
   hotelSnapshot?: OperationalHotelHoldSnapshot | null;
   retailSnapshot?: OperationalRetailHoldSnapshot | null;
   officeSnapshot?: OperationalOfficeHoldSnapshot | null;
@@ -83,6 +94,14 @@ export type OperationalCashFlowContext = {
   officeDepreciation?: OfficeDepreciationConfig;
   residentialOpex?: ResidentialOpexConfig;
   residentialDepreciation?: ResidentialDepreciationConfig;
+  warehouseRevenue?: WarehouseRevenue;
+  warehouseOtherIncome?: WarehouseOtherIncome;
+  warehouseOpEx?: WarehouseOpEx;
+  warehouseDepreciation?: WarehouseDepreciation;
+  dataCentreRevenue?: DataCentreRevenue;
+  dataCentreOtherIncome?: DataCentreOtherIncome;
+  dataCentreOpEx?: DataCentreOpEx;
+  dataCentreDepreciation?: DataCentreDepreciation;
   exitCapRate?: number;
   projectIRR?: number;
   equityMultiple?: number;
@@ -182,6 +201,7 @@ export function buildOperationalCashFlowData(
   bundle: FeasibilityProjectBundle,
   ctx: OperationalCashFlowContext
 ): OperationalCashFlowData {
+  const warehouseCapex = resolveWarehouseCapexBases(ctx.cashOutflows);
   const pnl = computeOperationalProjectIrrPnl(ctx.buildingType, {
     hotelSnapshot: ctx.hotelSnapshot ?? undefined,
     retailSnapshot: ctx.retailSnapshot ?? undefined,
@@ -193,6 +213,17 @@ export function buildOperationalCashFlowData(
     officeDepreciation: ctx.officeDepreciation,
     residentialOpex: ctx.residentialOpex,
     residentialDepreciation: ctx.residentialDepreciation,
+    warehouseRevenue: ctx.warehouseRevenue,
+    warehouseOtherIncome: ctx.warehouseOtherIncome,
+    warehouseOpEx: ctx.warehouseOpEx,
+    warehouseDepreciation: ctx.warehouseDepreciation,
+    warehouseBuildingCost: warehouseCapex.buildingCost,
+    warehouseSiteImprovementsCost: warehouseCapex.siteImprovementsCost,
+    projectInfo: ctx.projectInfo,
+    dataCentreRevenue: ctx.dataCentreRevenue,
+    dataCentreOtherIncome: ctx.dataCentreOtherIncome,
+    dataCentreOpEx: ctx.dataCentreOpEx,
+    dataCentreDepreciation: ctx.dataCentreDepreciation,
     constructionCost: ctx.cashOutflows.constructionCost || 0,
     ffe: ctx.cashOutflows.ffe || 0,
   });

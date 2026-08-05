@@ -70,6 +70,11 @@ export default function useSaleModelStore<TResult>(
 
 export type { CashInflows, CashOutflows, ProjectInfo };
 
+export type {
+  SaleWarehouseConfig,
+  SaleWarehouseProjectInfo,
+} from "@/types/sale-warehouse-config";
+
 export type CashOutflowStageHeader = {
   name: string;
   monthSpan: number;

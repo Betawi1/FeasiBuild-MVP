@@ -233,6 +233,7 @@ export interface CountryRecommendations {
     "commercial-landed": BuildingRecommendations;
     "residential-hi-rise": Record<string, BuildingRecommendations>;
     "commercial-strata-office": Record<string, BuildingRecommendations>;
+    "commercial-strata-warehouse": BuildingRecommendations;
   };
 }
 
@@ -240,7 +241,8 @@ export type SaleRecommendationBuildingType =
   | "residential-landed"
   | "commercial-landed"
   | "residential-hi-rise"
-  | "commercial-strata-office";
+  | "commercial-strata-office"
+  | "commercial-strata-warehouse";
 
 /** Shared 4-stage labels / % (market shape is in sCurveProfile). */
 const SALE_DEFAULT_STAGES: BuildingRecommendations["constructionStages"] = {
@@ -255,6 +257,22 @@ const SALE_DEFAULT_STAGES: BuildingRecommendations["constructionStages"] = {
     stage2Percent: 20,
     stage3Percent: 40,
     stage4Percent: 30,
+  },
+};
+
+/** Warehouse / industrial strata stages (AI research may override). */
+const WAREHOUSE_STAGES: BuildingRecommendations["constructionStages"] = {
+  labels: {
+    stage1: "Building & Shell",
+    stage2: "Site & Yard Works",
+    stage3: "Loading & Access",
+    stage4: "Finishes",
+  },
+  allocation: {
+    stage1Percent: 60,
+    stage2Percent: 20,
+    stage3Percent: 10,
+    stage4Percent: 10,
   },
 };
 
@@ -306,6 +324,21 @@ function brStrata(
     landRates: { default: { ...land } },
     constructionStages: SALE_DEFAULT_STAGES,
     sCurveProfile: COMMERCIAL_STRATA_30M,
+  };
+}
+
+function brWarehouse(
+  constructionCosts: BuildingRecommendations["constructionCosts"],
+  softCosts: BuildingRecommendations["softCosts"],
+  land: { ratePerSqft: number; typicalPlotSize: number },
+  sCurveProfile: ConstructionSCurveProfile = LANDED_G2_ESTATE_24M
+): BuildingRecommendations {
+  return {
+    constructionCosts: { ...constructionCosts },
+    softCosts: { ...softCosts },
+    landRates: { default: { ...land } },
+    constructionStages: WAREHOUSE_STAGES,
+    sCurveProfile,
   };
 }
 
@@ -405,6 +438,16 @@ export const RECOMMENDATIONS: Record<string, CountryRecommendations> = {
           { ratePerSqft: 1100, typicalPlotSize: 40000 }
         ),
       },
+      "commercial-strata-warehouse": brWarehouse(
+        {
+          buildingRate: 150,
+          parkingRate: 0,
+          basementRate: 0,
+          infrastructureRate: 25,
+        },
+        { scPercent: 10, powcPercent: 12, ffePercent: 5 },
+        { ratePerSqft: 200, typicalPlotSize: 80000 }
+      ),
     },
   },
   SA: {
@@ -502,6 +545,16 @@ export const RECOMMENDATIONS: Record<string, CountryRecommendations> = {
           { ratePerSqft: 1000, typicalPlotSize: 40000 }
         ),
       },
+      "commercial-strata-warehouse": brWarehouse(
+        {
+          buildingRate: 110,
+          parkingRate: 0,
+          basementRate: 0,
+          infrastructureRate: 20,
+        },
+        { scPercent: 10, powcPercent: 12, ffePercent: 5 },
+        { ratePerSqft: 150, typicalPlotSize: 80000 }
+      ),
     },
   },
   MY: {
@@ -599,6 +652,16 @@ export const RECOMMENDATIONS: Record<string, CountryRecommendations> = {
           { ratePerSqft: 800, typicalPlotSize: 40000 }
         ),
       },
+      "commercial-strata-warehouse": brWarehouse(
+        {
+          buildingRate: 120,
+          parkingRate: 0,
+          basementRate: 0,
+          infrastructureRate: 20,
+        },
+        { scPercent: 10, powcPercent: 12, ffePercent: 5 },
+        { ratePerSqft: 80, typicalPlotSize: 80000 }
+      ),
     },
   },
   VN: {
@@ -756,6 +819,16 @@ export const RECOMMENDATIONS: Record<string, CountryRecommendations> = {
           { ratePerSqft: 2000000, typicalPlotSize: 40000 }
         ),
       },
+      "commercial-strata-warehouse": brWarehouse(
+        {
+          buildingRate: 350000,
+          parkingRate: 0,
+          basementRate: 0,
+          infrastructureRate: 80000,
+        },
+        { scPercent: 10, powcPercent: 12, ffePercent: 5 },
+        { ratePerSqft: 400000, typicalPlotSize: 80000 }
+      ),
     },
   },
   TH: {
@@ -853,6 +926,16 @@ export const RECOMMENDATIONS: Record<string, CountryRecommendations> = {
           { ratePerSqft: 8500, typicalPlotSize: 40000 }
         ),
       },
+      "commercial-strata-warehouse": brWarehouse(
+        {
+          buildingRate: 1400,
+          parkingRate: 0,
+          basementRate: 0,
+          infrastructureRate: 250,
+        },
+        { scPercent: 10, powcPercent: 12, ffePercent: 5 },
+        { ratePerSqft: 2000, typicalPlotSize: 80000 }
+      ),
     },
   },
   AU: {
@@ -950,6 +1033,16 @@ export const RECOMMENDATIONS: Record<string, CountryRecommendations> = {
           { ratePerSqft: 1450, typicalPlotSize: 40000 }
         ),
       },
+      "commercial-strata-warehouse": brWarehouse(
+        {
+          buildingRate: 180,
+          parkingRate: 0,
+          basementRate: 0,
+          infrastructureRate: 30,
+        },
+        { scPercent: 10, powcPercent: 12, ffePercent: 5 },
+        { ratePerSqft: 250, typicalPlotSize: 80000 }
+      ),
     },
   },
 };
@@ -976,13 +1069,17 @@ export function getRecommendations(
     return null;
   }
 
-  if (buildingType === "residential-landed" || buildingType === "commercial-landed") {
-    const landed = country.buildingTypes[buildingType];
-    if (!landed) {
+  if (
+    buildingType === "residential-landed" ||
+    buildingType === "commercial-landed" ||
+    buildingType === "commercial-strata-warehouse"
+  ) {
+    const flat = country.buildingTypes[buildingType];
+    if (!flat) {
       console.error(`[getRecommendations] Building type not found: ${buildingType}`);
       return null;
     }
-    return landed;
+    return flat;
   }
 
   const buildingRec = country.buildingTypes[buildingType];

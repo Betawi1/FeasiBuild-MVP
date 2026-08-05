@@ -123,10 +123,23 @@ async function generateSaleCommentaryForSlide(
   cacheKey: string,
   forceRegenerate: boolean
 ): Promise<string[]> {
-  return generateSaleCommentary(section, bundle, {
-    cacheKey,
-    forceRegenerate,
-  });
+  try {
+    return await generateSaleCommentary(section, bundle, {
+      cacheKey,
+      forceRegenerate,
+    });
+  } catch (error) {
+    console.warn(
+      `[Sale Enrich] Commentary failed for ${section}, keeping existing/fallback:`,
+      error
+    );
+    // generateSaleCommentary already falls back; this is a last-resort safety net
+    const { generateSaleCommentaryFallback } = await import(
+      "@/lib/feasibility/sale/generate-sale-commentary"
+    );
+    const { cleanAIContent } = await import("@/lib/feasibility/clean-ai-content");
+    return cleanAIContent(generateSaleCommentaryFallback(section, bundle));
+  }
 }
 
 async function generateMacroChartData(

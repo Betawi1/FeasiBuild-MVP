@@ -27,7 +27,13 @@ type DisplayedMonthlyTotalBreakdown = {
   construction: number;
   soft: number;
   powc: number;
+  ffe: number;
   total: number;
+};
+
+type MonthlyTotalBreakdownOptions = {
+  isWarehouse?: boolean;
+  isIndustrialPark?: boolean;
 };
 
 /** Matches on-screen Construction + POWC plugging and land M0-only timing (same as Preview rows). */
@@ -36,26 +42,16 @@ function buildDisplayedMonthlyTotalBreakdown(
   cashOutflows: CashOutflows,
   constructionSeries: number[],
   constructionPeriod: number,
-  constructionTotalDisplayed: number
+  constructionTotalDisplayed: number,
+  options: MonthlyTotalBreakdownOptions = {}
 ): DisplayedMonthlyTotalBreakdown[] {
   const monthsArr = detail.months;
   const lastPowcIdx = monthsArr.length - 1;
   const powcTarget = Math.round(cashOutflows.powc || 0);
+  const isWarehouse = !!options.isWarehouse;
+  const isPark = !!options.isIndustrialPark;
 
   return monthsArr.map((_, idx) => {
-    const land = idx === 0 ? Math.round(cashOutflows.landCost || 0) : 0;
-
-    const m = monthsArr[idx] ?? 0;
-    let construction: number;
-    if (m !== constructionPeriod) {
-      construction = Math.round(constructionSeries[m] || 0);
-    } else {
-      const prevDisplayedSum = monthsArr.slice(0, idx).reduce((sum, prevM) => {
-        return sum + Math.round(constructionSeries[prevM] || 0);
-      }, 0);
-      construction = Math.round(constructionTotalDisplayed - prevDisplayedSum);
-    }
-
     const soft = Math.round(detail.softCostsTotal[idx] || 0);
 
     let powc: number;
@@ -72,8 +68,42 @@ function buildDisplayedMonthlyTotalBreakdown(
       powc = Math.round(powcTarget - prevDisplayedSum);
     }
 
-    const total = land + construction + soft + powc;
-    return { land, construction, soft, powc, total };
+    if (isWarehouse) {
+      // Matches Construction Cost (total) row: hard CapEx + contingency + land (M0).
+      // Land is not added again — it is already inside construction for warehouse.
+      const w = detail.warehouseMonthlyCosts;
+      const landM0 = idx === 0 ? Math.round(cashOutflows.landCost || 0) : 0;
+      const construction = Math.round(
+        (w?.buildingShell?.[idx] || 0) +
+          (w?.siteYard?.[idx] || 0) +
+          (w?.loadingAccess?.[idx] || 0) +
+          (w?.specialisedSystems?.[idx] || 0) +
+          (isPark ? w?.commonInfra?.[idx] || 0 : 0) +
+          (w?.professionalFees?.[idx] || 0) +
+          (w?.contingency?.[idx] || 0) +
+          landM0
+      );
+      const ffe = Math.round(w?.ffe?.[idx] || 0);
+      const total = construction + soft + powc + ffe;
+      return { land: 0, construction, soft, powc, ffe, total };
+    }
+
+    const land = idx === 0 ? Math.round(cashOutflows.landCost || 0) : 0;
+
+    const m = monthsArr[idx] ?? 0;
+    let construction: number;
+    if (m !== constructionPeriod) {
+      construction = Math.round(constructionSeries[m] || 0);
+    } else {
+      const prevDisplayedSum = monthsArr.slice(0, idx).reduce((sum, prevM) => {
+        return sum + Math.round(constructionSeries[prevM] || 0);
+      }, 0);
+      construction = Math.round(constructionTotalDisplayed - prevDisplayedSum);
+    }
+
+    const ffe = 0;
+    const total = land + construction + soft + powc + ffe;
+    return { land, construction, soft, powc, ffe, total };
   });
 }
 
@@ -82,6 +112,9 @@ export default function PreviewCashOutflowsPage() {
   const projectInfo = useFinModelStore((s) => s.sale.projectInfo);
   const cashOutflows = useFinModelStore((s) => s.sale.cashOutflows);
   const updateCashOutflows = useFinModelStore((s) => s.updateCashOutflows);
+
+  const isSaleWarehouseProduct =
+    projectInfo.buildingSubType === "commercial_strata_warehouse";
 
   useEffect(() => {
     console.log("🏢 [Sale Preview C1] Cash Outflows Loaded:", {
@@ -231,7 +264,12 @@ export default function PreviewCashOutflowsPage() {
         cashOutflows,
         constructionSeries,
         constructionPeriod,
-        constructionTotalDisplayed
+        constructionTotalDisplayed,
+        {
+          isWarehouse: isSaleWarehouseProduct,
+          isIndustrialPark:
+            projectInfo.salesWarehouseConfigType === "industrial-park",
+        }
       ),
     [
       detail,
@@ -239,6 +277,8 @@ export default function PreviewCashOutflowsPage() {
       constructionSeries,
       constructionPeriod,
       constructionTotalDisplayed,
+      isSaleWarehouseProduct,
+      projectInfo.salesWarehouseConfigType,
     ]
   );
 
@@ -463,6 +503,83 @@ export default function PreviewCashOutflowsPage() {
       constructionTotalDisplayed,
     ];
 
+    const warehouseExportRows: (string | number | null)[][] = isSaleWarehouseProduct
+      ? [
+          seriesRow(
+            "Building & Shell",
+            detail.warehouseMonthlyCosts?.buildingShell || [],
+            detail.warehouseTotals?.buildingShell || 0
+          ),
+          seriesRow(
+            "Site & Yard Works",
+            detail.warehouseMonthlyCosts?.siteYard || [],
+            detail.warehouseTotals?.siteYard || 0
+          ),
+          seriesRow(
+            "Loading & Access",
+            detail.warehouseMonthlyCosts?.loadingAccess || [],
+            detail.warehouseTotals?.loadingAccess || 0
+          ),
+          seriesRow(
+            "Specialised Systems",
+            detail.warehouseMonthlyCosts?.specialisedSystems || [],
+            detail.warehouseTotals?.specialisedSystems || 0
+          ),
+          ...(projectInfo.salesWarehouseConfigType === "industrial-park"
+            ? [
+                seriesRow(
+                  "Common Infrastructure",
+                  detail.warehouseMonthlyCosts?.commonInfra || [],
+                  detail.warehouseTotals?.commonInfra || 0
+                ),
+              ]
+            : []),
+          seriesRow(
+            "Professional Fees",
+            detail.warehouseMonthlyCosts?.professionalFees || [],
+            detail.warehouseTotals?.professionalFees || 0
+          ),
+          seriesRow(
+            "Contingency",
+            detail.warehouseMonthlyCosts?.contingency || [],
+            detail.warehouseTotals?.contingency || 0
+          ),
+          seriesRow(
+            "Construction Cost (total)",
+            months.map((_, idx) => {
+              const w = detail.warehouseMonthlyCosts;
+              return (
+                (w?.buildingShell?.[idx] || 0) +
+                (w?.siteYard?.[idx] || 0) +
+                (w?.loadingAccess?.[idx] || 0) +
+                (w?.specialisedSystems?.[idx] || 0) +
+                (projectInfo.salesWarehouseConfigType === "industrial-park"
+                  ? w?.commonInfra?.[idx] || 0
+                  : 0) +
+                (w?.professionalFees?.[idx] || 0) +
+                (w?.contingency?.[idx] || 0) +
+                (idx === 0 ? cashOutflows.landCost || 0 : 0)
+              );
+            }),
+            (detail.warehouseTotals?.buildingShell || 0) +
+              (detail.warehouseTotals?.siteYard || 0) +
+              (detail.warehouseTotals?.loadingAccess || 0) +
+              (detail.warehouseTotals?.specialisedSystems || 0) +
+              (projectInfo.salesWarehouseConfigType === "industrial-park"
+                ? detail.warehouseTotals?.commonInfra || 0
+                : 0) +
+              (detail.warehouseTotals?.professionalFees || 0) +
+              (detail.warehouseTotals?.contingency || 0) +
+              (cashOutflows.landCost || 0)
+          ),
+          seriesRow(
+            "FF&E",
+            detail.warehouseMonthlyCosts?.ffe || [],
+            detail.warehouseTotals?.ffe || 0
+          ),
+        ]
+      : [];
+
     const softTotalRow = seriesRow(
       "Soft Costs",
       detail.softCostsTotal,
@@ -502,7 +619,12 @@ export default function PreviewCashOutflowsPage() {
       cashOutflows,
       constructionSeries,
       constructionPeriod,
-      constructionTotalDisplayed
+      constructionTotalDisplayed,
+      {
+        isWarehouse: isSaleWarehouseProduct,
+        isIndustrialPark:
+          projectInfo.salesWarehouseConfigType === "industrial-park",
+      }
     );
 
     const monthlyGrand = displayBreakdown.reduce((s, b) => s + b.total, 0);
@@ -528,7 +650,7 @@ export default function PreviewCashOutflowsPage() {
     return [
       header,
       landRow,
-      constructionRow,
+      ...(isSaleWarehouseProduct ? warehouseExportRows : [constructionRow]),
       softTotalRow,
       ...softSubRows,
       powcTotalRow,
@@ -542,6 +664,8 @@ export default function PreviewCashOutflowsPage() {
     constructionSeries,
     constructionPeriod,
     constructionTotalDisplayed,
+    isSaleWarehouseProduct,
+    projectInfo.salesWarehouseConfigType,
   ]);
 
   const csvExportRows = useMemo(() => {
@@ -682,33 +806,202 @@ export default function PreviewCashOutflowsPage() {
                   rowClass="border-t border-slate-700"
                 />
 
-                <PreviewSeriesRow
-                  label="Construction Cost"
-                  monthsLen={detail.months.length}
-                  getCell={(idx) => {
-                    const m = detail.months[idx] ?? 0;
-                    const isLastConstructionMonth = m === constructionPeriod;
+                {!isSaleWarehouseProduct && (
+                  <PreviewSeriesRow
+                    label="Construction Cost"
+                    monthsLen={detail.months.length}
+                    getCell={(idx) => {
+                      const m = detail.months[idx] ?? 0;
+                      const isLastConstructionMonth = m === constructionPeriod;
 
-                    if (!isLastConstructionMonth) {
-                      const base = roundToWhole(constructionSeries[m] || 0);
-                      return base > 0 ? formatNumber(base) : "—";
-                    }
+                      if (!isLastConstructionMonth) {
+                        const base = roundToWhole(constructionSeries[m] || 0);
+                        return base > 0 ? formatNumber(base) : "—";
+                      }
 
-                    const prevDisplayedSum = detail.months
-                      .slice(0, idx)
-                      .reduce((sum, prevM) => {
-                        const prevRounded = roundToWhole(constructionSeries[prevM] || 0);
-                        return sum + (prevRounded || 0);
-                      }, 0);
-                    const plugged = roundToWhole(
-                      constructionTotalDisplayed - prevDisplayedSum
-                    );
+                      const prevDisplayedSum = detail.months
+                        .slice(0, idx)
+                        .reduce((sum, prevM) => {
+                          const prevRounded = roundToWhole(
+                            constructionSeries[prevM] || 0
+                          );
+                          return sum + (prevRounded || 0);
+                        }, 0);
+                      const plugged = roundToWhole(
+                        constructionTotalDisplayed - prevDisplayedSum
+                      );
 
-                    return plugged > 0 ? formatNumber(plugged) : "—";
-                  }}
-                  totalFormatted={formatNumber(constructionTotalDisplayed)}
-                  rowClass="border-t border-slate-700"
-                />
+                      return plugged > 0 ? formatNumber(plugged) : "—";
+                    }}
+                    totalFormatted={formatNumber(constructionTotalDisplayed)}
+                    rowClass="border-t border-slate-700"
+                  />
+                )}
+
+                {isSaleWarehouseProduct && (
+                  <>
+                    <PreviewSeriesRow
+                      label="Building & Shell"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.buildingShell?.[idx] ||
+                            0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.buildingShell || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                    <PreviewSeriesRow
+                      label="Site & Yard Works"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.siteYard?.[idx] || 0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.siteYard || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                    <PreviewSeriesRow
+                      label="Loading & Access"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.loadingAccess?.[idx] ||
+                            0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.loadingAccess || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                    <PreviewSeriesRow
+                      label="Specialised Systems"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.specialisedSystems?.[
+                            idx
+                          ] || 0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.specialisedSystems || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                    {projectInfo.salesWarehouseConfigType ===
+                      "industrial-park" && (
+                      <PreviewSeriesRow
+                        label="Common Infrastructure"
+                        monthsLen={detail.months.length}
+                        getCell={(idx) => {
+                          const v = roundToWhole(
+                            detail.warehouseMonthlyCosts?.commonInfra?.[idx] ||
+                              0
+                          );
+                          return v > 0 ? formatNumber(v) : "—";
+                        }}
+                        totalFormatted={formatNumber(
+                          detail.warehouseTotals?.commonInfra || 0
+                        )}
+                        rowClass="border-t border-slate-700"
+                      />
+                    )}
+                    <PreviewSeriesRow
+                      label="Professional Fees"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.professionalFees?.[
+                            idx
+                          ] || 0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.professionalFees || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                    <PreviewSeriesRow
+                      label="Contingency"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.contingency?.[idx] || 0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.contingency || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                    <PreviewSeriesRow
+                      label="Construction Cost (total)"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const w = detail.warehouseMonthlyCosts;
+                        const landM0 =
+                          idx === 0 ? cashOutflows.landCost || 0 : 0;
+                        const v = roundToWhole(
+                          (w?.buildingShell?.[idx] || 0) +
+                            (w?.siteYard?.[idx] || 0) +
+                            (w?.loadingAccess?.[idx] || 0) +
+                            (w?.specialisedSystems?.[idx] || 0) +
+                            (projectInfo.salesWarehouseConfigType ===
+                            "industrial-park"
+                              ? w?.commonInfra?.[idx] || 0
+                              : 0) +
+                            (w?.professionalFees?.[idx] || 0) +
+                            (w?.contingency?.[idx] || 0) +
+                            landM0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        (detail.warehouseTotals?.buildingShell || 0) +
+                          (detail.warehouseTotals?.siteYard || 0) +
+                          (detail.warehouseTotals?.loadingAccess || 0) +
+                          (detail.warehouseTotals?.specialisedSystems || 0) +
+                          (projectInfo.salesWarehouseConfigType ===
+                          "industrial-park"
+                            ? detail.warehouseTotals?.commonInfra || 0
+                            : 0) +
+                          (detail.warehouseTotals?.professionalFees || 0) +
+                          (detail.warehouseTotals?.contingency || 0) +
+                          (cashOutflows.landCost || 0)
+                      )}
+                      rowClass="border-t-2 border-slate-600"
+                      strong
+                    />
+                    <PreviewSeriesRow
+                      label="FF&E"
+                      monthsLen={detail.months.length}
+                      getCell={(idx) => {
+                        const v = roundToWhole(
+                          detail.warehouseMonthlyCosts?.ffe?.[idx] || 0
+                        );
+                        return v > 0 ? formatNumber(v) : "—";
+                      }}
+                      totalFormatted={formatNumber(
+                        detail.warehouseTotals?.ffe || 0
+                      )}
+                      rowClass="border-t border-slate-700"
+                    />
+                  </>
+                )}
 
                 <PreviewSeriesRow
                   label="Soft Costs"
@@ -801,7 +1094,7 @@ export default function PreviewCashOutflowsPage() {
                   />
                 ))}
 
-                {/* --- Monthly Total: sum of displayed Land + Construction (plugged) + Soft + POWC (plugged) --- */}
+                {/* --- Monthly Total: Construction Cost (total) + FF&E (warehouse) + Soft + POWC --- */}
                 <tr className="border-t border-slate-700 bg-slate-900/50">
                   <td className="sticky left-0 border-r border-slate-700 bg-slate-800 px-4 py-3 text-sm font-semibold text-white">
                     Monthly Total

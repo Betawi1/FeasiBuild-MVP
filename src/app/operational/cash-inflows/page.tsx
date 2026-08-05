@@ -65,6 +65,30 @@ import ResidentialDepreciationStep, {
   buildResidentialDepreciationFromSnapshot,
   validateResidentialDepreciationStep,
 } from "./steps/ResidentialDepreciationStep";
+import C2S1PrimaryRevenueWarehouse, {
+  validateWarehouseRevenueStep,
+} from "./components/c2s1-primary-revenue-warehouse";
+import C2S1PrimaryRevenueDataCentre, {
+  validateDataCentreRevenueStep,
+} from "./components/c2s1-primary-revenue-data-centre";
+import C2S2OtherIncomeDataCentre, {
+  validateDataCentreOtherIncomeStep,
+} from "./components/c2s2-other-income-data-centre";
+import C2S3OperatingExpensesDataCentre, {
+  validateDataCentreOpExStep,
+} from "./components/c2s3-operating-expenses-data-centre";
+import C2S2OtherIncomeWarehouse, {
+  validateWarehouseOtherIncomeStep,
+} from "./components/c2s2-other-income-warehouse";
+import C2S3OperatingExpensesWarehouse, {
+  validateWarehouseOpexStep,
+} from "./components/c2s3-operating-expenses-warehouse";
+import C2S4DepreciationWarehouse, {
+  validateWarehouseDepreciationStep,
+} from "./components/c2s4-depreciation-warehouse";
+import C2S4DepreciationDataCentre, {
+  validateDataCentreDepreciationStep,
+} from "./components/c2s4-depreciation-data-centre";
 import {
   isValidHotelCombo,
   type HotelOperatingType,
@@ -143,6 +167,8 @@ function totalStepsForBuildingType(
   if (buildingType === "retail") return 4;
   if (buildingType === "office") return 4;
   if (buildingType === "residential") return 4;
+  if (buildingType === "warehouse") return 4;
+  if (buildingType === "data_centre") return 4;
   return 5;
 }
 
@@ -3272,6 +3298,16 @@ function OperationalCashInflowsPageContent() {
           next,
           validateResidentialRevenueStep(getOperationalResidentialHoldSnapshot())
         );
+      } else if (projectInfo.buildingType === "warehouse") {
+        Object.assign(
+          next,
+          validateWarehouseRevenueStep(cashInflows?.warehouseRevenue)
+        );
+      } else if (projectInfo.buildingType === "data_centre") {
+        Object.assign(
+          next,
+          validateDataCentreRevenueStep(cashInflows?.dataCentreRevenue)
+        );
       } else {
         Object.assign(
           next,
@@ -3301,6 +3337,22 @@ function OperationalCashInflowsPageContent() {
           next,
           validateResidentialOtherIncomeStep(
             getOperationalResidentialHoldSnapshot()
+          )
+        );
+      } else if (projectInfo.buildingType === "warehouse") {
+        Object.assign(
+          next,
+          validateWarehouseOtherIncomeStep(
+            cashInflows?.warehouseOtherIncome,
+            cashInflows?.warehouseRevenue?.totalAnnualRevenue
+          )
+        );
+      } else if (projectInfo.buildingType === "data_centre") {
+        Object.assign(
+          next,
+          validateDataCentreOtherIncomeStep(
+            cashInflows?.dataCentreOtherIncome,
+            cashInflows?.dataCentreRevenue?.totalAnnualRevenue
           )
         );
       } else {
@@ -3342,6 +3394,22 @@ function OperationalCashInflowsPageContent() {
           next,
           validateResidentialOpexStep(getOperationalResidentialHoldSnapshot())
         );
+      } else if (projectInfo.buildingType === "warehouse") {
+        Object.assign(
+          next,
+          validateWarehouseOpexStep(
+            cashInflows?.warehouseOpEx,
+            cashInflows?.warehouseRevenue?.totalAnnualRevenue
+          )
+        );
+      } else if (projectInfo.buildingType === "data_centre") {
+        Object.assign(
+          next,
+          validateDataCentreOpExStep(
+            cashInflows?.dataCentreOpEx,
+            cashInflows?.dataCentreRevenue?.totalAnnualRevenue
+          )
+        );
       } else {
         for (const k of HOTEL_DIRECT_COST_PCT_KEYS) {
           const v = directCostPcts[k];
@@ -3371,6 +3439,18 @@ function OperationalCashInflowsPageContent() {
         Object.assign(
           next,
           validateOfficeDepreciationStep(getOperationalOfficeHoldSnapshot())
+        );
+      } else if (projectInfo.buildingType === "warehouse") {
+        Object.assign(
+          next,
+          validateWarehouseDepreciationStep(cashInflows?.warehouseDepreciation)
+        );
+      } else if (projectInfo.buildingType === "data_centre") {
+        Object.assign(
+          next,
+          validateDataCentreDepreciationStep(
+            cashInflows?.dataCentreDepreciation
+          )
         );
       } else {
         for (const k of HOTEL_EXPENSE_PCT_KEYS) {
@@ -3642,13 +3722,19 @@ function OperationalCashInflowsPageContent() {
                   step0PersistRef.current = persist;
                 }}
               />
+            ) : projectInfo.buildingType === "warehouse" ? (
+              <C2S1PrimaryRevenueWarehouse fieldError={fieldError} />
+            ) : projectInfo.buildingType === "data_centre" ? (
+              <C2S1PrimaryRevenueDataCentre fieldError={fieldError} />
             ) : projectInfo.buildingType === "hotel" ? (
               <HotelRevenueStep fieldError={fieldError} />
             ) : (
               <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-6 text-sm text-slate-400">
                 Select <span className="text-slate-200">Hotel</span>,{" "}
                 <span className="text-slate-200">Office</span>,{" "}
-                <span className="text-slate-200">Residential</span>, or{" "}
+                <span className="text-slate-200">Residential</span>,{" "}
+                <span className="text-slate-200">Warehouse / Industrial</span>,{" "}
+                <span className="text-slate-200">Data Centre</span>, or{" "}
                 <span className="text-slate-200">Shopping Mall / Retail</span> in
                 Component 1 to configure revenue assumptions.
               </div>
@@ -3669,6 +3755,14 @@ function OperationalCashInflowsPageContent() {
 
           {currentStep === 1 && projectInfo.buildingType === "retail" && (
             <RetailOtherIncomeStep />
+          )}
+
+          {currentStep === 1 && projectInfo.buildingType === "warehouse" && (
+            <C2S2OtherIncomeWarehouse fieldError={fieldError} />
+          )}
+
+          {currentStep === 1 && projectInfo.buildingType === "data_centre" && (
+            <C2S2OtherIncomeDataCentre fieldError={fieldError} />
           )}
 
           {currentStep === 1 && projectInfo.buildingType === "hotel" && (
@@ -4030,6 +4124,14 @@ function OperationalCashInflowsPageContent() {
             <OfficeOpexStep />
           )}
 
+          {currentStep === 2 && projectInfo.buildingType === "warehouse" && (
+            <C2S3OperatingExpensesWarehouse fieldError={fieldError} />
+          )}
+
+          {currentStep === 2 && projectInfo.buildingType === "data_centre" && (
+            <C2S3OperatingExpensesDataCentre fieldError={fieldError} />
+          )}
+
           {currentStep === 2 && projectInfo.buildingType === "hotel" && (
             <div className="space-y-8">
               <div>
@@ -4252,6 +4354,20 @@ function OperationalCashInflowsPageContent() {
 
           {currentStep === 3 && projectInfo.buildingType === "office" && (
             <OfficeDepreciationStep />
+          )}
+
+          {currentStep === 3 && projectInfo.buildingType === "warehouse" && (
+            <C2S4DepreciationWarehouse
+              fieldError={fieldError}
+              onGeneratePnl={handleNext}
+            />
+          )}
+
+          {currentStep === 3 && projectInfo.buildingType === "data_centre" && (
+            <C2S4DepreciationDataCentre
+              fieldError={fieldError}
+              onGeneratePnl={handleNext}
+            />
           )}
 
           {currentStep === 3 && projectInfo.buildingType === "hotel" && (

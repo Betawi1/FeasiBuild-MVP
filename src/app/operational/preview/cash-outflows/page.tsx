@@ -25,6 +25,14 @@ import {
   useStreamPrefix,
   withStreamPrefix,
 } from "@/lib/stream-path";
+import {
+  buildWarehouseMonthlyCashOutflowRows,
+  CashOutflowsTableWarehouse,
+} from "./components/cash-outflows-table-warehouse";
+import {
+  buildDataCentreMonthlyCashOutflowRows,
+  CashOutflowsTableDataCentre,
+} from "./components/cash-outflows-table-data-centre";
 
 export default function PreviewCashOutflowsPage() {
   const streamPrefix = useStreamPrefix();
@@ -67,6 +75,9 @@ export default function PreviewCashOutflowsPage() {
   const profile = buildCashOutflowProfile(cashOutflows, projectInfo);
 
   const currencyCode = projectInfo.currency || "AED";
+  const isWarehouse = projectInfo.buildingType === "warehouse";
+  const isOperationalDataCentreProduct =
+    projectInfo.buildingType === "data_centre";
 
   // Match `/preview/cash-outflows` displayed rounding exactly:
   // when each month's value is rounded for display, the row sum can differ slightly
@@ -197,6 +208,16 @@ export default function PreviewCashOutflowsPage() {
     const months = profile.months;
     if (months.length === 0) return [];
 
+    if (isOperationalDataCentreProduct) {
+      return buildDataCentreMonthlyCashOutflowRows(cashOutflows, projectInfo)
+        .exportRows;
+    }
+
+    if (isWarehouse) {
+      return buildWarehouseMonthlyCashOutflowRows(cashOutflows, projectInfo)
+        .exportRows;
+    }
+
     if (streamPrefix === "/operational") {
       return buildOperationalMonthlyExportRows({
         profile: {
@@ -248,6 +269,19 @@ export default function PreviewCashOutflowsPage() {
       roundTo1dp((cashOutflows.softCosts || 0) / 1000),
     ];
 
+    const ffeTotal = cashOutflows.ffe || 0;
+    const ffeRow: (string | number | null)[] | null =
+      ffeTotal > 0
+        ? [
+            "FF&E",
+            ...months.map((_, idx) => {
+              const v = roundTo1dp((profile.ffe[idx] || 0) / 1000);
+              return v > 0 ? v : null;
+            }),
+            roundTo1dp(ffeTotal / 1000),
+          ]
+        : null;
+
     const powcRow: (string | number | null)[] = [
       "POWC",
       ...months.map((_, idx) => roundTo1dp((profile.powc[idx] || 0) / 1000)),
@@ -270,16 +304,20 @@ export default function PreviewCashOutflowsPage() {
       header,
       landRow,
       constructionRow,
+      ...(ffeRow ? [ffeRow] : []),
       softCostsRow,
       powcRow,
       monthlyTotalRow,
       cumulativeRow,
     ];
   }, [
+    isWarehouse,
+    isOperationalDataCentreProduct,
     streamPrefix,
     projectInfo,
     profile.months,
     profile.construction,
+    profile.ffe,
     profile.softCosts,
     profile.powc,
     profile.monthlyTotal,
@@ -341,7 +379,7 @@ export default function PreviewCashOutflowsPage() {
           </p>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-5">
           <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
             <p className="mb-1 text-xs text-slate-400">Land Cost</p>
             <p className="text-lg font-semibold text-white">
@@ -354,6 +392,14 @@ export default function PreviewCashOutflowsPage() {
               {formatCurrency(cashOutflows.constructionCost, currencyCode)}
             </p>
           </div>
+          {(cashOutflows.ffe || 0) > 0 ? (
+            <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
+              <p className="mb-1 text-xs text-slate-400">FF&amp;E</p>
+              <p className="text-lg font-semibold text-white">
+                {formatCurrency(cashOutflows.ffe || 0, currencyCode)}
+              </p>
+            </div>
+          ) : null}
           <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
             <p className="mb-1 text-xs text-slate-400">Soft Costs</p>
             <p className="text-lg font-semibold text-white">
@@ -380,6 +426,10 @@ export default function PreviewCashOutflowsPage() {
               Set a positive construction period and generate the model in
               Component 1 to see the monthly cash flow profile.
             </p>
+          ) : isOperationalDataCentreProduct ? (
+            <CashOutflowsTableDataCentre currencyCode={currencyCode} />
+          ) : isWarehouse ? (
+            <CashOutflowsTableWarehouse currencyCode={currencyCode} />
           ) : (
             <table className="min-w-[1200px] w-full">
               <thead>
@@ -579,6 +629,27 @@ export default function PreviewCashOutflowsPage() {
                           </td>
                         </tr>
 
+                        {(cashOutflows.ffe || 0) > 0 ? (
+                          <tr className="border-t border-slate-700">
+                            <td className="sticky left-0 border-r border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-200">
+                              FF&amp;E
+                            </td>
+                            {profile.months.map((_, idx) => (
+                              <td
+                                key={idx}
+                                className="border-r border-slate-700/50 px-2 py-3 text-center text-xs text-slate-400"
+                              >
+                                {(profile.ffe[idx] || 0) > 0
+                                  ? formatNumber((profile.ffe[idx] || 0) / 1000)
+                                  : "-"}
+                              </td>
+                            ))}
+                            <td className="px-4 py-3 text-right text-sm font-medium text-slate-200">
+                              {formatNumber((cashOutflows.ffe || 0) / 1000)}
+                            </td>
+                          </tr>
+                        ) : null}
+
                         <tr className="border-t border-slate-700">
                           <td className="sticky left-0 border-r border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-200">
                             Soft Costs
@@ -658,16 +729,44 @@ export default function PreviewCashOutflowsPage() {
 
         <div className="mb-6 rounded-lg border border-slate-700 bg-slate-800/30 p-4">
           <p className="text-sm text-slate-400">
-            <span className="text-lg">ℹ️</span> Construction S-curve follows
-            stage allocation: {cashOutflows.stageAllocation.stage1Label} (
-            {cashOutflows.stageAllocation.stage1Percent}%) →{" "}
-            {cashOutflows.stageAllocation.stage2Label} (
-            {cashOutflows.stageAllocation.stage2Percent}%) →{" "}
-            {cashOutflows.stageAllocation.stage3Label} (
-            {cashOutflows.stageAllocation.stage3Percent}
-            %). POWC months use your Step 13 % split and the timing rules in the
-            Excel &quot;Step 13 inputs&quot; sheet. Soft costs use Step 13 line
-            weights; aggregate cash is 50% M0, 30% M1, 20% M2.
+            <span className="text-lg">ℹ️</span>{" "}
+            {isOperationalDataCentreProduct ? (
+              <>
+                Data Centre construction categories follow Step 12 S-curve
+                phasing (Building &amp; Shell, Critical Infrastructure M&amp;E
+                {projectInfo.dataCentreITHardwareProvidedByOperator
+                  ? ", IT Hardware"
+                  : ""}
+                ). Professional fees and contingency are spread equally across
+                construction months. FF&amp;E sits after Construction Cost
+                (total), before POWC. Soft costs use Step 13 line weights (50%
+                M0 / 30% M1 / 20% M2).
+              </>
+            ) : isWarehouse ? (
+              <>
+                Warehouse construction categories follow Step 12 S-curve
+                phasing (Building &amp; Shell, Site &amp; Yard, Loading &amp;
+                Access, Specialised Systems). Contingency and professional fees
+                are spread equally across construction months. POWC uses Step 13
+                % splits; soft costs use Step 13 line weights (50% M0 / 30% M1 /
+                20% M2). FF&amp;E follows the hard-construction spend curve.
+              </>
+            ) : (
+              <>
+                Construction S-curve follows stage allocation:{" "}
+                {cashOutflows.stageAllocation.stage1Label} (
+                {cashOutflows.stageAllocation.stage1Percent}%) →{" "}
+                {cashOutflows.stageAllocation.stage2Label} (
+                {cashOutflows.stageAllocation.stage2Percent}%) →{" "}
+                {cashOutflows.stageAllocation.stage3Label} (
+                {cashOutflows.stageAllocation.stage3Percent}
+                %). POWC months use your Step 13 % split and the timing rules in
+                the Excel &quot;Step 13 inputs&quot; sheet. Soft costs use Step
+                13 line weights; aggregate cash is 50% M0, 30% M1, 20% M2.
+                FF&amp;E (when present) is spread in proportion to the
+                construction S-curve.
+              </>
+            )}
           </p>
         </div>
 

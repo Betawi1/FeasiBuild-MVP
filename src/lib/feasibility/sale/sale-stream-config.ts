@@ -99,6 +99,29 @@ export const SALE_CONFIG: Record<string, SaleStreamConfig> = {
       ],
     },
   },
+  "Commercial-Strata-Warehouse": {
+    assetLabel: "Commercial - Strata Warehouse",
+    unitMetric: "Strata Units",
+    areaMetric: "BUA (sqft)",
+    marketSlideTitles: {
+      overview: "Warehouse / Industrial Market Overview",
+      supplyDemand: "Warehouse Supply-Demand & Logistics Drivers",
+      pricing: "Warehouse Market Pricing Benchmarking",
+      velocity:
+        "Sales Velocity, Absorption Trends & Target Buyer Profile",
+      competition:
+        "Competition Analysis - Warehouse / Industrial Developments",
+    },
+    projectMetricsTable: {
+      rows: [
+        "Saleable BUA (sqft)",
+        "Total BUA (sqft)",
+        "Construction Period (months)",
+        "Total Development Cost (TDC)",
+        "Development Cost per Saleable BUA",
+      ],
+    },
+  },
 };
 
 const SUBTYPE_TO_CONFIG_KEY: Record<string, keyof typeof SALE_CONFIG> = {
@@ -106,10 +129,13 @@ const SUBTYPE_TO_CONFIG_KEY: Record<string, keyof typeof SALE_CONFIG> = {
   residential_high_rise: "Residential-High-Rise",
   commercial_landed: "Commercial-Landed",
   commercial_strata_office: "Commercial-Strata-Office",
+  commercial_strata_warehouse: "Commercial-Strata-Warehouse",
+  warehouse_industrial: "Commercial-Strata-Warehouse",
   "residential-landed": "Residential-Landed",
   "residential-hi-rise": "Residential-High-Rise",
   "commercial-landed": "Commercial-Landed",
   "commercial-strata-office": "Commercial-Strata-Office",
+  "commercial-strata-warehouse": "Commercial-Strata-Warehouse",
 };
 
 export function resolveSaleConfigKey(

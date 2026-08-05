@@ -27,9 +27,10 @@ export const CASH_OUTFLOW_STEP_NAMES: Record<number, string> = {
   5: "Building Configuration",
   6: "Construction Costs",
   7: "Contingency",
-  8: "SC & POWC",
+  8: "SC, POWC & Allocation",
   9: "Land Costs",
   11: "Schedule",
+  13: "Review & Summary",
 };
 
 export function financingAuditRoute(uiStep: number): string {
@@ -61,6 +62,63 @@ export const CASH_OUTFLOW_AUDIT_FIELDS: Record<string, AuditFieldMeta> = {
   officePositioning: { label: "Market Positioning", uiStep: 4, type: "select" },
   residentialSegment: { label: "Operating Segment", uiStep: 4, type: "select" },
   residentialPositioning: { label: "Market Positioning", uiStep: 4, type: "select" },
+  developmentType: { label: "Development Type", uiStep: 4, type: "select" },
+  warehouseSubType: { label: "Warehouse Sub-Type", uiStep: 4, type: "select" },
+  qualityGrade: { label: "Quality Grade", uiStep: 4, type: "select" },
+  dataCentreSegment: {
+    label: "Data Centre Segment",
+    uiStep: 4,
+    type: "select",
+  },
+  dataCentreTierLevel: { label: "Tier Level", uiStep: 4, type: "select" },
+  dataCentrePositioning: {
+    label: "Market Positioning",
+    uiStep: 4,
+    type: "select",
+  },
+  dataCentreITLoadCapacity: {
+    label: "IT Load Capacity (MW)",
+    uiStep: 5,
+    type: "input",
+  },
+  dataCentrePowerDensity: {
+    label: "Power Density (kW/rack)",
+    uiStep: 5,
+    type: "input",
+  },
+  dataCentreTotalBuildingGFA: {
+    label: "Total Building GFA (sqft)",
+    uiStep: 5,
+    type: "input",
+  },
+  dataCentreBuildingRate: {
+    label: "Building Rate (/sqft)",
+    uiStep: 6,
+    type: "input",
+  },
+  dataCentreMECostPerMWElectrical: {
+    label: "M&E Electrical Cost (/MW)",
+    uiStep: 6,
+    type: "input",
+  },
+  dataCentreMECostPerMWCooling: {
+    label: "M&E Cooling Cost (/MW)",
+    uiStep: 6,
+    type: "input",
+  },
+  numberOfWarehouses: { label: "Number of Warehouses", uiStep: 4, type: "input" },
+  phasingStrategy: { label: "Phasing Strategy", uiStep: 4, type: "select" },
+  commonInfrastructure: { label: "Common Infrastructure", uiStep: 4, type: "toggle" },
+  warehouseTotalBua: { label: "Warehouse BUA (sqft)", uiStep: 5, type: "input" },
+  warehouseTotalLandArea: { label: "Warehouse Land Area", uiStep: 5, type: "input" },
+  buildingShellRate: { label: "Building Shell Rate", uiStep: 6, type: "input" },
+  warehousePhasing: { label: "Warehouse Phasing S-Curve", uiStep: 11, type: "select" },
+  dataCentrePhasing: { label: "Data Centre Phasing S-Curve", uiStep: 11, type: "select" },
+  monthlyConstructionCosts: {
+    label: "Monthly Construction Costs (DC)",
+    uiStep: 11,
+    type: "calculated",
+  },
   buildingBUA: { label: "Building BUA (sqft)", uiStep: 6, type: "input" },
   buildingRate: { label: "Building Rate", uiStep: 6, type: "input" },
   parkingBUA: { label: "Parking BUA (sqft)", uiStep: 6, type: "input" },
@@ -165,6 +223,8 @@ const BUILDING_TYPE_LABELS: Record<string, string> = {
   retail: "Retail",
   office: "Office",
   residential: "Residential",
+  warehouse: "Warehouse / Industrial",
+  data_centre: "Data Centre",
 };
 
 const HOTEL_OPERATING_TYPE_LABELS: Record<string, string> = {
@@ -244,6 +304,20 @@ export function formatCashOutflowAuditDisplay(
       return RESIDENTIAL_SEGMENT_LABELS[raw] ?? humanizeFieldId(raw);
     case "residentialPositioning":
       return RESIDENTIAL_POSITIONING_LABELS[raw] ?? humanizeFieldId(raw);
+    case "dataCentreSegment":
+      return raw === "edge" ? "Edge" : raw === "colocation" ? "Colocation" : humanizeFieldId(raw);
+    case "dataCentreTierLevel":
+      return (
+        (
+          {
+            "tier-ii": "Tier II",
+            "tier-iii": "Tier III",
+            "tier-iv": "Tier IV",
+          } as Record<string, string>
+        )[raw] ?? humanizeFieldId(raw)
+      );
+    case "dataCentrePositioning":
+      return raw === "premium" ? "Premium" : raw === "standard" ? "Standard" : humanizeFieldId(raw);
     default:
       return raw;
   }

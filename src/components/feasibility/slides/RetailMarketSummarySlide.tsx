@@ -9,6 +9,8 @@ import type { RetailMarketSummaryData } from "@/types/feasibility";
 interface Props extends SlideEditingProps {
   data: RetailMarketSummaryData;
   city: string;
+  title?: string;
+  summaryLabel?: string;
 }
 
 const SECTIONS: { title: string; key: keyof RetailMarketSummaryData }[] = [
@@ -21,6 +23,8 @@ const SECTIONS: { title: string; key: keyof RetailMarketSummaryData }[] = [
 export default function RetailMarketSummarySlide({
   data,
   city,
+  title = "Summary of retail market",
+  summaryLabel,
   isEditing = false,
   onDataChange,
 }: Props) {
@@ -36,16 +40,22 @@ export default function RetailMarketSummarySlide({
     });
   };
 
+  const eyebrow =
+    summaryLabel ??
+    (title.toLowerCase().includes("warehouse")
+      ? `Warehouse & industrial market summary for ${city}`
+      : title.toLowerCase().includes("office")
+        ? `Office market summary for ${city}`
+        : `Retail market summary for ${city}`);
+
   return (
     <SlideContainer>
       <SlideHeader
-        title="Summary of retail market"
+        title={title}
         subtitle="Key findings"
         className="mb-4"
       />
-      <p className="text-sm text-emerald-600 mb-4 shrink-0">
-        Retail market summary for {city}
-      </p>
+      <p className="text-sm text-emerald-600 mb-4 shrink-0">{eyebrow}</p>
       <div className="flex-1 grid grid-cols-2 gap-4 min-h-0 overflow-hidden">
         {SECTIONS.map((section) => (
           <div key={section.key} className="overflow-y-auto">

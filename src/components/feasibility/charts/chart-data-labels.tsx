@@ -129,3 +129,13 @@ export function HorizontalBarValueLabelList({
     />
   );
 }
+
+/** Data Centre–specific chart titles (reuse StackedBarChart / SimpleBarChart patterns). */
+export const DATACENTRE_CHART_LABELS = {
+  digitalEconomyGrowth: "Digital Economy Growth",
+  supplyPipelineMw: "Data Centre Supply Pipeline (MW)",
+  competitorPricingKw: "Competitor Pricing (MYR/kW/month)",
+  competitorPue: "Competitor PUE Benchmark",
+  latencyToHubs: "Latency to Major Hubs (ms)",
+} as const;
+

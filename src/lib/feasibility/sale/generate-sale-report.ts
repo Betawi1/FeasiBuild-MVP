@@ -38,6 +38,7 @@ import { cleanAIContent } from "@/lib/feasibility/clean-ai-content";
 import {
   createPromptForSection,
 } from "@/lib/feasibility/sale/create-sale-puter-prompts";
+import useFinModelStore from "@/store/useFinModelStore";
 
 function commentary(
   bundle: SaleFeasibilityBundle,
@@ -53,17 +54,44 @@ export async function generateSaleCommentary(
   options?: { cacheKey?: string; forceRegenerate?: boolean }
 ): Promise<string[]> {
   const config = getSaleStreamConfig(bundle.buildingSubType);
-  const { aiProvider, COMMENTARY_LENGTH_CONSTRAINT, COMMENTARY_FORMAT_CONSTRAINT } =
-    await import("@/lib/ai-service");
-  const prompt = `${createPromptForSection(section, bundle, config)}\n\n${COMMENTARY_LENGTH_CONSTRAINT}\n\n${COMMENTARY_FORMAT_CONSTRAINT}`;
+  const fallback = () =>
+    cleanAIContent(generateSaleCommentaryFallback(section, bundle));
 
-  const raw = await aiProvider.generateCommentary(prompt, {
-    cacheKey: options?.cacheKey,
-    forceRegenerate: options?.forceRegenerate,
-    section,
-  });
-  // generateCommentary already returns cleaned paragraphs
-  return raw;
+  try {
+    const { aiProvider, COMMENTARY_LENGTH_CONSTRAINT, COMMENTARY_FORMAT_CONSTRAINT } =
+      await import("@/lib/ai-service");
+    const prompt = `${createPromptForSection(section, bundle, config)}\n\n${COMMENTARY_LENGTH_CONSTRAINT}\n\n${COMMENTARY_FORMAT_CONSTRAINT}`;
+
+    const raw = await aiProvider.generateCommentary(prompt, {
+      cacheKey: options?.cacheKey,
+      forceRegenerate: options?.forceRegenerate,
+      section,
+    });
+
+    const looksFailed =
+      !raw?.length ||
+      raw.every(
+        (p) =>
+          !p.trim() ||
+          /content generation failed/i.test(p) ||
+          /invalid\/empty streaming response/i.test(p)
+      );
+
+    if (looksFailed) {
+      console.warn(
+        `[Sale Commentary] AI empty/failed for "${section}", using fallback`
+      );
+      return fallback();
+    }
+
+    return raw;
+  } catch (error) {
+    console.warn(
+      `[Sale Commentary] AI generation failed for "${section}", using fallback:`,
+      error
+    );
+    return fallback();
+  }
 }
 
 function tallChart(chart: SlideChart): SlideChart {
@@ -228,7 +256,11 @@ function generateSaleMarketSlides(
       id: "sale-implications",
       section: "market",
       title: "Implications of the Market Findings on the Project",
-      subtitle: resolveImplicationsSubtitle(config.assetLabel),
+      subtitle: resolveImplicationsSubtitle(config.assetLabel, {
+        buildingSubType: bundle.buildingSubType,
+        salesWarehouseConfigType:
+          useFinModelStore.getState().sale.projectInfo.salesWarehouseConfigType,
+      }),
       paragraphs: commentary(bundle, "Market Implications"),
       data: buildSaleImplicationsData(bundle),
     },
@@ -251,9 +283,16 @@ function generateSaleMarketSlides(
   ];
 }
 
+function isResidentialSaleSubtype(buildingSubType?: string | null): boolean {
+  const normalized = (buildingSubType ?? "").toLowerCase().replace(/\s+/g, "_");
+  return normalized.includes("residential");
+}
+
 function generateSaleFinancialSlides(
   bundle: SaleFeasibilityBundle
 ): FeasibilitySlide[] {
+  const includeEscrow = isResidentialSaleSubtype(bundle.buildingSubType);
+
   return [
     {
       id: "sale-dev-assumptions",
@@ -303,14 +342,19 @@ function generateSaleFinancialSlides(
       paragraphs: commentary(bundle, "Revolving Credit Facility"),
       data: buildSaleRevolvingCreditData(bundle),
     },
-    {
-      id: "sale-escrow",
-      section: "financial",
-      title: "Financial Analysis",
-      subtitle: "Escrow Withdrawal Configuration",
-      paragraphs: commentary(bundle, "Escrow Configuration"),
-      data: buildSaleEscrowWithdrawalData(bundle),
-    },
+    // HDA / Schedule H escrow applies to residential for-sale projects only
+    ...(includeEscrow
+      ? [
+          {
+            id: "sale-escrow",
+            section: "financial" as const,
+            title: "Financial Analysis",
+            subtitle: "Escrow Withdrawal Configuration",
+            paragraphs: commentary(bundle, "Escrow Configuration"),
+            data: buildSaleEscrowWithdrawalData(bundle),
+          },
+        ]
+      : []),
     {
       id: "sale-post-financing",
       section: "financial",

@@ -11,7 +11,7 @@ import { buildIrrFinancingMetricsAiPrompt } from "@/lib/feasibility/build-irr-fi
 
 const SLIDE_TYPES: FinancialSlideType[] = [
   "Development Assumptions",
-  "Hotel Development Schedule",
+  "Development Schedule",
   "Term Loan",
   "IRR and Key Financing Metrics",
 ];

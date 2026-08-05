@@ -9,7 +9,7 @@ import {
   solveAnnualIRR,
   type CashFlowPoint,
 } from "@/lib/irr-calculations";
-import { buildSaleCashflowDetailProfile } from "@/lib/sale-cash-preview-profile";
+import { buildSalePreFinancingCashFlows } from "@/lib/sale-cash-preview-profile";
 import {
   useStreamPrefix,
   withStreamPrefix,
@@ -24,12 +24,29 @@ export default function PreviewProjectIRRPage() {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement | null>(null);
 
-  const constructionPeriod = cashOutflows.constructionPeriod || 30;
   const postCompletionBuffer = 6;
-  const totalMonths = constructionPeriod + postCompletionBuffer; // last month index
-  const months = useMemo(
-    () => Array.from({ length: totalMonths + 1 }, (_, i) => i),
-    [totalMonths]
+
+  // Same pre-financing NCF as Cash Flow Preview — do not recalculate CapEx/inflows.
+  const preFinancing = useMemo(
+    () =>
+      buildSalePreFinancingCashFlows(cashOutflows, cashInflows, projectInfo, {
+        postCompletionBuffer,
+      }),
+    [cashOutflows, cashInflows, projectInfo]
+  );
+
+  const constructionPeriod = preFinancing.constructionPeriod;
+  const months = preFinancing.months;
+  const totalMonths = months.length > 0 ? months[months.length - 1] : 0;
+  const netCashFlows = preFinancing.net;
+
+  const cashFlows: CashFlowPoint[] = useMemo(
+    () =>
+      netCashFlows.map((amount, month) => ({
+        month,
+        amount,
+      })),
+    [netCashFlows]
   );
 
   useEffect(() => {
@@ -46,55 +63,17 @@ export default function PreviewProjectIRRPage() {
     });
   }, [projectInfo, cashOutflows, cashInflows, constructionPeriod, totalMonths]);
 
-  // Use the same detail profile as Cash Inflows preview for consistency
-  const detail = useMemo(
-    () => buildSaleCashflowDetailProfile(cashOutflows, projectInfo),
-    [cashOutflows, projectInfo]
-  );
-
-  // Calculate Net Cash Flow the same way as Cash Inflows preview
-  const cashFlows: CashFlowPoint[] = useMemo(() => {
-    const flows: CashFlowPoint[] = [];
-
-    const inflowByMonth = new Map<number, number>();
-    for (const p of cashInflows.monthlyInflowSchedule || []) {
-      inflowByMonth.set(p.month, (inflowByMonth.get(p.month) || 0) + (p.amount || 0));
-    }
-
-    for (let m = 0; m <= totalMonths; m++) {
-      // Inflows from Cash Inflows schedule
-      const inflow = inflowByMonth.get(m) || 0;
-
-      // Outflows from detail (same as Cash Inflows preview)
-      const outflow = detail.monthlyTotal[m] || 0;
-
-      // Net Cash Flow (Inflow - Outflow) - SAME AS CASH INFLOWS PREVIEW
-      const netCashFlow = inflow - outflow;
-
-      flows.push({
-        month: m,
-        amount: netCashFlow,
-      });
-    }
-
+  useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log("🔗 [Project IRR Cash Flows Linked to Cash Inflows]:", {
-      M0: {
-        inflow: inflowByMonth.get(0) || 0,
-        outflow: detail.monthlyTotal[0],
-        net: flows[0]?.amount,
-      },
-      M1: {
-        inflow: inflowByMonth.get(1) || 0,
-        outflow: detail.monthlyTotal[1],
-        net: flows[1]?.amount,
-      },
+    console.log("🔗 [Project IRR ← Cash Flow Preview NCF]:", {
+      M0: preFinancing.net[0],
+      M1: preFinancing.net[1],
+      M2: preFinancing.net[2],
+      length: preFinancing.net.length,
+      inflowM0: preFinancing.inflow[0],
+      outflowM0: preFinancing.outflow[0],
     });
-
-    return flows;
-  }, [cashInflows.monthlyInflowSchedule, detail.monthlyTotal, totalMonths]);
-
-  const netCashFlows = useMemo(() => cashFlows.map((cf) => cf.amount), [cashFlows]);
+  }, [preFinancing]);
 
   useEffect(() => {
     // eslint-disable-next-line no-console
@@ -110,48 +89,30 @@ export default function PreviewProjectIRRPage() {
   // FORCED CORRECT: Unlevered Metrics from direct store totals.
   // This bypasses any monthly-series scope/aggregation issues.
   const unleveredMetrics = useMemo(() => {
+    const isWarehouse =
+      projectInfo.buildingSubType === "commercial_strata_warehouse";
     const capitalInvested =
       cashOutflows.tdc ||
       (cashOutflows.landCost || 0) +
         (cashOutflows.constructionCost || 0) +
         (cashOutflows.softCosts || 0) +
-        (cashOutflows.powc || 0);
+        (cashOutflows.powc || 0) +
+        (isWarehouse ? cashOutflows.ffe || 0 : 0);
 
     const totalReturns = cashInflows.netProceeds || 0;
     const equityMultiple =
       capitalInvested > 0 ? totalReturns / capitalInvested : 0;
     const netSurplus = totalReturns - capitalInvested;
 
-    // eslint-disable-next-line no-console
-    console.log("🔍 ========== UNLEVERED METRICS (FORCED) ==========");
-    // eslint-disable-next-line no-console
-    console.log(
-      "🔍 Capital Invested (TDC):",
-      (capitalInvested / 1000).toFixed(1),
-      "k"
-    );
-    // eslint-disable-next-line no-console
-    console.log(
-      "🔍 Total Returns (Net Proceeds):",
-      (totalReturns / 1000).toFixed(1),
-      "k"
-    );
-    // eslint-disable-next-line no-console
-    console.log("🔍 Equity Multiple:", equityMultiple.toFixed(2), "x");
-    // eslint-disable-next-line no-console
-    console.log("🔍 Net Surplus:", (netSurplus / 1000).toFixed(1), "k");
-    // eslint-disable-next-line no-console
-    console.log("🔍 Expected: 18,276.3k / 22,272.0k / 1.22x / 3,995.8k");
-    // eslint-disable-next-line no-console
-    console.log("================================================");
-
     return { capitalInvested, totalReturns, equityMultiple, netSurplus };
   }, [
+    projectInfo.buildingSubType,
     cashOutflows.tdc,
     cashOutflows.landCost,
     cashOutflows.constructionCost,
     cashOutflows.softCosts,
     cashOutflows.powc,
+    cashOutflows.ffe,
     cashInflows.netProceeds,
   ]);
 

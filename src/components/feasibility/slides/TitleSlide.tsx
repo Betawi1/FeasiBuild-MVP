@@ -19,6 +19,12 @@ function buildDefaultTitle(data: TitleSlideData): string {
   if (data.isResidentialBTR) {
     return `Financial Feasibility Study for the Development of a ${data.btrGradeLabel || "Grade B"} Residential ${data.btrSegmentLabel || "High-Rise"} BTR Tower in ${data.city}, ${data.country}`;
   }
+  if (data.isDataCentre) {
+    return `Financial Feasibility Study for the Development of a ${data.dataCentreTierLabel || "Tier III"} ${data.dataCentreSegmentLabel || "Colocation"} Data Centre in ${data.city}, ${data.country}`;
+  }
+  if (data.isWarehouse) {
+    return `Financial Feasibility Study for the Development of a ${data.warehouseGradeLabel || "Grade A"} ${data.warehouseSegmentLabel || "Warehouse"} in ${data.city}, ${data.country}`;
+  }
   if (data.isOfficeMixedUse) {
     return `Financial Feasibility Study for the Development of a Prime Office & Retail Tower in ${data.city}, ${data.country}`;
   }

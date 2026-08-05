@@ -16,6 +16,11 @@ export interface AiInputProps {
   isAiGenerated?: boolean;
   /** Persisted store/local flag — survives remount; cleared by Reset to benchmark */
   isManualOverride?: boolean;
+  /**
+   * Explicit AI benchmark used for reset + override comparison.
+   * Prefer this over the live `value` so remounts after an override still reset correctly.
+   */
+  benchmarkValue?: number | string;
   disabled?: boolean;
   className?: string;
 }
@@ -32,10 +37,18 @@ export const AiInput: FC<AiInputProps> = ({
   max,
   isAiGenerated = true,
   isManualOverride = false,
+  benchmarkValue,
   disabled = false,
   className = "",
 }) => {
-  const [originalValue, setOriginalValue] = useState<number | string>(value);
+  const hasBenchmark =
+    benchmarkValue != null &&
+    benchmarkValue !== "" &&
+    !(typeof benchmarkValue === "number" && !Number.isFinite(benchmarkValue));
+
+  const [originalValue, setOriginalValue] = useState<number | string>(
+    hasBenchmark ? benchmarkValue : value
+  );
   const [hasEdited, setHasEdited] = useState(isManualOverride);
 
   // Sync from persisted override flag (e.g. after remount or Reset to benchmark)
@@ -44,21 +57,38 @@ export const AiInput: FC<AiInputProps> = ({
       setHasEdited(true);
     } else {
       setHasEdited(false);
-      setOriginalValue(value);
+      setOriginalValue(hasBenchmark ? benchmarkValue! : value);
     }
     // Only react to the override flag toggling / external reset
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isManualOverride]);
 
+  // Keep AI baseline in sync when benchmark arrives or updates from research
+  useEffect(() => {
+    if (hasBenchmark) {
+      setOriginalValue(benchmarkValue!);
+    }
+  }, [benchmarkValue, hasBenchmark]);
+
   // Keep baseline in sync when value is pushed from outside (AI populate / reset)
   useEffect(() => {
-    if (!isManualOverride && !hasEdited) {
+    if (!isManualOverride && !hasEdited && !hasBenchmark) {
       setOriginalValue(value);
     }
-  }, [value, isManualOverride, hasEdited]);
+  }, [value, isManualOverride, hasEdited, hasBenchmark]);
+
+  const baseline = hasBenchmark ? benchmarkValue! : originalValue;
+  const valuesDiffer =
+    value !== baseline &&
+    !(
+      typeof value === "number" &&
+      typeof baseline === "number" &&
+      Math.abs(value - baseline) < 1e-9
+    ) &&
+    !(value === "" && (baseline === "" || baseline == null));
 
   const isOverride =
-    isManualOverride || (hasEdited && value !== originalValue);
+    isManualOverride || (hasEdited && valuesDiffer);
 
   const getBorderColorClass = () => {
     if (isOverride) {
@@ -107,7 +137,16 @@ export const AiInput: FC<AiInputProps> = ({
     onChange(newValue);
   };
 
+  const handleReset = () => {
+    setHasEdited(false);
+    onChange(baseline);
+  };
+
   const displayValue = type === "percentage" ? `${value}` : value;
+
+  const resolvedHelperText = isOverride
+    ? "Manually overridden — edit to change"
+    : helperText;
 
   return (
     <div className={`space-y-2 ${className}`}>
@@ -147,7 +186,26 @@ export const AiInput: FC<AiInputProps> = ({
         )}
       </div>
 
-      {helperText && <p className="text-xs text-slate-500">{helperText}</p>}
+      {resolvedHelperText && (
+        <p className="text-xs text-slate-500">{resolvedHelperText}</p>
+      )}
+
+      {isOverride && (hasBenchmark || originalValue !== "") && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={handleReset}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleReset();
+            }
+          }}
+          className="mt-1 block cursor-pointer text-xs text-emerald-400 hover:underline hover:text-emerald-300"
+        >
+          Reset to benchmark
+        </span>
+      )}
     </div>
   );
 };

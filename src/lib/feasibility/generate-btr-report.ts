@@ -362,14 +362,14 @@ function generateBTRFinancialSlides(
     schedule
       ? {
           ...schedule,
-          subtitle: "BTR Development Schedule",
+          subtitle: "Development Schedule",
           paragraphs: commentary(bundle, "Development Schedule"),
         }
       : {
           id: "fin-dev-schedule",
           section: "financial",
           title: "Financial Analysis",
-          subtitle: "BTR Development Schedule",
+          subtitle: "Development Schedule",
           paragraphs: commentary(bundle, "Development Schedule"),
         },
     {

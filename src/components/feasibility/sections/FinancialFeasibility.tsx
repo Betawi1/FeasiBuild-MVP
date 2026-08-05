@@ -68,6 +68,12 @@ import BTRDevelopmentAssumptionsSlide from "../slides/BTRDevelopmentAssumptionsS
 import BTROperationalRevenuesSlide from "../slides/BTROperationalRevenuesSlide";
 import BTROperationalExpensesSlide from "../slides/BTROperationalExpensesSlide";
 import BTROperationalPnLSlide from "../slides/BTROperationalPnLSlide";
+import WarehouseDevelopmentAssumptionsSlide from "../slides/WarehouseDevelopmentAssumptionsSlide";
+import WarehouseOperationalRevenuesSlide from "../slides/WarehouseOperationalRevenuesSlide";
+import WarehouseOperationalExpensesSlide from "../slides/WarehouseOperationalExpensesSlide";
+import WarehouseOperationalPnLSlide from "../slides/WarehouseOperationalPnLSlide";
+import DataCentreDevelopmentAssumptionsSlide from "../slides/DataCentreDevelopmentAssumptionsSlide";
+import DataCentreOperationalAssumptionsSlide from "../slides/DataCentreOperationalAssumptionsSlide";
 import {
   buildMallDevelopmentAssumptionsData,
   buildMallOperationalExpensesData,
@@ -98,6 +104,28 @@ import {
   isBTROperationalPnLData,
   isBTROperationalRevenuesData,
 } from "@/lib/feasibility/build-btr-market-data";
+import {
+  buildWarehouseDevelopmentAssumptionsData,
+  buildWarehouseOperationalExpensesData,
+  buildWarehouseOperationalPnlData,
+  buildWarehouseOperationalRevenuesData,
+  isWarehouseDevelopmentAssumptionsData,
+  isWarehouseOperationalExpensesData,
+  isWarehouseOperationalPnLData,
+  isWarehouseOperationalRevenuesData,
+} from "@/lib/feasibility/build-warehouse-market-data";
+import {
+  buildDataCentreDevelopmentAssumptionsData,
+  buildDataCentreOperationalAssumptionsData,
+  buildDataCentreOperationalExpensesData,
+  buildDataCentreOperationalPnlData,
+  buildDataCentreOperationalRevenuesData,
+  isDataCentreDevelopmentAssumptionsData,
+  isDataCentreOperationalAssumptionsData,
+  isDataCentreOperationalExpensesData,
+  isDataCentreOperationalPnLData,
+  isDataCentreOperationalRevenuesData,
+} from "@/lib/feasibility/build-data-centre-market-data";
 import SaleDevelopmentCostsSlide from "../sale/SaleDevelopmentCostsSlide";
 import SaleDevelopmentScheduleSlide from "../sale/SaleDevelopmentScheduleSlide";
 import SalesUptakeChartSlide from "../sale/SalesUptakeChartSlide";
@@ -308,6 +336,124 @@ export default function FinancialFeasibility({
       <BTROperationalExpensesSlide
         data={expensesData}
         paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-dev-assumptions") {
+    const warehouseData = isWarehouseDevelopmentAssumptionsData(slide.data)
+      ? slide.data
+      : buildWarehouseDevelopmentAssumptionsData(projectData);
+    return (
+      <WarehouseDevelopmentAssumptionsSlide
+        data={warehouseData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-dev-assumptions") {
+    const dcData = isDataCentreDevelopmentAssumptionsData(slide.data)
+      ? slide.data
+      : buildDataCentreDevelopmentAssumptionsData(projectData);
+    return (
+      <DataCentreDevelopmentAssumptionsSlide
+        data={dcData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-operational-assumptions") {
+    const assumptions = isDataCentreOperationalAssumptionsData(slide.data)
+      ? slide.data
+      : buildDataCentreOperationalAssumptionsData(projectData);
+    return (
+      <DataCentreOperationalAssumptionsSlide
+        data={assumptions}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-operational-revenues") {
+    const revData = isWarehouseOperationalRevenuesData(slide.data)
+      ? slide.data
+      : buildWarehouseOperationalRevenuesData(projectData);
+    return (
+      <WarehouseOperationalRevenuesSlide
+        data={revData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-operational-revenues") {
+    const revData = isDataCentreOperationalRevenuesData(slide.data)
+      ? slide.data
+      : buildDataCentreOperationalRevenuesData(projectData);
+    return (
+      <WarehouseOperationalRevenuesSlide
+        data={revData}
+        paragraphs={slide.paragraphs}
+        areaLabel="White Space"
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-operational-expenses") {
+    const expData = isWarehouseOperationalExpensesData(slide.data)
+      ? slide.data
+      : buildWarehouseOperationalExpensesData(projectData);
+    return (
+      <WarehouseOperationalExpensesSlide
+        data={expData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-operational-expenses") {
+    const expData = isDataCentreOperationalExpensesData(slide.data)
+      ? slide.data
+      : buildDataCentreOperationalExpensesData(projectData);
+    return (
+      <WarehouseOperationalExpensesSlide
+        data={expData}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-operational-pnl") {
+    const pnlData = isWarehouseOperationalPnLData(slide.data)
+      ? slide.data
+      : buildWarehouseOperationalPnlData(projectData);
+    return (
+      <WarehouseOperationalPnLSlide
+        data={pnlData}
+        commentary={slide.paragraphs[0]}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-operational-pnl") {
+    const pnlData = isDataCentreOperationalPnLData(slide.data)
+      ? slide.data
+      : buildDataCentreOperationalPnlData(projectData);
+    return (
+      <WarehouseOperationalPnLSlide
+        data={pnlData}
+        commentary={slide.paragraphs[0]}
         {...editProps}
       />
     );

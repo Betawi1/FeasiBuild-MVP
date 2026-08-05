@@ -8,6 +8,7 @@ const OPERATIONAL_FFE_ASSET_LABEL: Record<string, string> = {
   retail: "retail",
   residential: "residential",
   office: "office",
+  warehouse: "warehouse / industrial",
 };
 
 export function getOfficeFfeRange(
@@ -106,6 +107,12 @@ export function getOperationalFfeRange(
       };
     case "residential":
       return getResidentialFfeRange(projectInfo.residentialFurnishingLevel);
+    case "warehouse":
+      return {
+        min: 1,
+        max: 8,
+        label: "1-8% (racking / specialised systems often separate)",
+      };
     case "hotel":
     default:
       return { min: 15, max: 35, label: "15-35% (fully furnished rooms)" };

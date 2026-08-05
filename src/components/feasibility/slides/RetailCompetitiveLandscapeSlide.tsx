@@ -10,16 +10,34 @@ interface Props extends SlideEditingProps {
   data: RetailCompetitiveLandscapeData;
   paragraphs?: string[];
   city: string;
+  /** Optional noun for headers (mall / warehouse / office / datacentre). Default: mall */
+  assetLabel?: "mall" | "warehouse" | "office" | "btr" | "datacentre";
 }
 
 export default function RetailCompetitiveLandscapeSlide({
   data,
   paragraphs = [],
   city,
+  assetLabel = "mall",
   isEditing = false,
   onParagraphChange,
   onDataChange,
 }: Props) {
+  const nameCol =
+    assetLabel === "warehouse" || assetLabel === "datacentre"
+      ? "Asset"
+      : assetLabel === "office"
+        ? "Building"
+        : "Mall";
+  const intro =
+    assetLabel === "datacentre"
+      ? `Benchmark data centre assets in ${city} for IT load (MW), utilization, and lease rate (/kW/month) positioning.`
+      : assetLabel === "warehouse"
+      ? `Benchmark industrial / logistics assets in ${city} for GLA, occupancy, and base rent positioning.`
+      : assetLabel === "office"
+        ? `Benchmark office assets in ${city} for GLA, occupancy, and base rent positioning.`
+        : `Benchmark regional malls in ${city} for GLA, occupancy, and base rent positioning.`;
+
   const updateMall = (
     index: number,
     patch: Partial<RetailCompetitiveLandscapeData["benchmarkMalls"][number]>
@@ -39,14 +57,12 @@ export default function RetailCompetitiveLandscapeSlide({
         subtitle="Competitive Landscape & Benchmarking"
         className="mb-4"
       />
-      <p className="text-sm text-emerald-600 mb-3 shrink-0">
-        Benchmark regional malls in {city} for GLA, occupancy, and base rent positioning.
-      </p>
+      <p className="text-sm text-emerald-600 mb-3 shrink-0">{intro}</p>
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <table className="feasibility-table w-full text-xs text-slate-900 border-collapse border border-slate-300">
           <thead>
             <tr className="bg-slate-800 text-white">
-              <th className="border border-slate-300 p-2 text-left">Mall</th>
+              <th className="border border-slate-300 p-2 text-left">{nameCol}</th>
               <th className="border border-slate-300 p-2 text-left">GLA</th>
               <th className="border border-slate-300 p-2 text-left">Occupancy</th>
               <th className="border border-slate-300 p-2 text-left">Base Rent</th>

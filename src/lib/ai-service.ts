@@ -147,30 +147,87 @@ function extractChatText(response: unknown): string {
   return r.text ?? r.content ?? "";
 }
 
+type StreamChunkShape = {
+  type?: string;
+  value?: string;
+  text?: string;
+  content?: string;
+  reasoning?: string;
+  message?:
+    | string
+    | { content?: string | Array<{ text?: string }> };
+  choices?: Array<{ delta?: { content?: string }; text?: string }>;
+};
+
+/**
+ * Extract assistant *answer* text from a Puter ChatResponseChunk.
+ * Skips reasoning/thinking tokens (type:"reasoning") so slides stay clean.
+ * Throws when the stream emits type:"error".
+ */
 function extractStreamChunkText(chunk: unknown): string {
   if (typeof chunk === "string") return chunk;
   if (!chunk || typeof chunk !== "object") return "";
 
-  const c = chunk as {
-    value?: string;
-    text?: string;
-    content?: string;
-    message?: { content?: string | Array<{ text?: string }> };
-    choices?: Array<{ delta?: { content?: string }; text?: string }>;
-  };
+  const c = chunk as StreamChunkShape;
+  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
 
-  // Never accumulate reasoning/thinking tokens into slide content
+  if (chunkType === "error") {
+    const errMsg =
+      (typeof c.message === "string" && c.message) ||
+      (typeof c.text === "string" && c.text) ||
+      (typeof c.content === "string" && c.content) ||
+      "Puter stream error chunk";
+    throw new Error(errMsg);
+  }
+
+  // Reasoning / metadata chunks must not pollute slide commentary
+  if (
+    chunkType === "reasoning" ||
+    chunkType === "usage" ||
+    chunkType === "compaction" ||
+    chunkType === "tool_use" ||
+    chunkType === "extra_content"
+  ) {
+    return "";
+  }
+
+  // Prefer OpenAI-compatible deltas when present
   if (typeof c.choices?.[0]?.delta?.content === "string") {
     return c.choices[0].delta.content;
   }
+  if (typeof c.choices?.[0]?.text === "string") {
+    return c.choices[0].text;
+  }
+
+  // Puter typed text chunks: { type: "text", text: "..." }
+  if (chunkType === "text" || chunkType === "") {
+    if (typeof c.text === "string") return c.text;
+    if (typeof c.value === "string") return c.value;
+    if (typeof c.content === "string") return c.content;
+  }
+
   if (typeof c.value === "string") return c.value;
   if (typeof c.text === "string") return c.text;
   if (typeof c.content === "string") return c.content;
+  if (typeof c.message === "string") return c.message;
   if (typeof c.message?.content === "string") return c.message.content;
   if (Array.isArray(c.message?.content)) {
     return c.message.content.map((part) => part.text ?? "").join("");
   }
   return "";
+}
+
+/** Describe chunk shapes for debug logs when the stream yields no answer text. */
+function summarizeStreamChunk(chunk: unknown): string {
+  if (typeof chunk === "string") {
+    return `string(${chunk.length})`;
+  }
+  if (!chunk || typeof chunk !== "object") {
+    return String(chunk);
+  }
+  const c = chunk as StreamChunkShape;
+  const keys = Object.keys(c).slice(0, 8).join(",");
+  return `type=${c.type ?? "?"} keys=[${keys}]`;
 }
 
 /** Accumulate Puter streaming (or non-streaming fallback) into a single string. */
@@ -181,9 +238,49 @@ async function handleStreamingResponse(response: unknown): Promise<string> {
     Symbol.asyncIterator in response
   ) {
     let fullContent = "";
+    let reasoningOnly = "";
+    let chunkCount = 0;
+    let textChunkCount = 0;
+    const sampleShapes: string[] = [];
+
     for await (const chunk of response as AsyncIterable<unknown>) {
-      fullContent += extractStreamChunkText(chunk);
+      chunkCount += 1;
+      if (sampleShapes.length < 5) {
+        sampleShapes.push(summarizeStreamChunk(chunk));
+      }
+
+      // Capture reasoning separately — only used if no answer text arrives
+      if (chunk && typeof chunk === "object") {
+        const c = chunk as StreamChunkShape;
+        const t = typeof c.type === "string" ? c.type.toLowerCase() : "";
+        if (t === "reasoning" && typeof c.reasoning === "string") {
+          reasoningOnly += c.reasoning;
+        } else if (t === "reasoning" && typeof c.text === "string") {
+          reasoningOnly += c.text;
+        }
+      }
+
+      const piece = extractStreamChunkText(chunk);
+      if (piece) textChunkCount += 1;
+      fullContent += piece;
     }
+
+    if (!fullContent.trim() && reasoningOnly.trim()) {
+      console.warn(
+        "[AI Service] No type:text chunks — using reasoning stream as last resort (will be stripped of CoT markers)"
+      );
+      fullContent = reasoningOnly;
+    }
+
+    if (!fullContent.trim()) {
+      console.warn("[AI Service] Stream yielded no answer text:", {
+        chunkCount,
+        textChunkCount,
+        sampleShapes,
+        reasoningLength: reasoningOnly.length,
+      });
+    }
+
     return fullContent;
   }
 
@@ -275,20 +372,42 @@ async function chatWithPuter(
     ")"
   );
 
-  try {
+  const callOnce = async (stream: boolean): Promise<string> => {
     const response = await puter.ai.chat(prompt, {
       model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
-      stream: AI_MODEL_CONFIG.STREAM, // REQUIRED for Qwen 3.7 Plus
+      stream,
       temperature: AI_MODEL_CONFIG.TEMPERATURE,
       max_tokens: AI_MODEL_CONFIG.MAX_TOKENS,
     });
+    return handleStreamingResponse(response);
+  };
 
-    const content = await handleStreamingResponse(response);
+  try {
+    let content = await callOnce(AI_MODEL_CONFIG.STREAM);
     console.log("[AI Service] Generated content length:", content.length);
 
-    if (!content || content.trim().length === 0) {
-      console.error("[AI Service] Invalid/empty streaming response:", response);
-      throw new Error("Invalid response from Puter AI");
+    // Qwen thinking models sometimes stream only reasoning tokens; retry non-stream.
+    if ((!content || !content.trim()) && AI_MODEL_CONFIG.STREAM) {
+      console.warn(
+        "[AI Service] Empty streaming response — retrying with stream:false"
+      );
+      content = await callOnce(false);
+      console.log(
+        "[AI Service] Non-stream retry content length:",
+        content.length
+      );
+    }
+
+    if (!content || !content.trim()) {
+      console.error("[AI Service] Invalid/empty Puter response:", {
+        model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+        promptPreview: prompt?.substring(0, 200),
+        promptLength: prompt?.length ?? 0,
+        contentLength: content?.length ?? 0,
+      });
+      throw new Error(
+        `[AI Service] Invalid/empty streaming response for model ${AI_MODEL_CONFIG.FEASIBILITY_STUDY}`
+      );
     }
 
     console.log(
@@ -299,7 +418,11 @@ async function chatWithPuter(
     return content;
   } catch (error: unknown) {
     console.error("[AI Service] Streaming error:", error);
-    const err = error as { message?: string; error?: unknown; response?: { data?: unknown } };
+    const err = error as {
+      message?: string;
+      error?: unknown;
+      response?: { data?: unknown };
+    };
     if (err?.response?.data) {
       console.error("[AI Service] API Error Details:", err.response.data);
     }

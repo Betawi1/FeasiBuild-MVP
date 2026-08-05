@@ -26,11 +26,15 @@ export default function SaleDevelopmentCostsSlide({
   onParagraphChange,
 }: Props) {
   const cc = data.constructionCosts;
-  const totalConstructionBeforeContingency =
-    cc.building.amount +
-    cc.parking.amount +
-    cc.basement.amount +
-    cc.infrastructure.amount;
+  const warehouseLines = data.warehouseCostLines;
+  const isWarehouse = !!warehouseLines?.length;
+
+  const totalConstructionBeforeContingency = isWarehouse
+    ? warehouseLines.reduce((sum, line) => sum + line.amount, 0)
+    : cc.building.amount +
+      cc.parking.amount +
+      cc.basement.amount +
+      cc.infrastructure.amount;
   const totalConstruction =
     totalConstructionBeforeContingency + cc.contingency.amount;
 
@@ -75,36 +79,71 @@ export default function SaleDevelopmentCostsSlide({
             </tr>
           </thead>
           <tbody className="text-black text-xs">
-            <tr>
-              <td className={`${cell} font-medium`}>Building</td>
-              <td className={cellRight}>{formatNumber(cc.building.bua)}</td>
-              <td className={cellRight}>{formatNumber(cc.building.rate)}</td>
-              <td className={cellAmount}>{formatNumber(cc.building.amount)}</td>
-            </tr>
-            <tr>
-              <td className={`${cell} font-medium`}>Parking</td>
-              <td className={cellRight}>{formatNumber(cc.parking.bua)}</td>
-              <td className={cellRight}>{formatNumber(cc.parking.rate)}</td>
-              <td className={cellAmount}>{formatNumber(cc.parking.amount)}</td>
-            </tr>
-            <tr>
-              <td className={`${cell} font-medium`}>Basement</td>
-              <td className={cellRight}>{formatNumber(cc.basement.bua)}</td>
-              <td className={cellRight}>{formatNumber(cc.basement.rate)}</td>
-              <td className={cellAmount}>{formatNumber(cc.basement.amount)}</td>
-            </tr>
-            <tr>
-              <td className={`${cell} font-medium`}>Infrastructure</td>
-              <td className={cellRight}>
-                {formatNumber(cc.infrastructure.area)}
-              </td>
-              <td className={cellRight}>
-                {formatNumber(cc.infrastructure.rate)}
-              </td>
-              <td className={cellAmount}>
-                {formatNumber(cc.infrastructure.amount)}
-              </td>
-            </tr>
+            {isWarehouse
+              ? warehouseLines.map((line) => (
+                  <tr key={line.label}>
+                    <td className={`${cell} font-medium`}>{line.label}</td>
+                    <td className={cellRight}>
+                      {line.area != null ? formatNumber(line.area) : "—"}
+                    </td>
+                    <td className={cellRight}>
+                      {line.rate != null ? formatNumber(line.rate) : "—"}
+                    </td>
+                    <td className={cellAmount}>{formatNumber(line.amount)}</td>
+                  </tr>
+                ))
+              : (
+                  <>
+                    <tr>
+                      <td className={`${cell} font-medium`}>Building</td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.building.bua)}
+                      </td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.building.rate)}
+                      </td>
+                      <td className={cellAmount}>
+                        {formatNumber(cc.building.amount)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className={`${cell} font-medium`}>Parking</td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.parking.bua)}
+                      </td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.parking.rate)}
+                      </td>
+                      <td className={cellAmount}>
+                        {formatNumber(cc.parking.amount)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className={`${cell} font-medium`}>Basement</td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.basement.bua)}
+                      </td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.basement.rate)}
+                      </td>
+                      <td className={cellAmount}>
+                        {formatNumber(cc.basement.amount)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className={`${cell} font-medium`}>Infrastructure</td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.infrastructure.area)}
+                      </td>
+                      <td className={cellRight}>
+                        {formatNumber(cc.infrastructure.rate)}
+                      </td>
+                      <td className={cellAmount}>
+                        {formatNumber(cc.infrastructure.amount)}
+                      </td>
+                    </tr>
+                  </>
+                )}
             <tr className="font-bold bg-slate-50">
               <td className={`${cell} font-bold`} colSpan={3}>
                 Total Construction Costs (before contingency)
@@ -130,6 +169,13 @@ export default function SaleDevelopmentCostsSlide({
                 {formatNumber(totalConstruction)}
               </td>
             </tr>
+            {data.warehousePostContingencyLines?.map((line) => (
+              <tr key={line.label}>
+                <td className={`${cell} font-medium`}>{line.label}</td>
+                <td className={cell} colSpan={2} />
+                <td className={cellAmount}>{formatNumber(line.amount)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
 

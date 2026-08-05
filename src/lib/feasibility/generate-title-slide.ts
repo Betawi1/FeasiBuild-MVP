@@ -55,7 +55,12 @@ function isHotelBundle(bundle: FeasibilityProjectBundle): boolean {
   if (
     buildingType === "retail" ||
     buildingType === "office" ||
-    buildingType === "residential"
+    buildingType === "residential" ||
+    buildingType.includes("warehouse") ||
+    buildingType.includes("industrial") ||
+    buildingType.includes("data_centre") ||
+    buildingType.includes("datacentre") ||
+    buildingType.includes("data centre")
   ) {
     return false;
   }
@@ -63,6 +68,17 @@ function isHotelBundle(bundle: FeasibilityProjectBundle): boolean {
 
   const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
   const seg = (bundle.aggregate.segment ?? "").toLowerCase();
+  if (
+    at.includes("warehouse") ||
+    at.includes("industrial") ||
+    at.includes("data_centre") ||
+    at.includes("datacentre") ||
+    at.includes("data centre") ||
+    seg.includes("warehouse") ||
+    seg.includes("industrial")
+  ) {
+    return false;
+  }
   if (at.includes("hotel") || seg.includes("hotel")) return true;
 
   return false;
@@ -70,6 +86,14 @@ function isHotelBundle(bundle: FeasibilityProjectBundle): boolean {
 
 function isMallBundle(bundle: FeasibilityProjectBundle): boolean {
   const buildingType = (bundle.buildingType ?? "").toLowerCase();
+  if (
+    buildingType.includes("warehouse") ||
+    buildingType.includes("industrial") ||
+    buildingType.includes("data_centre") ||
+    buildingType.includes("datacentre")
+  ) {
+    return false;
+  }
   if (buildingType === "retail") return true;
 
   const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
@@ -78,6 +102,7 @@ function isMallBundle(bundle: FeasibilityProjectBundle): boolean {
     (bundle.residentialHoldSnapshot?.residentialGlaSqft ?? 0) > 0;
   if (hasOfficeGla || hasResidentialGla) return false;
   if (at.includes("residential") || at.includes("btr")) return false;
+  if (at.includes("warehouse") || at.includes("industrial")) return false;
   return (
     at.includes("retail") ||
     at.includes("mall") ||
@@ -88,13 +113,34 @@ function isMallBundle(bundle: FeasibilityProjectBundle): boolean {
 
 function isBTRBundle(bundle: FeasibilityProjectBundle): boolean {
   if (isHotelBundle(bundle)) return false;
+  // Never classify a Data Centre project as BTR (even with leftover residential snapshots)
+  if (isDataCentreBundle(bundle)) return false;
 
   const buildingType = (bundle.buildingType ?? "").toLowerCase();
-  if (buildingType === "retail" || buildingType === "office") return false;
+  if (
+    buildingType === "retail" ||
+    buildingType === "office" ||
+    buildingType.includes("warehouse") ||
+    buildingType.includes("industrial") ||
+    buildingType.includes("data_centre") ||
+    buildingType.includes("datacentre") ||
+    buildingType.includes("data centre")
+  ) {
+    return false;
+  }
   if (buildingType === "residential") return true;
 
   const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
   const bt = bundle.aggregate.segment?.toLowerCase() ?? "";
+  if (
+    at.includes("warehouse") ||
+    at.includes("industrial") ||
+    at.includes("data_centre") ||
+    at.includes("datacentre") ||
+    at.includes("data centre")
+  ) {
+    return false;
+  }
   return (
     at.includes("residential") ||
     at.includes("btr") ||
@@ -114,15 +160,98 @@ function isOfficeMixedUseBundle(bundle: FeasibilityProjectBundle): boolean {
 
   const buildingType = (bundle.buildingType ?? "").toLowerCase();
   if (buildingType === "retail") return false;
+  if (
+    buildingType.includes("warehouse") ||
+    buildingType.includes("industrial") ||
+    buildingType.includes("data_centre") ||
+    buildingType.includes("datacentre")
+  ) {
+    return false;
+  }
   if (buildingType === "office") return true;
 
   const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
   const bt = bundle.aggregate.segment?.toLowerCase() ?? "";
+  if (
+    at.includes("warehouse") ||
+    at.includes("industrial") ||
+    at.includes("data_centre") ||
+    at.includes("datacentre")
+  ) {
+    return false;
+  }
   return (
     at.includes("office") ||
     bt.includes("office") ||
     (bundle.officeHoldSnapshot?.officeGlaSqft ?? 0) > 0
   );
+}
+
+function isDataCentreBundle(bundle: FeasibilityProjectBundle): boolean {
+  if (isSaleBundle(bundle)) return false;
+
+  const buildingType = (bundle.buildingType ?? "").toLowerCase();
+  if (
+    buildingType === "data_centre" ||
+    buildingType === "datacentre" ||
+    buildingType === "data-centre" ||
+    buildingType === "datacenter" ||
+    buildingType.includes("data_centre") ||
+    buildingType.includes("datacentre") ||
+    buildingType.includes("data centre") ||
+    buildingType.includes("data-centre") ||
+    buildingType.includes("datacenter") ||
+    buildingType.includes("data center")
+  ) {
+    return true;
+  }
+
+  // Also detect from metrics when buildingType is missing but DC model is populated
+  if ((bundle.dataCentreMetrics?.itLoadMw ?? 0) > 0) {
+    return true;
+  }
+
+  const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
+  return (
+    at.includes("data_centre") ||
+    at.includes("datacentre") ||
+    at.includes("data centre") ||
+    at.includes("data-centre") ||
+    at.includes("datacenter") ||
+    at.includes("data center") ||
+    at === "data centre"
+  );
+}
+
+function isWarehouseBundle(bundle: FeasibilityProjectBundle): boolean {
+  if (isSaleBundle(bundle)) return false;
+  if (isDataCentreBundle(bundle)) return false;
+  if (isHotelBundle(bundle)) return false;
+  if (isMallBundle(bundle)) return false;
+  if (isOfficeMixedUseBundle(bundle)) return false;
+  if (isBTRBundle(bundle)) return false;
+
+  const buildingType = (bundle.buildingType ?? "").toLowerCase();
+  if (
+    buildingType.includes("warehouse") ||
+    buildingType.includes("industrial")
+  ) {
+    return true;
+  }
+
+  const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
+  return at.includes("warehouse") || at.includes("industrial");
+}
+
+function buildWarehouseBenchmarkTitleLabel(
+  warehouseSubType?: string,
+  qualityGrade?: string
+): string {
+  const grade = qualityGrade ? qualityGrade.replace(/_/g, " ") : "Grade A";
+  const type = warehouseSubType
+    ? warehouseSubType.replace(/_/g, " ")
+    : "Warehouse";
+  return `${grade} ${type}`;
 }
 
 /** "regional_mall" → "Regional" for title slide */
@@ -137,10 +266,27 @@ export function buildTitleSlideData(
 ): TitleSlideData {
   const agg = bundle.aggregate;
   const isSale = isSaleBundle(bundle);
-  const isHotel = !isSale && isHotelBundle(bundle);
-  const isBTR = !isSale && !isHotel && isBTRBundle(bundle);
-  const isOffice = !isSale && !isHotel && !isBTR && isOfficeMixedUseBundle(bundle);
-  const isMall = !isSale && !isHotel && !isBTR && !isOffice && isMallBundle(bundle);
+  // Data Centre before BTR/warehouse so leftover residential snapshots cannot steal the title
+  const isDataCentre = !isSale && isDataCentreBundle(bundle);
+  const isHotel = !isSale && !isDataCentre && isHotelBundle(bundle);
+  const isBTR = !isSale && !isHotel && !isDataCentre && isBTRBundle(bundle);
+  const isOffice =
+    !isSale && !isHotel && !isBTR && !isDataCentre && isOfficeMixedUseBundle(bundle);
+  const isMall =
+    !isSale &&
+    !isHotel &&
+    !isBTR &&
+    !isOffice &&
+    !isDataCentre &&
+    isMallBundle(bundle);
+  const isWarehouse =
+    !isSale &&
+    !isHotel &&
+    !isBTR &&
+    !isOffice &&
+    !isMall &&
+    !isDataCentre &&
+    isWarehouseBundle(bundle);
   const saleLabel = isSale
     ? getSaleStreamConfig(
         (bundle as { buildingSubType?: string }).buildingSubType
@@ -160,12 +306,19 @@ export function buildTitleSlideData(
             bundle.officePositioning,
             bundle.officeSegment
           )
-        : isBTR
-          ? buildBTRBenchmarkTitleLabel(
-              bundle.residentialPositioning,
-              bundle.residentialSegment
-            )
-          : undefined;
+        : isDataCentre
+          ? `${(bundle.dataCentreMetrics?.tierLevel ?? "Tier III").replace(/_/g, " ")} ${(bundle.dataCentreMetrics?.segment ?? "Colocation").replace(/_/g, " ")} Data Centre`
+          : isBTR
+            ? buildBTRBenchmarkTitleLabel(
+                bundle.residentialPositioning,
+                bundle.residentialSegment
+              )
+            : isWarehouse
+              ? buildWarehouseBenchmarkTitleLabel(
+                  bundle.warehouseMetrics?.warehouseSubType,
+                  bundle.warehouseMetrics?.qualityGrade
+                )
+              : undefined;
 
   return {
     assetType: isSale
@@ -176,9 +329,13 @@ export function buildTitleSlideData(
         ? "Office & Retail Tower"
         : isBTR
           ? "Residential BTR Tower"
-          : isHotel
-            ? "Hotel"
-            : formatAssetType(agg.assetType || "Hotel"),
+          : isDataCentre
+            ? "Data Centre"
+            : isWarehouse
+              ? "Warehouse & Industrial"
+              : isHotel
+                ? "Hotel"
+                : formatAssetType(agg.assetType || "Warehouse & Industrial"),
     segment: isHotel
       ? hotelBusinessType
       : formatToken(agg.segment || "Business"),
@@ -191,6 +348,23 @@ export function buildTitleSlideData(
     mallTypeLabel: isMall ? formatMallTypeLabel(bundle.retailSegment) : undefined,
     isOfficeMixedUse: isOffice,
     isResidentialBTR: isBTR,
+    isWarehouse,
+    warehouseGradeLabel: isWarehouse
+      ? (bundle.warehouseMetrics?.qualityGrade ?? "Grade A").replace(/_/g, " ")
+      : undefined,
+    warehouseSegmentLabel: isWarehouse
+      ? (bundle.warehouseMetrics?.warehouseSubType ?? "Warehouse").replace(
+          /_/g,
+          " "
+        )
+      : undefined,
+    isDataCentre,
+    dataCentreTierLabel: isDataCentre
+      ? (bundle.dataCentreMetrics?.tierLevel ?? "Tier III").replace(/_/g, " ")
+      : undefined,
+    dataCentreSegmentLabel: isDataCentre
+      ? (bundle.dataCentreMetrics?.segment ?? "Colocation").replace(/_/g, " ")
+      : undefined,
     btrGradeLabel: isBTR
       ? formatBTRGradeLabel(bundle.residentialPositioning)
       : undefined,

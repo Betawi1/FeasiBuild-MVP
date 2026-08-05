@@ -70,7 +70,11 @@ export async function enrichOperationalSlidesWithCache(
     if (idx < 0) continue;
 
     const depSection = getOperationalSlideDependencySection(slideId);
-    const cacheKey = buildOperationalCommentaryCacheKey(slideId, hashes);
+    const cacheKey = buildOperationalCommentaryCacheKey(
+      slideId,
+      hashes,
+      bundle.buildingType || bundle.assetType
+    );
     const inputsChanged =
       !inputsUnchanged &&
       shouldRegenerateSlide(depSection, oldHashes, hashes);
@@ -79,8 +83,23 @@ export async function enrichOperationalSlidesWithCache(
     if (!skipCache) {
       const cached = await getCachedContent<string[]>(cacheKey);
       if (cached?.length) {
-        // Cached commentary is stored already-cleaned by generateCommentary
-        if (!hasPlaceholderContent(cached)) {
+        // Reject cross-asset cache pollution (e.g. warehouse exec-1 on DC deck)
+        const bt = (bundle.buildingType ?? "").toLowerCase();
+        const isDc =
+          bt.includes("data_centre") ||
+          bt.includes("datacentre") ||
+          bt.includes("data centre");
+        const joined = cached.join(" ").toLowerCase();
+        const wrongAssetForDc =
+          isDc &&
+          (joined.includes("bulk distribution") ||
+            joined.includes("warehouse") ||
+            joined.includes("cross-dock") ||
+            joined.includes("3pl") ||
+            joined.includes("residential") ||
+            joined.includes("btr tower"));
+
+        if (!hasPlaceholderContent(cached) && !wrongAssetForDc) {
           console.log(`[Operational Cache HIT] ${slideId} (${cacheKey})`);
           enriched[idx] = {
             ...enriched[idx]!,
@@ -89,7 +108,7 @@ export async function enrichOperationalSlidesWithCache(
           continue;
         }
         console.log(
-          `[Operational Cache] Stale/placeholder content, regenerating: ${slideId} (${cacheKey})`
+          `[Operational Cache] Stale/wrong-asset content, regenerating: ${slideId} (${cacheKey})`
         );
       } else {
         console.log(`[Operational Cache MISS] ${slideId} (${cacheKey})`);

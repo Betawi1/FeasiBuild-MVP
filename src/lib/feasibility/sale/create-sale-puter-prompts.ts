@@ -13,6 +13,24 @@ CRITICAL INSTRUCTIONS:
 6. Generate 5 detailed bullet points with unique, location-specific content
 `.trim();
 
+function isWarehouseAsset(config: SaleStreamConfig): boolean {
+  const label = config.assetLabel.toLowerCase();
+  return label.includes("warehouse") || label.includes("industrial");
+}
+
+/** Extra guidance when the sale asset is a strata warehouse / industrial park. */
+function warehouseMarketGuidance(config: SaleStreamConfig): string {
+  if (!isWarehouseAsset(config)) return "";
+  return `
+WAREHOUSE / INDUSTRIAL CONTEXT (build-to-sell strata):
+- Emphasize logistics demand, e-commerce fulfillment, clear height, dock doors, yard depth, and transport connectivity
+- Use industrial-park and single-warehouse comps (not residential towers)
+- Discuss buyer profiles: owner-occupiers, 3PLs, and institutional industrial investors
+- Reference industrial land rates, shell & yard costs, and strata warehouse PSF benchmarks
+- Avoid residential language (towers, apartments, household formation as primary demand)
+`.trim();
+}
+
 /** Build Puter.ai prompt for a sale feasibility commentary section. */
 export function createPromptForSection(
   section: SaleCommentarySection | string,
@@ -21,6 +39,10 @@ export function createPromptForSection(
 ): string {
   const m = bundle.saleMetrics;
   const { city, country } = bundle.location;
+  const warehouseHint = warehouseMarketGuidance(config);
+  const compsNoun = isWarehouseAsset(config)
+    ? "warehouse / industrial park developments"
+    : "comparable projects";
   const baseContext = `
 You are a senior real estate analyst creating a feasibility study for:
 - Asset Type: ${config.assetLabel}
@@ -34,6 +56,7 @@ You are a senior real estate analyst creating a feasibility study for:
 - GDV: ${fmtSaleMoney(bundle.component4.gdv, bundle.currency, true)}
 - Project IRR: ${bundle.component4.projectIRR}%
 - Equity Multiple: ${bundle.component4.equityMultiple.toFixed(2)}x
+${warehouseHint ? `\n${warehouseHint}` : ""}
 `.trim();
 
   const sectionPrompts: Record<string, string> = {
@@ -109,9 +132,9 @@ ${ANTI_PLACEHOLDER_RULES}
 
 SPECIFIC REQUIREMENTS:
 - Transaction volumes and values with numbers in ${bundle.currency}
-- Name 3-4 actual comparable projects in ${city}
+- Name 3-4 actual ${compsNoun} in ${city}
 - Buyer/investor profiles and regulatory environment in ${country}
-- Infrastructure projects affecting the market
+- Infrastructure projects affecting the market${isWarehouseAsset(config) ? " (ports, highways, industrial zones)" : ""}
 - Current pricing benchmarks and market sentiment indicators
 - Subject scale: ${m.saleableArea.toLocaleString()} sqft saleable at ${m.avgPricePsf} ${bundle.currency}/sqft
 
@@ -130,7 +153,7 @@ ${ANTI_PLACEHOLDER_RULES}
 SPECIFIC REQUIREMENTS:
 - Pipeline supply with unit/sqft counts and delivery timelines
 - Historical absorption rates with percentages
-- Demand drivers (employment, migration, household formation)
+- Demand drivers (${isWarehouseAsset(config) ? "e-commerce, 3PL expansion, manufacturing FDI" : "employment, migration, household formation"})
 - Competitive supply coming online in ${city}
 - Subject saleable area of ${m.saleableArea.toLocaleString()} sqft in market context
 `.trim(),
@@ -146,7 +169,7 @@ SPECIFIC REQUIREMENTS:
 - Current average PSF (subject: ${m.avgPricePsf} ${bundle.currency})
 - Price ranges across submarkets in ${city}
 - Historical price appreciation with percentages
-- Competitive project pricing from named developments
+- Competitive project pricing from named ${compsNoun}
 - Premium/discount factors and gross-to-net deductions in ${country}
 `.trim(),
 
@@ -158,9 +181,9 @@ Analyze sales velocity and absorption in ${city}, ${country}.
 ${ANTI_PLACEHOLDER_RULES}
 
 SPECIFIC REQUIREMENTS:
-- Average absorption rates for comparable projects (%)
+- Average absorption rates for comparable ${compsNoun} (%)
 - Months-to-sellout benchmarks and pre-sales performance
-- Cash vs mortgage buyer mix in ${country}
+- Cash vs mortgage / institutional buyer mix in ${country}
 - Sales velocity by unit type and launch timing
 `.trim(),
 
@@ -172,7 +195,7 @@ Analyze the competitive landscape in ${city}, ${country}.
 ${ANTI_PLACEHOLDER_RULES}
 
 SPECIFIC REQUIREMENTS:
-- Name 4-5 direct competing projects with PSF and velocity data
+- Name 4-5 direct competing ${compsNoun} with PSF and velocity data
 - Competitive advantages/disadvantages vs subject at ${m.avgPricePsf} ${bundle.currency}/sqft
 - Developer track records and marketing norms in ${country}
 - Market share capture strategy for this project

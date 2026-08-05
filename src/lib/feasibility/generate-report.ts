@@ -41,6 +41,14 @@ export type FeasibilityReportData = {
 
 function formatAssetType(buildingType: string | undefined): string {
   if (!buildingType) return "Development";
+  if (buildingType === "data_centre" || buildingType === "datacentre") {
+    return "Data Centre";
+  }
+  if (buildingType === "warehouse") return "Warehouse";
+  if (buildingType === "residential") return "Residential BTR";
+  if (buildingType === "retail") return "Shopping Mall";
+  if (buildingType === "office") return "Office";
+  if (buildingType === "hotel") return "Hotel";
   return buildingType.charAt(0).toUpperCase() + buildingType.slice(1);
 }
 

@@ -100,6 +100,42 @@ import {
   buildBTRTenantProfileData,
 } from "@/lib/feasibility/build-btr-market-data";
 import {
+  buildWarehouseCompetitiveLandscapeData,
+  buildWarehouseDevelopmentAssumptionsData,
+  buildWarehouseImplicationsData,
+  buildWarehouseMarketMetricsData,
+  buildWarehouseMarketOverviewData,
+  buildWarehouseMarketSummaryData,
+  buildWarehouseRiskFactorsData,
+  buildWarehouseSuccessFactorsData,
+  buildWarehouseSupplyPipelineData,
+  buildWarehouseTenantProfileData,
+  isWarehouseDevelopmentAssumptionsData,
+} from "@/lib/feasibility/build-warehouse-market-data";
+import {
+  buildDataCentreCompetitiveAnalysisData,
+  buildDataCentreCompetitiveLandscapeData,
+  buildDataCentreDevelopmentAssumptionsData,
+  buildDataCentreImplicationsData,
+  buildDataCentreMarketMetricsData,
+  buildDataCentreMarketOverviewData,
+  buildDataCentreMarketSummaryData,
+  buildDataCentreOperationalAssumptionsData,
+  buildDataCentreRiskFactorsData,
+  buildDataCentreSuccessFactorsData,
+  buildDataCentreSupplyPipelineData,
+  buildDataCentreTenantProfileData,
+  isDataCentreCompetitiveAnalysisData,
+  isDataCentreDevelopmentAssumptionsData,
+  isDataCentreOperationalAssumptionsData,
+} from "@/lib/feasibility/build-data-centre-market-data";
+import WarehouseDevelopmentAssumptionsSlide from "./slides/WarehouseDevelopmentAssumptionsSlide";
+import DataCentreMarketOverviewSlide from "./slides/DataCentreMarketOverviewSlide";
+import DataCentreSupplyDemandSlide from "./slides/DataCentreSupplyDemandSlide";
+import DataCentreCompetitiveAnalysisSlide from "./slides/DataCentreCompetitiveAnalysisSlide";
+import DataCentreDevelopmentAssumptionsSlide from "./slides/DataCentreDevelopmentAssumptionsSlide";
+import DataCentreOperationalAssumptionsSlide from "./slides/DataCentreOperationalAssumptionsSlide";
+import {
   buildSaleImplicationsData,
   buildSaleRiskFactorsData,
   buildSaleSuccessFactorsData,
@@ -280,6 +316,9 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "mall-market-metrics") {
+    if ((slide.charts?.length ?? 0) >= 2) {
+      return <MarketReview {...common} />;
+    }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
       : buildRetailMarketMetricsData(projectData);
@@ -294,6 +333,9 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "mall-supply-pipeline") {
+    if ((slide.charts?.length ?? 0) >= 1) {
+      return <MarketReview {...common} />;
+    }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
       : buildRetailSupplyPipelineData(projectData);
@@ -371,7 +413,7 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "mall-project-overview") {
-    return <ProjectAnalysis {...common} />;
+    return <ProjectAnalysis {...common} projectData={projectData} />;
   }
 
   if (slide.id === "office-market-overview") {
@@ -389,6 +431,9 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "office-market-metrics") {
+    if ((slide.charts?.length ?? 0) >= 2) {
+      return <MarketReview {...common} />;
+    }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
       : buildOfficeMarketMetricsData(projectData);
@@ -403,6 +448,9 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "office-supply-pipeline") {
+    if ((slide.charts?.length ?? 0) >= 1) {
+      return <MarketReview {...common} />;
+    }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
       : buildOfficeSupplyPipelineData(projectData);
@@ -480,7 +528,7 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "office-project-overview") {
-    return <ProjectAnalysis {...common} />;
+    return <ProjectAnalysis {...common} projectData={projectData} />;
   }
 
   if (slide.id === "btr-market-overview") {
@@ -498,6 +546,9 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "btr-market-metrics") {
+    if ((slide.charts?.length ?? 0) >= 2) {
+      return <MarketReview {...common} />;
+    }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
       : buildBTRMarketMetricsData(projectData);
@@ -512,6 +563,9 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "btr-supply-pipeline") {
+    if ((slide.charts?.length ?? 0) >= 1) {
+      return <MarketReview {...common} />;
+    }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
       : buildBTRSupplyPipelineData(projectData);
@@ -553,6 +607,296 @@ export default function FeasibilitySlideView({
     );
   }
 
+  if (
+    slide.id === "warehouse-tenant-profile" ||
+    slide.id === "datacentre-tenant-profile"
+  ) {
+    const data = isRetailTenantProfileData(slide.data)
+      ? slide.data
+      : slide.id === "datacentre-tenant-profile"
+        ? buildDataCentreTenantProfileData(projectData)
+        : buildWarehouseTenantProfileData(projectData);
+    return (
+      <RetailTenantProfileSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-market-overview") {
+    const data = isRetailMarketOverviewData(slide.data)
+      ? slide.data
+      : buildDataCentreMarketOverviewData(projectData);
+    return (
+      <DataCentreMarketOverviewSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-market-overview") {
+    const data = isRetailMarketOverviewData(slide.data)
+      ? slide.data
+      : buildWarehouseMarketOverviewData(projectData);
+    return (
+      <RetailMarketOverviewSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-market-metrics") {
+    if ((slide.charts?.length ?? 0) >= 2) {
+      return <MarketReview {...common} />;
+    }
+    const data = isRetailMarketMetricsData(slide.data)
+      ? slide.data
+      : buildDataCentreMarketMetricsData(projectData);
+    return (
+      <RetailMarketMetricsSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-market-metrics") {
+    if ((slide.charts?.length ?? 0) >= 2) {
+      return <MarketReview {...common} />;
+    }
+    const data = isRetailMarketMetricsData(slide.data)
+      ? slide.data
+      : buildWarehouseMarketMetricsData(projectData);
+    return (
+      <RetailMarketMetricsSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-supply-pipeline") {
+    if ((slide.charts?.length ?? 0) >= 1) {
+      return <MarketReview {...common} />;
+    }
+    const data = isRetailSupplyPipelineData(slide.data)
+      ? slide.data
+      : buildDataCentreSupplyPipelineData(projectData);
+    return (
+      <DataCentreSupplyDemandSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-supply-pipeline") {
+    if ((slide.charts?.length ?? 0) >= 1) {
+      return <MarketReview {...common} />;
+    }
+    const data = isRetailSupplyPipelineData(slide.data)
+      ? slide.data
+      : buildWarehouseSupplyPipelineData(projectData);
+    return (
+      <RetailSupplyPipelineSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-competitive-analysis") {
+    const data = isDataCentreCompetitiveAnalysisData(slide.data)
+      ? slide.data
+      : buildDataCentreCompetitiveAnalysisData(projectData);
+    return (
+      <DataCentreCompetitiveAnalysisSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-competitive-landscape") {
+    const data = isRetailCompetitiveLandscapeData(slide.data)
+      ? slide.data
+      : buildDataCentreCompetitiveLandscapeData(projectData);
+    return (
+      <RetailCompetitiveLandscapeSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        assetLabel="datacentre"
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-competitive-landscape") {
+    const data = isRetailCompetitiveLandscapeData(slide.data)
+      ? slide.data
+      : buildWarehouseCompetitiveLandscapeData(projectData);
+    return (
+      <RetailCompetitiveLandscapeSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        city={city}
+        assetLabel="warehouse"
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-market-summary") {
+    const data = isRetailMarketSummaryData(slide.data)
+      ? slide.data
+      : buildDataCentreMarketSummaryData(projectData);
+    return (
+      <RetailMarketSummarySlide
+        data={data}
+        city={city}
+        title="Summary of data centre market"
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-market-summary") {
+    const data = isRetailMarketSummaryData(slide.data)
+      ? slide.data
+      : buildWarehouseMarketSummaryData(projectData);
+    return (
+      <RetailMarketSummarySlide
+        data={data}
+        city={city}
+        title="Summary of warehouse & industrial market"
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-implications") {
+    const data = isImplicationsData(slide.data)
+      ? slide.data
+      : buildDataCentreImplicationsData(projectData);
+    return (
+      <ImplicationsOnProjectSlide
+        data={data}
+        city={city}
+        subtitle={slide.subtitle ?? "Data Centre"}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-implications") {
+    const data = isImplicationsData(slide.data)
+      ? slide.data
+      : buildWarehouseImplicationsData(projectData);
+    return (
+      <ImplicationsOnProjectSlide
+        data={data}
+        city={city}
+        subtitle={slide.subtitle ?? "Warehouse / Industrial"}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-success-factors") {
+    const data = isSuccessFactorsData(slide.data)
+      ? slide.data
+      : buildDataCentreSuccessFactorsData(projectData);
+    return (
+      <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />
+    );
+  }
+
+  if (slide.id === "warehouse-success-factors") {
+    const data = isSuccessFactorsData(slide.data)
+      ? slide.data
+      : buildWarehouseSuccessFactorsData(projectData);
+    return (
+      <KeySuccessFactorsSlide data={data} projectName={projectName} {...editProps} />
+    );
+  }
+
+  if (slide.id === "datacentre-risk-factors") {
+    const data = isRiskFactorsData(slide.data)
+      ? slide.data
+      : buildDataCentreRiskFactorsData(projectData);
+    return (
+      <KeyRiskFactorsSlide data={data} city={city} {...editProps} />
+    );
+  }
+
+  if (slide.id === "warehouse-risk-factors") {
+    const data = isRiskFactorsData(slide.data)
+      ? slide.data
+      : buildWarehouseRiskFactorsData(projectData);
+    return (
+      <KeyRiskFactorsSlide data={data} city={city} {...editProps} />
+    );
+  }
+
+  if (slide.id === "datacentre-dev-assumptions") {
+    const data = isDataCentreDevelopmentAssumptionsData(slide.data)
+      ? slide.data
+      : buildDataCentreDevelopmentAssumptionsData(projectData);
+    return (
+      <DataCentreDevelopmentAssumptionsSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "datacentre-operational-assumptions") {
+    const data = isDataCentreOperationalAssumptionsData(slide.data)
+      ? slide.data
+      : buildDataCentreOperationalAssumptionsData(projectData);
+    return (
+      <DataCentreOperationalAssumptionsSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
+  if (slide.id === "warehouse-dev-assumptions") {
+    const data = isWarehouseDevelopmentAssumptionsData(slide.data)
+      ? slide.data
+      : buildWarehouseDevelopmentAssumptionsData(projectData);
+    return (
+      <WarehouseDevelopmentAssumptionsSlide
+        data={data}
+        paragraphs={slide.paragraphs}
+        {...editProps}
+      />
+    );
+  }
+
   if (slide.id === "btr-market-summary") {
     const data = isRetailMarketSummaryData(slide.data)
       ? slide.data
@@ -589,11 +933,11 @@ export default function FeasibilitySlideView({
   }
 
   if (slide.id === "btr-project-overview") {
-    return <ProjectAnalysis {...common} />;
+    return <ProjectAnalysis {...common} projectData={projectData} />;
   }
 
   if (slide.id === "sale-project-overview") {
-    return <ProjectAnalysis {...common} />;
+    return <ProjectAnalysis {...common} projectData={projectData} />;
   }
 
   if (slide.id === "sale-implications") {
@@ -641,10 +985,10 @@ export default function FeasibilitySlideView({
     case "financial":
       return <FinancialFeasibility {...common} projectData={projectData} />;
     case "project":
-      return <ProjectAnalysis {...common} />;
+      return <ProjectAnalysis {...common} projectData={projectData} />;
     case "market":
       return <MarketReview {...common} />;
     default:
-      return <ProjectAnalysis {...common} />;
+      return <ProjectAnalysis {...common} projectData={projectData} />;
   }
 }

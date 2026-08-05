@@ -5,6 +5,8 @@ import HotelPnlTable from "./components/HotelPnlTable";
 import OfficePnlTable from "./components/OfficePnlTable";
 import ResidentialPnlTable from "./components/ResidentialPnlTable";
 import RetailPnlTable from "./components/RetailPnlTable";
+import WarehousePnlTable from "./components/WarehousePnlTable";
+import DataCentrePnlTable from "./components/DataCentrePnlTable";
 import {
   streamKeyFromPrefix,
   useStreamPrefix,
@@ -35,10 +37,14 @@ export default function PnlPreviewPage() {
       {buildingType === "office" && <OfficePnlTable />}
       {buildingType === "retail" && <RetailPnlTable />}
       {buildingType === "hotel" && <HotelPnlTable />}
+      {buildingType === "warehouse" && <WarehousePnlTable />}
+      {buildingType === "data_centre" && <DataCentrePnlTable />}
       {buildingType !== "residential" &&
         buildingType !== "retail" &&
         buildingType !== "hotel" &&
-        buildingType !== "office" && <HotelPnlTable />}
+        buildingType !== "office" &&
+        buildingType !== "warehouse" &&
+        buildingType !== "data_centre" && <HotelPnlTable />}
     </PnlLayout>
   );
 }

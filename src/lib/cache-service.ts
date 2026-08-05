@@ -33,11 +33,23 @@ export async function checkPuterStatus(): Promise<PuterKvStatus> {
     return { available: false, authenticated: false };
   }
 
+  // Prefer sync local auth flag — avoids whoami / WebSocket / 401 spam
+  try {
+    if (typeof puter.auth?.isSignedIn === "function") {
+      return {
+        available: true,
+        authenticated: !!puter.auth.isSignedIn(),
+      };
+    }
+  } catch {
+    // Fall through to a one-shot KV probe
+  }
+
   try {
     await puter.kv.get(AUTH_CHECK_KEY);
     return { available: true, authenticated: true };
   } catch {
-    console.log(
+    console.debug(
       "[Puter] Available but not authenticated - auth popup will appear on first KV use"
     );
     return { available: true, authenticated: false };

@@ -12,11 +12,22 @@ type PuterChatMessage = {
 };
 
 type PuterStreamChunk = {
+  /** Puter ChatResponseChunk kind: text | reasoning | error | usage | … */
+  type?:
+    | "text"
+    | "reasoning"
+    | "tool_use"
+    | "compaction"
+    | "extra_content"
+    | "usage"
+    | "error"
+    | string;
   value?: string;
   text?: string;
   content?: string;
   reasoning?: string;
-  message?: { content?: string | Array<{ text?: string }> };
+  message?: { content?: string | Array<{ text?: string }> } | string;
+  choices?: Array<{ delta?: { content?: string }; text?: string }>;
 };
 
 interface PuterAI {
@@ -41,7 +52,12 @@ interface PuterKV {
 }
 
 interface PuterAuth {
+  signIn?(options?: { attempt_temp_user_creation?: boolean }): Promise<void>;
+  signOut?(): void;
+  /** Sync local check — prefer this over whoami / KV probes. */
+  isSignedIn?(): boolean;
   getUser(): Promise<{ username?: string; email?: string } | null | undefined>;
+  whoami?(): Promise<unknown>;
 }
 
 interface PuterGlobal {

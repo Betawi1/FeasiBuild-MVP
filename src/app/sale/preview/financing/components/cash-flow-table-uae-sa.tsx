@@ -21,6 +21,7 @@ export type MonthlyRow = {
   constructionCosts: number;
   softCosts: number;
   powc: number;
+  ffe?: number;
   totalOutflowsExclLand: number;
   landCost: number;
   totalOutflowsInclLand: number;
@@ -57,12 +58,15 @@ export type CashFlowTableUaeSaProps = {
   data: MonthlyRow[];
   formatCurrency: (val: number) => string;
   hideEscrowRows?: boolean;
+  /** Sale warehouse only — show FF&E between Construction and Soft costs. */
+  showFfe?: boolean;
 };
 
 export function CashFlowTableUaeSa({
   data,
   formatCurrency,
   hideEscrowRows = false,
+  showFfe = false,
 }: CashFlowTableUaeSaProps) {
   if (!data || data.length === 0) {
     return (
@@ -181,6 +185,14 @@ export function CashFlowTableUaeSa({
             getValue={(r) => r.constructionCosts}
             formatCurrency={formatCurrency}
           />
+          {showFfe && (
+            <TableRow
+              label="FF&E"
+              data={data}
+              getValue={(r) => r.ffe || 0}
+              formatCurrency={formatCurrency}
+            />
+          )}
           <TableRow label="Soft costs" data={data} getValue={(r) => r.softCosts} formatCurrency={formatCurrency} />
           <TableRow label="POWC" data={data} getValue={(r) => r.powc} formatCurrency={formatCurrency} />
           <TableRow

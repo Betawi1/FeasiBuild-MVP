@@ -1,30 +1,73 @@
 "use client";
 
-import type { FeasibilitySlide } from "@/types/feasibility";
+import type {
+  FeasibilityProjectBundle,
+  FeasibilitySlide,
+} from "@/types/feasibility";
 import {
   AiContentWarningBanner,
   aiParagraphClassName,
 } from "@/components/feasibility/AiContentWarning";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
+import { generateDataCentreCommentaryFallback } from "@/lib/feasibility/generate-data-centre-commentary";
 import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
 
 interface Props {
   slide: FeasibilitySlide;
+  projectData?: FeasibilityProjectBundle;
   isEditing?: boolean;
   onParagraphChange?: (index: number, text: string) => void;
 }
 
+function isDataCentreProject(projectData?: FeasibilityProjectBundle): boolean {
+  if (!projectData) return false;
+  const bt = (projectData.buildingType ?? "").toLowerCase();
+  const at = (projectData.assetType ?? "").toLowerCase();
+  return (
+    bt.includes("data_centre") ||
+    bt.includes("datacentre") ||
+    bt.includes("data centre") ||
+    at.includes("data centre") ||
+    at.includes("data_centre") ||
+    at.includes("datacentre") ||
+    (projectData.dataCentreMetrics?.itLoadMw ?? 0) > 0
+  );
+}
+
+function looksLikeWrongAssetCommentary(paragraphs: string[]): boolean {
+  const joined = paragraphs.join(" ").toLowerCase();
+  return (
+    joined.includes("bulk distribution") ||
+    joined.includes("warehouse") ||
+    joined.includes("cross-dock") ||
+    joined.includes("3pl") ||
+    joined.includes("logistics") ||
+    joined.includes("residential") ||
+    joined.includes("btr tower") ||
+    joined.includes("lease-up from")
+  );
+}
+
 export default function ProjectAnalysis({
   slide,
+  projectData,
   isEditing = false,
   onParagraphChange,
 }: Props) {
+  const isDc = isDataCentreProject(projectData);
+  const paragraphs =
+    isDc &&
+    (slide.id === "datacentre-project-overview" ||
+      slide.section === "project") &&
+    looksLikeWrongAssetCommentary(slide.paragraphs)
+      ? generateDataCentreCommentaryFallback("Project Overview", projectData!)
+      : slide.paragraphs;
+
   const isDense =
-    slide.paragraphs.length >= 4 ||
-    (slide.tables?.[0]?.rows.length ?? 0) > 6;
-  const displayParagraphs = cleanParagraphsForDisplay(slide.paragraphs);
+    paragraphs.length >= 4 || (slide.tables?.[0]?.rows.length ?? 0) > 6;
+  const displayParagraphs = cleanParagraphsForDisplay(paragraphs);
 
   return (
     <SlideContainer>
@@ -40,7 +83,7 @@ export default function ProjectAnalysis({
             isDense ? "space-y-2.5" : "space-y-4"
           }`}
         >
-          <AiContentWarningBanner paragraphs={slide.paragraphs} />
+          <AiContentWarningBanner paragraphs={paragraphs} />
           <EditableSlideParagraphs
             paragraphs={displayParagraphs}
             isEditing={isEditing && !!onParagraphChange}
@@ -83,7 +126,9 @@ export default function ProjectAnalysis({
                         <td
                           key={k}
                           className={`border border-slate-300 px-2 py-1 text-slate-900 ${
-                            k === 0 ? "font-medium" : ""
+                            k === 0
+                              ? "font-medium"
+                              : "text-right font-mono"
                           }`}
                         >
                           {cell}
@@ -93,36 +138,8 @@ export default function ProjectAnalysis({
                   ))}
                 </tbody>
               </table>
-              {slide.tables[0].footer ? (
-                <p className="text-[10px] text-slate-500 mt-2 shrink-0">
-                  {slide.tables[0].footer}
-                </p>
-              ) : null}
             </>
-          ) : (
-            <>
-              <h3
-                className={`font-semibold text-slate-800 ${
-                  isDense ? "text-sm mb-2" : "text-lg mb-4"
-                }`}
-              >
-                Key Project Metrics
-              </h3>
-              <ul className={isDense ? "space-y-1.5" : "space-y-3"}>
-                {slide.bulletPoints?.map((point, i) => (
-                  <li
-                    key={i}
-                    className={`flex items-start text-slate-700 ${
-                      isDense ? "text-xs" : "text-sm"
-                    }`}
-                  >
-                    <span className="text-emerald-500 mr-2 shrink-0">•</span>
-                    {point}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+          ) : null}
         </div>
       </div>
     </SlideContainer>

@@ -353,6 +353,9 @@ function FinancingPreviewPageContent({
     [cashOutflows, projectInfo]
   );
 
+  const isSaleWarehouseProduct =
+    projectInfo.buildingSubType === "commercial_strata_warehouse";
+
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
     // eslint-disable-next-line no-console
@@ -3273,6 +3276,10 @@ function FinancingPreviewPageContent({
                 powc: detail.powcTotal,
                 monthlyTotal: detail.monthlyTotal,
                 cumulative: detail.cumulative,
+                // Warehouse FF&E from the same CapEx profile as Cash Flow Preview.
+                ffe: isSaleWarehouseProduct
+                  ? detail.warehouseMonthlyCosts?.ffe || []
+                  : [],
               }
             : {}),
         },
@@ -3339,6 +3346,7 @@ function FinancingPreviewPageContent({
     financing,
     outflowProfile,
     detail,
+    isSaleWarehouseProduct,
     constructionCostSchedule,
     constructionPeriod,
     cashInflows.monthlyInflowSchedule,
@@ -3634,11 +3642,13 @@ function FinancingPreviewPageContent({
       rows: financingEnginePreview.rows,
       jurisdiction: financingEnginePreview.jurisdiction,
       hideEscrowRows: !showEscrowSection,
+      showFfe: isSaleWarehouseProduct,
       projectLabel: `Project: ${projectInfo.city || "—"}, ${projectInfo.country || "—"} • Currency: ${projectInfo.currency || "AED"}`,
     });
   }, [
     financingEnginePreview,
     showEscrowSection,
+    isSaleWarehouseProduct,
     projectInfo.city,
     projectInfo.country,
     projectInfo.currency,
@@ -3686,6 +3696,7 @@ function FinancingPreviewPageContent({
                 data={mapEngineRowsToUae(financingEnginePreview.rows)}
                 formatCurrency={formatCurrency}
                 hideEscrowRows={!showEscrowSection}
+                showFfe={isSaleWarehouseProduct}
               />
             )}
             {financingEnginePreview.inputs.jurisdiction === "MALAYSIA" && (
@@ -3693,6 +3704,7 @@ function FinancingPreviewPageContent({
                 data={mapEngineRowsToMalaysia(financingEnginePreview.rows)}
                 formatCurrency={formatCurrency}
                 hideEscrowRows={!showEscrowSection}
+                showFfe={isSaleWarehouseProduct}
               />
             )}
             {financingEnginePreview.inputs.jurisdiction === "AUSTRALIA" && (
@@ -3700,6 +3712,7 @@ function FinancingPreviewPageContent({
                 data={mapEngineRowsToAustralia(financingEnginePreview.rows)}
                 formatCurrency={formatCurrency}
                 hideEscrowRows={!showEscrowSection}
+                showFfe={isSaleWarehouseProduct}
               />
             )}
 
@@ -3711,6 +3724,7 @@ function FinancingPreviewPageContent({
                     data={mapEngineRowsToMalaysia(financingEnginePreview.rows)}
                     formatCurrency={formatCurrency}
                     hideEscrowRows={false}
+                    showFfe={isSaleWarehouseProduct}
                   />
                 )}
                 {withdrawalMode === "australia" && (
@@ -3718,6 +3732,7 @@ function FinancingPreviewPageContent({
                     data={mapEngineRowsToAustralia(financingEnginePreview.rows)}
                     formatCurrency={formatCurrency}
                     hideEscrowRows={false}
+                    showFfe={isSaleWarehouseProduct}
                   />
                 )}
                 {/* For Non-Escrow (Commercial OR "Other" Residential selecting "none"), use UAE table with escrow rows hidden */}
@@ -3726,6 +3741,7 @@ function FinancingPreviewPageContent({
                     data={mapEngineRowsToUae(financingEnginePreview.rows)}
                     formatCurrency={formatCurrency}
                     hideEscrowRows={true}
+                    showFfe={isSaleWarehouseProduct}
                   />
                 )}
                 {/* Fallback for UAE/KSA selection in "Other" country */}
@@ -3734,6 +3750,7 @@ function FinancingPreviewPageContent({
                     data={mapEngineRowsToUae(financingEnginePreview.rows)}
                     formatCurrency={formatCurrency}
                     hideEscrowRows={false}
+                    showFfe={isSaleWarehouseProduct}
                   />
                 )}
               </>

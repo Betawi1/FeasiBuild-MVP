@@ -38,9 +38,22 @@ export function buildProjectLocationSlideData(
   const coordinates = bundle.location.coordinates ?? null;
   const assetType = formatAssetLabel(bundle);
 
-  const locationDescription = subMarket
-    ? `The proposed ${assetType} is strategically situated in the ${subMarket} district of ${city}, ${country}, offering excellent connectivity to key demand generators and infrastructure.`
-    : `The proposed ${assetType} is strategically located in ${city}, ${country}, offering excellent connectivity to key demand generators and infrastructure.`;
+  const locationDescription = (() => {
+    const bt = (bundle.buildingType ?? "").toLowerCase();
+    const at = (bundle.assetType || "").toLowerCase();
+    const isDc =
+      bt.includes("data_centre") ||
+      bt.includes("datacentre") ||
+      at.includes("data centre") ||
+      at.includes("datacentre");
+    const fiberPower = isDc
+      ? " with proximity to power interconnection capacity and diverse fiber routes"
+      : "";
+    if (subMarket) {
+      return `The proposed ${assetType} is strategically situated in the ${subMarket} district of ${city}, ${country}${fiberPower}, offering excellent connectivity to key demand generators and infrastructure.`;
+    }
+    return `The proposed ${assetType} is strategically located in ${city}, ${country}${fiberPower}, offering excellent connectivity to key demand generators and infrastructure.`;
+  })();
 
   return {
     city,

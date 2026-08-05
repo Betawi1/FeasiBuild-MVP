@@ -6,13 +6,30 @@ import {
   type OperationalResidentialHoldSnapshot,
   type OperationalRetailHoldSnapshot,
 } from "@/lib/operational-pnl";
+import {
+  isWarehouseComponent2Complete,
+  resolveWarehousePnlSeries,
+} from "@/lib/warehouse-pnl-series";
+import {
+  isDataCentreComponent2Complete,
+  resolveDataCentrePnlSeries,
+} from "@/lib/data-centre-pnl-series";
 import type {
+  DataCentreDepreciation,
+  DataCentreOpEx,
+  DataCentreOtherIncome,
+  DataCentreRevenue,
   OfficeDepreciationConfig,
   OfficeOpexConfig,
+  ProjectInfo,
   ResidentialDepreciationConfig,
   ResidentialOpexConfig,
   RetailDepreciationConfig,
   RetailOpexConfig,
+  WarehouseDepreciation,
+  WarehouseOpEx,
+  WarehouseOtherIncome,
+  WarehouseRevenue,
 } from "@/store/useFinModelStore";
 
 const YEARS = OPERATIONAL_ROOM_REVENUE_YEARS;
@@ -364,11 +381,95 @@ export function computeResidentialProjectIrrPnl(
   };
 }
 
+export function computeWarehouseProjectIrrPnl(ctx: {
+  warehouseRevenue?: WarehouseRevenue;
+  warehouseOtherIncome?: WarehouseOtherIncome;
+  warehouseOpEx?: WarehouseOpEx;
+  warehouseDepreciation?: WarehouseDepreciation;
+  buildingCost: number;
+  siteImprovementsCost: number;
+  ffeCost: number;
+}): OperationalProjectIrrPnl | null {
+  if (
+    !isWarehouseComponent2Complete({
+      warehouseRevenue: ctx.warehouseRevenue,
+      warehouseOtherIncome: ctx.warehouseOtherIncome,
+      warehouseOpEx: ctx.warehouseOpEx,
+      warehouseDepreciation: ctx.warehouseDepreciation,
+    })
+  ) {
+    return null;
+  }
+
+  const series = resolveWarehousePnlSeries({
+    warehouseRevenue: ctx.warehouseRevenue,
+    warehouseOtherIncome: ctx.warehouseOtherIncome,
+    warehouseOpEx: ctx.warehouseOpEx,
+    warehouseDepreciation: ctx.warehouseDepreciation,
+    buildingCost: ctx.buildingCost,
+    siteImprovementsCost: ctx.siteImprovementsCost,
+    ffeCost: ctx.ffeCost,
+  });
+  if (!series) return null;
+
+  return {
+    totalRevenue: yearValues(series.totalRevenue),
+    totalExpenses: yearValues(series.totalExpenses),
+    netIncome: yearValues(series.netIncome),
+    depreciationTotal: yearValues(series.totalDa),
+    changeInWorkingCapital: yearValues(series.changeInWorkingCapital),
+    arMonths: series.arDays / 30,
+    apMonths: series.apDays / 30,
+    ffeRenovationPctYear6: 0,
+  };
+}
+
+export function computeDataCentreProjectIrrPnl(ctx: {
+  projectInfo: ProjectInfo;
+  dataCentreRevenue?: DataCentreRevenue;
+  dataCentreOtherIncome?: DataCentreOtherIncome;
+  dataCentreOpEx?: DataCentreOpEx;
+  dataCentreDepreciation?: DataCentreDepreciation;
+}): OperationalProjectIrrPnl | null {
+  if (
+    !isDataCentreComponent2Complete({
+      dataCentreRevenue: ctx.dataCentreRevenue,
+      dataCentreOtherIncome: ctx.dataCentreOtherIncome,
+      dataCentreOpEx: ctx.dataCentreOpEx,
+      dataCentreDepreciation: ctx.dataCentreDepreciation,
+    })
+  ) {
+    return null;
+  }
+
+  const series = resolveDataCentrePnlSeries({
+    projectInfo: ctx.projectInfo,
+    dataCentreRevenue: ctx.dataCentreRevenue,
+    dataCentreOtherIncome: ctx.dataCentreOtherIncome,
+    dataCentreOpEx: ctx.dataCentreOpEx,
+    dataCentreDepreciation: ctx.dataCentreDepreciation,
+  });
+  if (!series) return null;
+
+  return {
+    totalRevenue: yearValues(series.totalRevenue),
+    totalExpenses: yearValues(series.totalOpEx),
+    netIncome: yearValues(series.netIncome),
+    depreciationTotal: yearValues(series.totalDa),
+    changeInWorkingCapital: yearValues(series.changeInWorkingCapital),
+    arMonths: series.arDays / 30,
+    apMonths: series.apDays / 30,
+    ffeRenovationPctYear6: 0,
+  };
+}
+
 export type BuildingTypeForProjectIrr =
   | "hotel"
   | "retail"
   | "office"
   | "residential"
+  | "warehouse"
+  | "data_centre"
   | string
   | undefined;
 
@@ -385,6 +486,18 @@ export function computeOperationalProjectIrrPnl(
     officeDepreciation?: OfficeDepreciationConfig;
     residentialOpex?: ResidentialOpexConfig;
     residentialDepreciation?: ResidentialDepreciationConfig;
+    warehouseRevenue?: WarehouseRevenue;
+    warehouseOtherIncome?: WarehouseOtherIncome;
+    warehouseOpEx?: WarehouseOpEx;
+    warehouseDepreciation?: WarehouseDepreciation;
+    warehouseBuildingCost?: number;
+    warehouseSiteImprovementsCost?: number;
+    /** Required for Data Centre CapEx / IT-hardware flags. */
+    projectInfo?: ProjectInfo;
+    dataCentreRevenue?: DataCentreRevenue;
+    dataCentreOtherIncome?: DataCentreOtherIncome;
+    dataCentreOpEx?: DataCentreOpEx;
+    dataCentreDepreciation?: DataCentreDepreciation;
     constructionCost: number;
     ffe: number;
   }
@@ -414,6 +527,25 @@ export function computeOperationalProjectIrrPnl(
         ctx.residentialOpex,
         ctx.residentialDepreciation
       );
+    case "warehouse":
+      return computeWarehouseProjectIrrPnl({
+        warehouseRevenue: ctx.warehouseRevenue,
+        warehouseOtherIncome: ctx.warehouseOtherIncome,
+        warehouseOpEx: ctx.warehouseOpEx,
+        warehouseDepreciation: ctx.warehouseDepreciation,
+        buildingCost: ctx.warehouseBuildingCost ?? ctx.constructionCost,
+        siteImprovementsCost: ctx.warehouseSiteImprovementsCost ?? 0,
+        ffeCost: ctx.ffe,
+      });
+    case "data_centre":
+      if (!ctx.projectInfo) return null;
+      return computeDataCentreProjectIrrPnl({
+        projectInfo: ctx.projectInfo,
+        dataCentreRevenue: ctx.dataCentreRevenue,
+        dataCentreOtherIncome: ctx.dataCentreOtherIncome,
+        dataCentreOpEx: ctx.dataCentreOpEx,
+        dataCentreDepreciation: ctx.dataCentreDepreciation,
+      });
     default:
       return null;
   }
@@ -424,6 +556,8 @@ export const OPERATIONAL_ASSET_LABELS: Record<string, string> = {
   retail: "Retail",
   office: "Office",
   residential: "Residential",
+  warehouse: "Warehouse",
+  data_centre: "Data Centre",
 };
 
 /** Spreadsheet Y4–Y13 columns (prepend Y1–Y3 development slots). */

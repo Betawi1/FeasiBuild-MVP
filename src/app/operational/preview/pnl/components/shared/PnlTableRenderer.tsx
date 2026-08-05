@@ -1,6 +1,12 @@
 "use client";
 
-export type PnlAssetType = "hotel" | "retail" | "office" | "residential";
+export type PnlAssetType =
+  | "hotel"
+  | "retail"
+  | "office"
+  | "residential"
+  | "warehouse"
+  | "data_centre";
 
 export type PnlRowTone = "emerald" | "rose" | "sky" | "indigo" | "net" | "slate";
 
@@ -102,7 +108,11 @@ export function PnlTableRenderer({
         ? `10-year office operating P&L (${currencyCode})`
         : assetType === "residential"
           ? `10-year residential operating P&L (${currencyCode})`
-          : `10-year operating P&L (${currencyCode})`;
+          : assetType === "warehouse"
+            ? `10-year warehouse operating P&L (${currencyCode})`
+            : assetType === "data_centre"
+              ? `10-year data centre operating P&L (${currencyCode})`
+              : `10-year operating P&L (${currencyCode})`;
 
   return (
     <div className="mb-6 overflow-x-auto rounded-lg border border-slate-700 bg-slate-800/50 p-6">

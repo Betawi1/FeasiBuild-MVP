@@ -24,6 +24,7 @@ import {
   computeOperationalProjectIrrPnl,
   computeOperatingTotalNetCashFlows,
 } from "@/lib/operational-project-irr-pnl";
+import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
 import BenchmarkProfile from "@/components/BenchmarkProfile";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import Step4PreferenceShares, {
@@ -367,6 +368,9 @@ function FinancingPageContent() {
   const residentialHoldSnapshot = useFinModelStore(
     (s) => s.operational.residentialHoldSnapshot
   );
+  const operationalCashInflows = useFinModelStore(
+    (s) => s.operational.cashInflows
+  );
 
   // ============================================================================
   // STREAM ISOLATION (Like sale/financing/page.tsx)
@@ -402,41 +406,58 @@ function FinancingPageContent() {
   const buildingType = projectInfo.buildingType ?? "hotel";
 
   /** Same P&L basis as `/operational/preview/project-irr` (all asset types). */
-  const projectIrrPnl = useMemo(
-    () =>
-      finStream === "operational"
-        ? computeOperationalProjectIrrPnl(buildingType, {
-            hotelSnapshot: operationalSnapshot,
-            retailSnapshot: retailHoldSnapshot,
-            officeSnapshot: officeHoldSnapshot,
-            residentialSnapshot: residentialHoldSnapshot,
-            retailOpex: projectInfo.retailOpex,
-            retailDepreciation: projectInfo.retailDepreciation,
-            officeOpex: projectInfo.officeOpex,
-            officeDepreciation: projectInfo.officeDepreciation,
-            residentialOpex: projectInfo.residentialOpex,
-            residentialDepreciation: projectInfo.residentialDepreciation,
-            constructionCost: cashOutflows.constructionCost || 0,
-            ffe: cashOutflows.ffe || 0,
-          })
-        : null,
-    [
-      finStream,
-      buildingType,
-      operationalSnapshot,
-      retailHoldSnapshot,
-      officeHoldSnapshot,
-      residentialHoldSnapshot,
-      projectInfo.retailOpex,
-      projectInfo.retailDepreciation,
-      projectInfo.officeOpex,
-      projectInfo.officeDepreciation,
-      projectInfo.residentialOpex,
-      projectInfo.residentialDepreciation,
-      cashOutflows.constructionCost,
-      cashOutflows.ffe,
-    ]
-  );
+  const projectIrrPnl = useMemo(() => {
+    if (finStream !== "operational") return null;
+    const warehouseCapex = resolveWarehouseCapexBases(cashOutflows);
+    return computeOperationalProjectIrrPnl(buildingType, {
+      hotelSnapshot: operationalSnapshot,
+      retailSnapshot: retailHoldSnapshot,
+      officeSnapshot: officeHoldSnapshot,
+      residentialSnapshot: residentialHoldSnapshot,
+      retailOpex: projectInfo.retailOpex,
+      retailDepreciation: projectInfo.retailDepreciation,
+      officeOpex: projectInfo.officeOpex,
+      officeDepreciation: projectInfo.officeDepreciation,
+      residentialOpex: projectInfo.residentialOpex,
+      residentialDepreciation: projectInfo.residentialDepreciation,
+      warehouseRevenue: operationalCashInflows?.warehouseRevenue,
+      warehouseOtherIncome: operationalCashInflows?.warehouseOtherIncome,
+      warehouseOpEx: operationalCashInflows?.warehouseOpEx,
+      warehouseDepreciation: operationalCashInflows?.warehouseDepreciation,
+      warehouseBuildingCost: warehouseCapex.buildingCost,
+      warehouseSiteImprovementsCost: warehouseCapex.siteImprovementsCost,
+      projectInfo,
+      dataCentreRevenue: operationalCashInflows?.dataCentreRevenue,
+      dataCentreOtherIncome: operationalCashInflows?.dataCentreOtherIncome,
+      dataCentreOpEx: operationalCashInflows?.dataCentreOpEx,
+      dataCentreDepreciation: operationalCashInflows?.dataCentreDepreciation,
+      constructionCost: cashOutflows.constructionCost || 0,
+      ffe: cashOutflows.ffe || 0,
+    });
+  }, [
+    finStream,
+    buildingType,
+    operationalSnapshot,
+    retailHoldSnapshot,
+    officeHoldSnapshot,
+    residentialHoldSnapshot,
+    projectInfo.retailOpex,
+    projectInfo.retailDepreciation,
+    projectInfo.officeOpex,
+    projectInfo.officeDepreciation,
+    projectInfo.residentialOpex,
+    projectInfo.residentialDepreciation,
+    operationalCashInflows?.warehouseRevenue,
+    operationalCashInflows?.warehouseOtherIncome,
+    operationalCashInflows?.warehouseOpEx,
+    operationalCashInflows?.warehouseDepreciation,
+    operationalCashInflows?.dataCentreRevenue,
+    operationalCashInflows?.dataCentreOtherIncome,
+    operationalCashInflows?.dataCentreOpEx,
+    operationalCashInflows?.dataCentreDepreciation,
+    projectInfo,
+    cashOutflows,
+  ]);
 
   const operatingTotalNetCashFlowsComputed = useMemo(
     () => computeOperatingTotalNetCashFlows(projectIrrPnl),

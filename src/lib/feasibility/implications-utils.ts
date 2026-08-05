@@ -1,6 +1,32 @@
 /** Resolve implications slide subtitle/section label from asset type. */
-export function resolveImplicationsSubtitle(assetLabel?: string): string {
+export function resolveImplicationsSubtitle(
+  assetLabel?: string,
+  options?: {
+    buildingSubType?: string | null;
+    salesWarehouseConfigType?: string | null;
+  }
+): string {
+  if (!assetLabel && !options?.buildingSubType) return "Market Analysis";
+
+  const subtype = (options?.buildingSubType ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  const isWarehouse =
+    subtype === "commercial_strata_warehouse" ||
+    subtype === "commercial-strata-warehouse" ||
+    subtype === "warehouse_industrial" ||
+    !!assetLabel?.includes("Warehouse") ||
+    !!assetLabel?.includes("Industrial");
+
+  if (isWarehouse) {
+    if (options?.salesWarehouseConfigType === "industrial-park") {
+      return "Industrial Park Development";
+    }
+    return "Single Warehouse Facility";
+  }
+
   if (!assetLabel) return "Market Analysis";
+
   if (
     assetLabel === "High-Rise Residential Tower" ||
     assetLabel === "Landed Housing Estate" ||

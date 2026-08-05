@@ -66,8 +66,8 @@ export function generateFinancialSlides(
       id: "fin-dev-schedule",
       section: "financial",
       title: "Financial Analysis",
-      subtitle: "Hotel Development Schedule",
-      paragraphs: generateFinancialCommentary(project, "Hotel Development Schedule"),
+      subtitle: "Development Schedule",
+      paragraphs: generateFinancialCommentary(project, "Development Schedule"),
       data: scheduleData,
     },
     {

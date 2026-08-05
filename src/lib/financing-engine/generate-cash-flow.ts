@@ -74,7 +74,13 @@ export type FinancingInputs = {
   phases: string[];
   
   // Costs (Monthly arrays)
-  monthlyCosts: { construction: number[]; soft: number[]; powc: number[] };
+  monthlyCosts: {
+    construction: number[];
+    soft: number[];
+    powc: number[];
+    /** Sale warehouse FF&E only; omit/empty for other asset types. */
+    ffe?: number[];
+  };
   landCost: number;
   monthlySalesInflows: number[]; // From Component 3 Total Inflow
   
@@ -176,6 +182,8 @@ export type MonthlyRow = {
   constructionCosts: number;
   softCosts: number;
   powc: number;
+  /** Sale warehouse FF&E; 0 for non-warehouse. */
+  ffe: number;
   totalOutflowsExclLand: number;
   landCost: number;
   hda3Deposit: number; // Malaysia
@@ -353,7 +361,8 @@ function applyUaeKsaEscrowLogic(
 ) {
   const interval = inputs.certificationIntervalMonths;
   const safeInterval = interval === 3 || interval === 6 ? interval : 6;
-  const monthlyOutflowExclLand = row.constructionCosts + row.softCosts + row.powc;
+  const monthlyOutflowExclLand =
+    row.constructionCosts + row.softCosts + row.powc + (row.ffe || 0);
   state.costsSinceLastCert += monthlyOutflowExclLand;
   const cp = inputs.constructionPeriodMonths;
   const isCertMonth = m > 0 && m <= cp && m % safeInterval === 0;
@@ -599,6 +608,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   inputs.monthlyCosts.construction = padArray(inputs.monthlyCosts.construction, totalMonths);
   inputs.monthlyCosts.soft = padArray(inputs.monthlyCosts.soft, totalMonths);
   inputs.monthlyCosts.powc = padArray(inputs.monthlyCosts.powc, totalMonths);
+  inputs.monthlyCosts.ffe = padArray(inputs.monthlyCosts.ffe || [], totalMonths);
   inputs.monthlySalesInflows = padArray(inputs.monthlySalesInflows, totalMonths);
 
   if (process.env.NODE_ENV === "development") {
@@ -690,10 +700,15 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   }
   const totalConstructionCosts = inputs.monthlyCosts.construction.reduce((a, b) => a + b, 0);
   const totalSoftCosts = inputs.monthlyCosts.soft.reduce((a, b) => a + b, 0);
+  const totalFfe = (inputs.monthlyCosts.ffe || []).reduce(
+    (a, b) => a + (Number(b) || 0),
+    0
+  );
   const totalTdcExclLand =
     totalConstructionCosts +
     totalSoftCosts +
-    inputs.monthlyCosts.powc.reduce((a, b) => a + (Number(b) || 0), 0);
+    inputs.monthlyCosts.powc.reduce((a, b) => a + (Number(b) || 0), 0) +
+    totalFfe;
   const totalTdc = totalTdcExclLand + inputs.landCost;
   
   // Estimate GDV for Retention (Total Sales Proceeds)
@@ -731,7 +746,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       month: m, phase, progressPct, isMilestone,
       salesProceeds: 0, escrowBalance: 0, escrowInterest: 0, escrowAccountFees: 0, progressWithdrawal: 0, escrowReleases: 0, retentionRelease: 0,
       lockedInSales: 0, cumuLockedInSales: 0, cumuTrustAccount: 0, trustAccountInterest: 0, trustAccountFees: 0, trustAccountReleases: 0, actualSalesProceeds: 0,
-      constructionCosts: 0, softCosts: 0, powc: 0, totalOutflowsExclLand: 0, landCost: 0, hda3Deposit: 0, totalOutflowsInclLand: 0, ncf: 0,
+      constructionCosts: 0, softCosts: 0, powc: 0, ffe: 0, totalOutflowsExclLand: 0, landCost: 0, hda3Deposit: 0, totalOutflowsInclLand: 0, ncf: 0,
       landLoanDrawdown: 0, landLoanInterest: 0, landLoanRepayment: 0, landLoanFees: 0,
       constLoanDrawdown: 0, constLoanCumulative: state.rcfBalance, constLoanInterest: 0, constLoanRepayment: 0, constLoanCommitmentFee: 0, cumulativeDrawdown: 0,
       prefDrawdown: 0, prefDividend: 0, prefRepayment: 0,
@@ -750,6 +765,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       m < inputs.monthlyCosts.soft.length ? Number(inputs.monthlyCosts.soft[m]) || 0 : 0;
     const powc =
       m < inputs.monthlyCosts.powc.length ? inputs.monthlyCosts.powc[m] ?? 0 : 0;
+    const ffe =
+      m < (inputs.monthlyCosts.ffe?.length ?? 0)
+        ? Number(inputs.monthlyCosts.ffe?.[m]) || 0
+        : 0;
     const sales =
       m < inputs.monthlySalesInflows.length
         ? Number(inputs.monthlySalesInflows[m]) || 0
@@ -758,9 +777,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     row.constructionCosts = cc;
     row.softCosts = sc;
     row.powc = powc;
+    row.ffe = ffe;
     row.salesProceeds = sales;
-    // --- Cash outflows (construction / soft / POWC); land at M0 only, positive = outflow ---
-    row.totalOutflowsExclLand = cc + sc + powc;
+    // --- Cash outflows (construction / soft / POWC / FFE); land at M0 only, positive = outflow ---
+    row.totalOutflowsExclLand = cc + sc + powc + ffe;
     row.landCost = m === 0 ? Number(inputs.landCost) || 0 : 0;
     row.totalOutflowsInclLand = row.totalOutflowsExclLand + row.landCost;
 
@@ -1082,7 +1102,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
           const cumuCosts =
             inputs.monthlyCosts.construction.slice(0, m + 1).reduce((a, b) => a + b, 0) +
             inputs.monthlyCosts.soft.slice(0, m + 1).reduce((a, b) => a + b, 0) +
-            inputs.monthlyCosts.powc.slice(0, m + 1).reduce((a, b) => a + b, 0);
+            inputs.monthlyCosts.powc.slice(0, m + 1).reduce((a, b) => a + b, 0) +
+            (inputs.monthlyCosts.ffe || [])
+              .slice(0, m + 1)
+              .reduce((a, b) => a + (Number(b) || 0), 0);
           const maxLoanAllowed = cumuCosts * 0.7;
           room = Math.min(room, Math.max(0, maxLoanAllowed - state.rcfBalance));
         }

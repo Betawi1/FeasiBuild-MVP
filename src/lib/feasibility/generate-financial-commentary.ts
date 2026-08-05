@@ -45,9 +45,9 @@ export function generateFinancialCommentary(
         `Stabilized operations target ${c2.occupancyStabilized}% occupancy and ${fmtM(c2.adrStabilized, c)} ADR, supporting an unlevered project IRR of ${c4.projectIRR}% in the financial model.`,
       ];
     }
-    case "Hotel Development Schedule":
+    case "Development Schedule":
       return [
-        `The Hotel Development Schedule allocates ${fmtM(c4.tdc, c)} across land acquisition, construction, soft costs, FF&E, and pre-opening (POWC), consistent with Component 1 cost build-up.`,
+        `The Development Schedule allocates ${fmtM(c4.tdc, c)} across land acquisition, construction, soft costs, FF&E, and pre-opening (POWC), consistent with Component 1 cost build-up.`,
         `Construction cost of ${fmtM(c1.constructionCost, c)} reflects blended building, parking, and basement rates applied to the respective BUA components.`,
         `Total cost per key equates to ${fmtM(c4.tdc / Math.max(c1.rooms, 1), c)} on ${c1.rooms.toLocaleString()} keys — a key metric for lender covenant and equity return benchmarking.`,
       ];

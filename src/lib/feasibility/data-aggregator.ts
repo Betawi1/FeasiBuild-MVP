@@ -398,6 +398,7 @@ export function getFeasibilityProjectBundle(): FeasibilityProjectBundle {
   const cashFlowCtx: OperationalCashFlowContext = {
     cashOutflows,
     buildingType: slice.projectInfo.buildingType,
+    projectInfo: slice.projectInfo,
     hotelSnapshot: slice.hotelHoldSnapshot,
     retailSnapshot: slice.retailHoldSnapshot,
     officeSnapshot: slice.officeHoldSnapshot,
@@ -408,6 +409,14 @@ export function getFeasibilityProjectBundle(): FeasibilityProjectBundle {
     officeDepreciation: slice.projectInfo.officeDepreciation,
     residentialOpex: slice.projectInfo.residentialOpex,
     residentialDepreciation: slice.projectInfo.residentialDepreciation,
+    warehouseRevenue: slice.cashInflows?.warehouseRevenue,
+    warehouseOtherIncome: slice.cashInflows?.warehouseOtherIncome,
+    warehouseOpEx: slice.cashInflows?.warehouseOpEx,
+    warehouseDepreciation: slice.cashInflows?.warehouseDepreciation,
+    dataCentreRevenue: slice.cashInflows?.dataCentreRevenue,
+    dataCentreOtherIncome: slice.cashInflows?.dataCentreOtherIncome,
+    dataCentreOpEx: slice.cashInflows?.dataCentreOpEx,
+    dataCentreDepreciation: slice.cashInflows?.dataCentreDepreciation,
     exitCapRate: projectIRR.exitCapRate,
     projectIRR: aggregate.projectIrr,
     equityMultiple: aggregate.equityMultiple,
@@ -477,6 +486,90 @@ export function getFeasibilityProjectBundle(): FeasibilityProjectBundle {
       irrAndFinancingMetrics,
       scenarioComparison,
     });
+
+  const warehouseRevenue = slice.cashInflows?.warehouseRevenue;
+  const warehouseConfig = cashOutflows.warehouseConfig;
+  const parkConfig = cashOutflows.industrialParkConfig;
+  const isPark = cashOutflows.developmentType === "INDUSTRIAL_PARK";
+  const numUnits = isPark
+    ? Math.max(1, parkConfig?.numberOfWarehouses || 1)
+    : 1;
+  const leaseUpYears = warehouseRevenue?.leaseUpYears ?? 2;
+  const stabilizedOccupancy = warehouseRevenue?.occupancyRate || 0;
+  const openingOccupancy =
+    leaseUpYears > 0
+      ? stabilizedOccupancy / leaseUpYears
+      : stabilizedOccupancy;
+
+  const warehouseMetrics = warehouseRevenue
+    ? {
+        warehouseSubType: (cashOutflows.warehouseSubType || "BULK_DISTRIBUTION")
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase()),
+        qualityGrade: (cashOutflows.qualityGrade || "GRADE_A")
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase()),
+        warehouseBua:
+          warehouseRevenue.totalGfa ||
+          (warehouseConfig?.totalBua || 0) * numUnits,
+        landArea: isPark
+          ? parkConfig?.totalLandArea || 0
+          : warehouseConfig?.totalLandArea || 0,
+        numberOfUnits: numUnits,
+        baseRentYear1: warehouseRevenue.ratePerSqftYear || 0,
+        yardRateYear1: warehouseRevenue.yardRate || 0,
+        leaseUpYears,
+        openingOccupancy,
+        stabilizedOccupancy,
+        rentEscalation: warehouseRevenue.rentEscalationPct ?? 3,
+      }
+    : undefined;
+
+  const projectInfo = slice.projectInfo;
+  const dcRevenue = slice.cashInflows?.dataCentreRevenue;
+  const dataCentreMetrics =
+    dcRevenue || projectInfo.dataCentreITLoadCapacity
+      ? {
+          segment: (projectInfo.dataCentreSegment || "colocation")
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          tierLevel: (projectInfo.dataCentreTierLevel || "tier-iii")
+            .replace(/tier-?/i, "Tier ")
+            .replace(/\b\w/g, (c: string) => c.toUpperCase())
+            .replace(/Tier\s+/i, "Tier "),
+          positioning: (projectInfo.dataCentrePositioning || "premium")
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          itLoadMw: projectInfo.dataCentreITLoadCapacity || 0,
+          itLoadKw:
+            dcRevenue?.itLoadKw ||
+            (projectInfo.dataCentreITLoadCapacity || 0) * 1000,
+          whiteSpaceSqft:
+            dcRevenue?.whiteSpaceArea ||
+            projectInfo.dataCentreWhiteSpaceArea ||
+            0,
+          totalBuildingGfa:
+            dcRevenue?.totalBuildingGFA ||
+            projectInfo.dataCentreTotalBuildingGFA ||
+            0,
+          landArea: projectInfo.dataCentreTotalLandArea || 0,
+          pue: projectInfo.dataCentrePUE || 1.4,
+          leaseRatePerKwMonth:
+            dcRevenue?.ratePerKwMonth ||
+            projectInfo.dataCentreLeaseRatePerKwMonth ||
+            0,
+          leaseRatePerSqftMonth:
+            dcRevenue?.ratePerSqftMonth ||
+            projectInfo.dataCentreLeaseRatePerSqftMonth ||
+            0,
+          occupancyRate: dcRevenue?.occupancyRate || 85,
+          annualEscalationPct: dcRevenue?.annualEscalationPct ?? 3,
+          constructionPeriod:
+            projectInfo.dataCentreConstructionPeriod ||
+            cashOutflows.constructionPeriod ||
+            0,
+        }
+      : undefined;
 
   return {
     location: aggregate.location,
@@ -549,5 +642,7 @@ export function getFeasibilityProjectBundle(): FeasibilityProjectBundle {
     residentialSegment: slice.projectInfo.residentialSegment,
     residentialPositioning: slice.projectInfo.residentialPositioning,
     residentialFurnishingLevel: slice.projectInfo.residentialFurnishingLevel,
+    warehouseMetrics,
+    dataCentreMetrics,
   };
 }

@@ -40,19 +40,22 @@ const SECTION_LABEL: Record<FeasibilitySlide["section"], string> = {
   financial: "D",
 };
 
-function isOfficeBuildingType(buildingType: string, assetType?: string): boolean {
-  const bt = buildingType.toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return bt === "office" || at.includes("office");
-}
-
 function isHotelBuildingType(buildingType: string, assetType?: string): boolean {
+  if (isDataCentreBuildingType(buildingType, assetType)) return false;
   const bt = buildingType.toLowerCase();
   const at = (assetType ?? "").toLowerCase();
   return bt === "hotel" || at.includes("hotel");
 }
 
+function isOfficeBuildingType(buildingType: string, assetType?: string): boolean {
+  if (isDataCentreBuildingType(buildingType, assetType)) return false;
+  const bt = buildingType.toLowerCase();
+  const at = (assetType ?? "").toLowerCase();
+  return bt === "office" || at.includes("office");
+}
+
 function isBTRBuildingType(buildingType: string, assetType?: string): boolean {
+  if (isDataCentreBuildingType(buildingType, assetType)) return false;
   if (isHotelBuildingType(buildingType, assetType)) return false;
   if (isOfficeBuildingType(buildingType, assetType)) return false;
   const bt = buildingType.toLowerCase();
@@ -61,6 +64,7 @@ function isBTRBuildingType(buildingType: string, assetType?: string): boolean {
 }
 
 function isRetailBuildingType(buildingType: string, assetType?: string): boolean {
+  if (isDataCentreBuildingType(buildingType, assetType)) return false;
   if (isOfficeBuildingType(buildingType, assetType)) return false;
   if (isBTRBuildingType(buildingType, assetType)) return false;
   const bt = buildingType.toLowerCase();
@@ -77,6 +81,11 @@ function feasibilityEndpoint(
   buildingType: string,
   assetType?: string
 ): string {
+  if (isDataCentreBuildingType(buildingType, assetType)) {
+    // No dedicated server route yet — client Puter path is primary.
+    // Fall back to market generator only if Puter fails.
+    return "/api/feasibility/generate-market";
+  }
   if (isOfficeBuildingType(buildingType, assetType)) {
     return "/api/feasibility/generate-office";
   }
@@ -89,7 +98,47 @@ function feasibilityEndpoint(
   return "/api/feasibility/generate-market";
 }
 
+function isWarehouseBuildingType(buildingType: string, assetType?: string): boolean {
+  if (isDataCentreBuildingType(buildingType, assetType)) return false;
+  const bt = buildingType.toLowerCase();
+  const at = (assetType ?? "").toLowerCase();
+  return (
+    bt === "warehouse" ||
+    bt === "industrial" ||
+    at.includes("warehouse") ||
+    at.includes("industrial") ||
+    at.includes("logistics")
+  );
+}
+
+function isDataCentreBuildingType(buildingType: string, assetType?: string): boolean {
+  const bt = (buildingType ?? "").toLowerCase();
+  const at = (assetType ?? "").toLowerCase();
+  return (
+    bt === "data_centre" ||
+    bt === "datacentre" ||
+    bt === "data-centre" ||
+    bt === "datacenter" ||
+    bt.includes("data_centre") ||
+    bt.includes("datacentre") ||
+    bt.includes("data centre") ||
+    bt.includes("data-centre") ||
+    bt.includes("datacenter") ||
+    bt.includes("data center") ||
+    at.includes("data centre") ||
+    at.includes("data_centre") ||
+    at.includes("datacentre") ||
+    at.includes("data-centre") ||
+    at.includes("datacenter") ||
+    at.includes("data center")
+  );
+}
+
 function feasibilityStudyTitle(buildingType: string, assetType?: string): string {
+  // Data Centre before BTR/warehouse — same priority as resolveOperationalAssetType
+  if (isDataCentreBuildingType(buildingType, assetType)) {
+    return "Data Centre Feasibility Study";
+  }
   if (isOfficeBuildingType(buildingType, assetType)) {
     return "Office & Retail Feasibility Study";
   }
@@ -98,6 +147,9 @@ function feasibilityStudyTitle(buildingType: string, assetType?: string): string
   }
   if (isBTRBuildingType(buildingType, assetType)) {
     return "Residential BTR Feasibility Study";
+  }
+  if (isWarehouseBuildingType(buildingType, assetType)) {
+    return "Warehouse & Industrial Feasibility Study";
   }
   return "Hotel Feasibility Study";
 }
@@ -134,6 +186,15 @@ export default function FeasibilityStudyPage() {
       const projectData = getFeasibilityProjectBundle();
       setProjectBundle(projectData);
 
+      console.log("[Feasibility Study] generateReport", {
+        buildingType,
+        bundleBuildingType: projectData.buildingType,
+        bundleAssetType: projectData.assetType,
+        projectInfoBuildingTypeEqualsDataCentre:
+          buildingType === "data_centre",
+        dataCentreMetricsPresent: !!projectData.dataCentreMetrics,
+      });
+
       const stableInputs = buildOperationalStableInputs(projectData);
       console.log("[Cache Debug] Hashing these inputs:", stableInputs);
       const projectHash = buildStableProjectHash(projectData);
@@ -153,6 +214,11 @@ export default function FeasibilityStudyPage() {
         );
         slidesResult = result.slides;
         await setStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY, result.hashes);
+        console.log("[Feasibility Study] generated slide IDs", {
+          count: slidesResult.length,
+          ids: slidesResult.slice(0, 12).map((s) => s.id),
+          buildingType,
+        });
       } catch (puterErr) {
         console.warn(
           "Puter.js generation failed, falling back to server API:",
@@ -389,23 +455,34 @@ export default function FeasibilityStudyPage() {
             type="button"
             onClick={async () => {
               const isConfirmed = window.confirm(
-                "⚠️ Are you sure you want to clear the AI cache?\n\n" +
-                  "This will delete all saved AI-generated content and force the system to regenerate every slide from scratch.\n\n" +
-                  "This process may take 30-60 seconds."
+                "⚠️ Regenerate Data Centre feasibility from scratch?\n\n" +
+                  "This clears AI cache and force-regenerates every slide with Data Centre–specific prompts (IT load, PUE, Tier, $/kW).\n\n" +
+                  "This may take 30–60 seconds."
               );
 
-              if (isConfirmed) {
-                await clearAllCaches();
-                await clearStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY);
-                alert(
-                  "Cloud Cache cleared! Next generation will call AI for all slides."
+              if (!isConfirmed) return;
+
+              const bt =
+                useFinModelStore.getState().operational.projectInfo
+                  .buildingType;
+              console.log(
+                "[Feasibility Study] Force regenerate — buildingType:",
+                bt
+              );
+              if (bt !== "data_centre") {
+                console.error(
+                  "ERROR: Feasibility study generator received wrong asset type:",
+                  bt
                 );
-                window.location.reload();
               }
+
+              await clearAllCaches();
+              await clearStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY);
+              await generateReport({ force: true });
             }}
             className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700"
           >
-            Clear AI Cache
+            Clear AI Cache & Regenerate
           </button>
           <button
             type="button"

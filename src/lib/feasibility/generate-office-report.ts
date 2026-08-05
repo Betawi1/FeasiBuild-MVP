@@ -365,14 +365,14 @@ function generateOfficeFinancialSlides(
     schedule
       ? {
           ...schedule,
-          subtitle: "Mixed-Use Development Schedule",
+          subtitle: "Development Schedule",
           paragraphs: commentary(bundle, "Development Schedule"),
         }
       : {
           id: "fin-dev-schedule",
           section: "financial",
           title: "Financial Analysis",
-          subtitle: "Mixed-Use Development Schedule",
+          subtitle: "Development Schedule",
           paragraphs: commentary(bundle, "Development Schedule"),
         },
     {

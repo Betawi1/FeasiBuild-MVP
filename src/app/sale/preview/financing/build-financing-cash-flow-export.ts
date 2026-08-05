@@ -7,6 +7,8 @@ export type FinancingCashFlowExportOpts = {
   rows: EngineMonthlyRow[];
   jurisdiction: Jurisdiction;
   hideEscrowRows?: boolean;
+  /** Sale warehouse — include FF&E between Construction and Soft costs. */
+  showFfe?: boolean;
   projectLabel?: string;
 };
 
@@ -81,7 +83,7 @@ function pushSection(
   ]);
 }
 
-function uaeSpecs(hideEscrow: boolean): ExportRowSpec[] {
+function uaeSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
   const specs: ExportRowSpec[] = [
     { section: "CASH INFLOWS", label: "Sales proceeds", get: (r) => r.salesProceeds },
   ];
@@ -99,7 +101,12 @@ function uaeSpecs(hideEscrow: boolean): ExportRowSpec[] {
     );
   }
   specs.push(
-    { section: "CASH OUTFLOWS", label: "Construction costs", get: (r) => r.constructionCosts },
+    { section: "CASH OUTFLOWS", label: "Construction costs", get: (r) => r.constructionCosts }
+  );
+  if (showFfe) {
+    specs.push({ label: "FF&E", get: (r) => r.ffe || 0 });
+  }
+  specs.push(
     { label: "Soft costs", get: (r) => r.softCosts },
     { label: "POWC", get: (r) => r.powc },
     {
@@ -153,7 +160,7 @@ function uaeSpecs(hideEscrow: boolean): ExportRowSpec[] {
   return specs;
 }
 
-function malaysiaSpecs(hideEscrow: boolean): ExportRowSpec[] {
+function malaysiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
   const specs: ExportRowSpec[] = [
     { section: "CASH INFLOWS", label: "Sales proceeds", get: (r) => r.salesProceeds },
   ];
@@ -171,7 +178,12 @@ function malaysiaSpecs(hideEscrow: boolean): ExportRowSpec[] {
     );
   }
   specs.push(
-    { section: "CASH OUTFLOWS", label: "Construction costs", get: (r) => r.constructionCosts },
+    { section: "CASH OUTFLOWS", label: "Construction costs", get: (r) => r.constructionCosts }
+  );
+  if (showFfe) {
+    specs.push({ label: "FF&E", get: (r) => r.ffe || 0 });
+  }
+  specs.push(
     { label: "Soft costs", get: (r) => r.softCosts },
     { label: "POWC", get: (r) => r.powc },
     {
@@ -230,7 +242,7 @@ function malaysiaSpecs(hideEscrow: boolean): ExportRowSpec[] {
   return specs;
 }
 
-function australiaSpecs(hideEscrow: boolean): ExportRowSpec[] {
+function australiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
   const specs: ExportRowSpec[] = [];
   if (hideEscrow) {
     specs.push({
@@ -262,7 +274,12 @@ function australiaSpecs(hideEscrow: boolean): ExportRowSpec[] {
     );
   }
   specs.push(
-    { section: "CASH OUTFLOWS", label: "Construction Costs", get: (r) => r.constructionCosts },
+    { section: "CASH OUTFLOWS", label: "Construction Costs", get: (r) => r.constructionCosts }
+  );
+  if (showFfe) {
+    specs.push({ label: "FF&E", get: (r) => r.ffe || 0 });
+  }
+  specs.push(
     { label: "Soft Costs", get: (r) => r.softCosts },
     { label: "POWC", get: (r) => r.powc },
     {
@@ -322,18 +339,25 @@ function australiaSpecs(hideEscrow: boolean): ExportRowSpec[] {
 
 function specsForJurisdiction(
   jurisdiction: Jurisdiction,
-  hideEscrowRows: boolean
+  hideEscrowRows: boolean,
+  showFfe: boolean
 ): ExportRowSpec[] {
-  if (jurisdiction === "MALAYSIA") return malaysiaSpecs(hideEscrowRows);
-  if (jurisdiction === "AUSTRALIA") return australiaSpecs(hideEscrowRows);
-  return uaeSpecs(hideEscrowRows);
+  if (jurisdiction === "MALAYSIA") return malaysiaSpecs(hideEscrowRows, showFfe);
+  if (jurisdiction === "AUSTRALIA") return australiaSpecs(hideEscrowRows, showFfe);
+  return uaeSpecs(hideEscrowRows, showFfe);
 }
 
 /** Build spreadsheet rows matching the on-screen Monthly Cash Flow Projection table (values in '000). */
 export function buildFinancingCashFlowExportRows(
   opts: FinancingCashFlowExportOpts
 ): (string | number | null)[][] {
-  const { rows, jurisdiction, hideEscrowRows = false, projectLabel } = opts;
+  const {
+    rows,
+    jurisdiction,
+    hideEscrowRows = false,
+    showFfe = false,
+    projectLabel,
+  } = opts;
   if (!rows.length) {
     return [["No financing cash flow data available. Complete Component 4 inputs first."]];
   }
@@ -365,7 +389,7 @@ export function buildFinancingCashFlowExportRows(
     "TOTAL",
   ]);
 
-  for (const spec of specsForJurisdiction(jurisdiction, hideEscrowRows)) {
+  for (const spec of specsForJurisdiction(jurisdiction, hideEscrowRows, showFfe)) {
     pushSection(out, spec, dataRows);
   }
 

@@ -7,7 +7,11 @@ export type AiAssetType =
   | "sale-residential-landed"
   | "sale-residential-highrise"
   | "sale-commercial-landed"
-  | "sale-commercial-strata";
+  | "sale-commercial-strata"
+  | "sale-commercial-warehouse"
+  | "sale-warehouse"
+  | "warehouse-industrial"
+  | "operational-data-centre";
 
 export type AiResearchLocation = {
   country: string;
@@ -54,6 +58,31 @@ export type AiResearchBuildingConfig = {
   totalLandArea?: number;
   landArea?: number;
   upperFloors?: number;
+  /** Sale / operational warehouse fields */
+  warehouseSubType?: string;
+  qualityGrade?: string;
+  configurationType?: string;
+  singleWarehouseBUA?: number;
+  singleWarehouseFloors?: number;
+  singleWarehouseClearHeight?: number;
+  singleWarehouseDockDoors?: number;
+  singleWarehouseDriveInDoors?: number;
+  singleWarehouseLandArea?: number;
+  warehouseLandAreaPerUnit?: number;
+  commonInfrastructureAreaPct?: number;
+  /** Operational data centre fields */
+  dataCentreSegment?: string;
+  dataCentreTierLevel?: string;
+  dataCentrePositioning?: string;
+  dataCentreITLoadCapacityMW?: number;
+  dataCentrePowerDensityKwPerRack?: number;
+  dataCentrePUE?: number;
+  dataCentreCoolingSystemType?: string;
+  dataCentreFiberConnectivity?: string;
+  /** White space area (sqft) — Phase 2 after C1S5. */
+  dataCentreWhiteSpaceArea?: number;
+  /** Explicit research phase for data centre two-step flow. */
+  researchPhase?: "basics" | "full";
 };
 
 export type AiResearchOptions = {
@@ -73,6 +102,7 @@ export type AiResearchResult = {
   c1_development: Record<string, unknown>;
   c2_operational?: Record<string, unknown>;
   c2_sales?: Record<string, unknown>;
+  market_benchmarks?: Record<string, unknown>;
   hints?: {
     contingency_text?: string;
     construction_period_text?: string;
@@ -103,6 +133,10 @@ const ASSET_TO_LAND_CATEGORY: Record<AiAssetType, LandUseCategory> = {
   "sale-residential-highrise": "Residential Land",
   "sale-commercial-landed": "Commercial Land",
   "sale-commercial-strata": "Commercial Land",
+  "sale-commercial-warehouse": "Industrial Land",
+  "sale-warehouse": "Industrial Land",
+  "warehouse-industrial": "Industrial Land",
+  "operational-data-centre": "Industrial Land",
 };
 
 function getLandCategory(assetType: AiAssetType): LandUseCategory {
@@ -578,6 +612,181 @@ ${SALE_C2_FIELDS}
 
 ${GUARDRAIL_INSTRUCTIONS}`.trim();
 
+const WAREHOUSE_OPERATIONAL_OUTPUT = `
+{
+  "fx_rate_to_usd": number,
+  "c1_development": {
+    "construction_rates": {
+      "building_rate_psf": number,
+      "site_yard_rate_psf": number,
+      "dock_door_cost_per_unit": number,
+      "drive_in_door_cost_per_unit": number,
+      "car_parking_cost_per_space": number,
+      "trailer_parking_cost_per_space": number,
+      "infrastructure_rate_psf": number,
+      "common_infrastructure_rate_psf": number,
+      "racking_shelving_cost_per_unit": number,
+      "refrigeration_cost_per_unit": number,
+      "automation_conveyors_cost_per_unit": number,
+      "professional_fees_percent": number
+    },
+    "soft_costs": {
+      "sc_percentage": number,
+      "powc_percentage": number,
+      "ffe_percentage": {
+        "recommended": number,
+        "min_range": number,
+        "max_range": number,
+        "justification": "string"
+      }
+    },
+    "land_rate_psf": number,
+    "construction_period": {
+      "months": number,
+      "range": "string",
+      "justification": "string"
+    },
+    "powc_breakdown": {
+      "site_establishment_pct": number,
+      "overhead_pct": number,
+      "authority_fees_pct": number
+    },
+    "sc_breakdown": {
+      "architect_pct": number,
+      "pm_pct": number,
+      "engineering_pct": number,
+      "geotech_pct": number,
+      "other_pct": number
+    }
+  },
+  "c2_operational": {
+    "step1_primary_revenue": {
+      "base_rent_year_1_psf": number,
+      "rent_escalation_pct": number,
+      "opening_occupancy_pct": number,
+      "stabilized_occupancy_pct": number,
+      "lease_up_years": number,
+      "yard_rate_psf": number,
+      "parking_car_rate_monthly": number,
+      "parking_trailer_rate_monthly": number
+    },
+    "step2_other_income": {
+      "cam_recovery_pct": number,
+      "property_tax_recovery_pct": number,
+      "insurance_recovery_pct": number,
+      "signage_annual_revenue": number
+    },
+    "step3_operating_expenses": {
+      "property_tax_pct_of_capex": number,
+      "insurance_pct_of_capex": number,
+      "maintenance_pct_of_building_cost": number,
+      "landscaping_rate_psf": number,
+      "utilities_rate_psf": number,
+      "security_annual_cost": number,
+      "management_fee_pct_revenue": number,
+      "g_and_a_pct_revenue": number
+    },
+    "step4_depreciation_wc": {
+      "building_useful_life_years": number,
+      "site_improvements_useful_life_years": number,
+      "ffe_useful_life_years": number,
+      "ffe_reserve_pct_revenue": number,
+      "accounts_receivable_days": number,
+      "accounts_payable_days": number
+    }
+  },
+  "market_benchmarks": {
+    "all_in_cost_per_sqft": {
+      "min": number,
+      "max": number,
+      "recommended": number,
+      "justification": "string explaining the range based on location, sub-type, and grade"
+    }
+  },
+  "hints": {
+    "contingency_text": "string",
+    "construction_period_text": "string",
+    "sales_launch_text": "N/A"
+  },
+  "guardrails": {
+    "land_tdc_target_pct": { "min": number, "max": number, "recommended": number },
+    "dc_tdc_target_pct": { "min": number, "max": number, "recommended": number }
+  }
+}
+`.trim();
+
+const DATA_CENTRE_OPERATIONAL_OUTPUT = `
+{
+  "fx_rate_to_usd": number,
+  "c1_development": {
+    "it_load_density_kw_sqft": number,
+    "typical_pue": number,
+    "construction_period_months": number,
+    "lease_rate_per_kw_month": number,
+    "lease_rate_per_sqft_month": number,
+    "land_rate_psf": number,
+    "construction_rates": {
+      "building_rate_psf": number,
+      "me_cost_per_mw_electrical": number,
+      "me_cost_per_mw_cooling": number,
+      "it_hardware_cost_per_mw": number,
+      "professional_fees_percent": number,
+      "contingency_percent": number
+    },
+    "soft_costs": {
+      "sc_percentage": number,
+      "powc_percentage": number,
+      "ffe_percentage": { "recommended": number, "min_range": number, "max_range": number }
+    },
+    "construction_period": { "months": number, "range": "string", "justification": "string" }
+  },
+  "c2_operational": {
+    "step1_primary_revenue": {
+      "lease_rate_per_kw_month": number,
+      "lease_rate_per_sqft_month": number,
+      "rent_escalation_pct": number,
+      "stabilized_occupancy_pct": number
+    },
+    "step2_other_income": {
+      "cross_connect_rate_per_rack_month": number,
+      "power_pass_through_rate_per_kwh": number,
+      "power_utilisation_pct": number,
+      "maintenance_markup_pct": number,
+      "setup_fee_per_rack": number
+    },
+    "step3_operating_expenses": {
+      "electricity_price_per_kwh": number,
+      "maintenance_rate_pct_of_me": number,
+      "number_of_staff": number,
+      "average_salary_per_staff": number,
+      "insurance_rate_pct_of_capex": number,
+      "property_tax_rate_pct_of_capex": number,
+      "security_annual_cost": number,
+      "water_annual_cost": number,
+      "g_and_a_pct_revenue": number,
+      "management_fee_pct_revenue": number
+    },
+    "step4_depreciation_wc": {
+      "building_useful_life_years": number,
+      "me_useful_life_years": number,
+      "it_hardware_useful_life_years": number,
+      "ffe_reserve_pct_revenue": number,
+      "accounts_receivable_days": number,
+      "accounts_payable_days": number
+    }
+  },
+  "hints": {
+    "contingency_text": "string",
+    "construction_period_text": "string",
+    "sales_launch_text": "N/A"
+  },
+  "guardrails": {
+    "land_tdc_target_pct": { "min": number, "max": number, "recommended": number },
+    "dc_tdc_target_pct": { "min": number, "max": number, "recommended": number }
+  }
+}
+`.trim();
+
 export const AI_PROMPTS: Record<string, AiPromptConfig> = {
   hotel: {
     systemPrompt: `${OPERATIONAL_STREAM_SYSTEM_PROMPT}
@@ -665,6 +874,66 @@ ${RESIDENTIAL_TWO_PHASE_OUTPUT}`,
     userPromptIntro:
       "Conduct a commercial strata for-sale benchmark. Consider tower/podium configuration, market positioning, and finishing standard.",
   },
+
+  warehouseIndustrial: {
+    systemPrompt: `${OPERATIONAL_STREAM_SYSTEM_PROMPT}
+
+Warehouse/Industrial-specific instructions:
+- Construction rates must reflect warehouse sub-type (Bulk, Last-Mile, Cold Storage, Multi-Storey, Light Manufacturing) and quality grade (A/B).
+- Clear height and column spacing significantly impact building rates.
+- Cold storage commands a 40-60% premium over standard bulk distribution.
+- Multi-storey warehouses command a 20-30% premium.
+- Land rates vary significantly by logistics accessibility (highway proximity, port access).
+- For Industrial Parks, include infrastructure_rate_psf for common areas (roads, utilities, landscaping).
+- DO NOT include s_curve in your output, as phasing is handled by a deterministic rule engine based on construction_period.
+
+CRITICAL: You MUST provide market_benchmarks.all_in_cost_per_sqft with realistic min/max/recommended values based on:
+1. The specific sub-market location from the user prompt (city, sub-market, coordinates)
+2. The warehouse sub-type (operatingSegment) and quality grade (positioning)
+3. Current market conditions (2024-2026)
+4. Whether the project is a single warehouse or industrial park
+
+Example for Cold Storage Grade A in Malaysia:
+"market_benchmarks": {
+  "all_in_cost_per_sqft": {
+    "min": 180,
+    "max": 280,
+    "recommended": 230,
+    "justification": "Cold storage facilities in Malaysia command 40-60% premium over standard warehouses due to refrigeration systems and specialized construction requirements."
+  }
+}
+
+Full JSON schema for warehouse/industrial:
+${WAREHOUSE_OPERATIONAL_OUTPUT}
+
+CRITICAL: The market_benchmarks.all_in_cost_per_sqft field is REQUIRED for the AI Recommendation feature in Step 13 Review & Summary.`,
+
+    userPromptIntro:
+      "Conduct a warehouse/industrial development feasibility benchmark. Consider sub-type (bulk distribution, last-mile, cold storage, multi-storey, light manufacturing), quality grade (A/B), and single warehouse vs industrial park configuration. You MUST return market_benchmarks.all_in_cost_per_sqft with location-specific min/max/recommended all-in development cost per sqft.",
+  },
+
+  operationalDataCentre: {
+    systemPrompt: `${OPERATIONAL_STREAM_SYSTEM_PROMPT}
+
+Data Centre-specific instructions (Operational / hold stream):
+- ONLY Colocation and Edge segments are in scope — do NOT assume Hyperscale or Enterprise campus builds.
+- CapEx drivers: building shell ($/sqft), M&E electrical ($/MW), M&E cooling ($/MW), optional IT hardware ($/MW), professional fees %, contingency %.
+- Reflect Uptime Tier (II / III / IV), PUE, cooling type (air / liquid / hybrid), and fiber connectivity (on-net / near-net / off-net).
+- Land is typically industrial / tech-park zoning; quote industrial land rates unless the sub-market is a dedicated data-centre precinct.
+- Power density (kW/rack) and IT load (MW) drive white-space and GFA; include realistic all-in development cost where possible.
+- DO NOT include s_curve in your output unless explicitly requested — construction phasing may be handled separately.
+- ALL numeric values MUST be researched for the given city / country / currency. Do NOT invent static global defaults.
+
+PHASE BEHAVIOUR (read researchPhase / whether IT load + GFA are set):
+- Phase "basics" (C1S4): Return c1_development with ONLY: it_load_density_kw_sqft (or it_load_density), typical_pue, construction_period_months, lease_rate_per_kw_month, lease_rate_per_sqft_month. Include hints/guardrails. Omit detailed construction_rates CapEx and omit c2_operational.
+- Phase "full" (C1S5): Return FULL JSON with c1_development (construction_rates, soft_costs, land_rate_psf, construction period) AND nested c2_operational steps 1–4 using the schema below.
+
+Full JSON schema for operational data centre:
+${DATA_CENTRE_OPERATIONAL_OUTPUT}`,
+
+    userPromptIntro:
+      "Conduct a colocation or edge data-centre development feasibility benchmark. Restrict to Colocation / Edge (not Hyperscale). Consider Tier level, PUE, cooling system, power density, and fiber connectivity. Research location-specific construction rates, lease rates, OpEx, and depreciation/WC assumptions. Return ONLY valid JSON matching the requested phase — no markdown fences.",
+  },
 };
 
 const ASSET_TYPE_TO_PROMPT_KEY: Record<AiAssetType, keyof typeof AI_PROMPTS> = {
@@ -677,6 +946,10 @@ const ASSET_TYPE_TO_PROMPT_KEY: Record<AiAssetType, keyof typeof AI_PROMPTS> = {
   "sale-residential-highrise": "saleResidentialHighrise",
   "sale-commercial-landed": "saleCommercialLanded",
   "sale-commercial-strata": "saleCommercialStrata",
+  "sale-commercial-warehouse": "warehouseIndustrial",
+  "sale-warehouse": "warehouseIndustrial",
+  "warehouse-industrial": "warehouseIndustrial",
+  "operational-data-centre": "operationalDataCentre",
 };
 
 export function getSystemPrompt(assetType: AiAssetType): string {
@@ -689,8 +962,133 @@ function isSaleLandedAssetType(assetType: AiAssetType): boolean {
   return assetType.includes("landed");
 }
 
+function isSaleWarehouseAssetType(assetType: AiAssetType): boolean {
+  return (
+    assetType === "sale-warehouse" || assetType === "sale-commercial-warehouse"
+  );
+}
+
 function saleAssetTypeLabel(assetType: AiAssetType): string {
+  if (isSaleWarehouseAssetType(assetType)) return "Warehouse / Industrial";
   return isSaleLandedAssetType(assetType) ? "Landed" : "High-Rise";
+}
+
+/** Sale warehouse: warehouse C1 rates + sale C2 sales inflows (not operational rents). */
+function buildSaleWarehouseUserPrompt(options: AiResearchOptions): string {
+  const { location, buildingConfig } = options;
+  const subMarket = location.subMarket?.trim() || "General City Area";
+  const coordinates = location.coordinates
+    ? `${location.coordinates.lat}, ${location.coordinates.lng}`
+    : "Not provided";
+  const warehouseSubType =
+    buildingConfig.warehouseSubType?.trim() ||
+    buildingConfig.operatingSegment?.trim() ||
+    "Not specified";
+  const qualityGrade =
+    buildingConfig.qualityGrade?.trim() ||
+    buildingConfig.positioning?.trim() ||
+    "Not specified";
+  const configType =
+    buildingConfig.configurationType?.trim() || "single-warehouse";
+  const landCategory = getLandCategory(options.assetType);
+
+  return `I am conducting a feasibility study for a new for-sale warehouse / industrial development.
+
+Project Parameters:
+Location: ${location.city}, ${location.country}
+Sub-Market: ${subMarket} (Hyper-local neighborhood)
+Coordinates: ${coordinates}
+Currency: ${location.currency}
+Asset Type: Warehouse / Industrial (build-to-sell)
+Land Use Category: ${landCategory} ← CRITICAL: Research land rates for THIS category
+Warehouse Sub-Type: ${warehouseSubType}
+Quality Grade: ${qualityGrade}
+Configuration: ${configType}
+
+Building Configuration:
+${JSON.stringify(buildingConfig, null, 2)}
+
+- Total BUA (sqft): ${buildingConfig.totalBUA ?? buildingConfig.totalBuildingBUA ?? 0}
+- Total Land Area (sqft): ${buildingConfig.totalLandArea ?? buildingConfig.landArea ?? buildingConfig.plotArea ?? 0}
+- Floors: ${buildingConfig.singleWarehouseFloors ?? buildingConfig.upperFloors ?? 1}
+- Clear Height (ft): ${buildingConfig.singleWarehouseClearHeight ?? "Not specified"}
+- Dock Doors: ${buildingConfig.singleWarehouseDockDoors ?? "Not specified"}
+- Drive-In Doors: ${buildingConfig.singleWarehouseDriveInDoors ?? "Not specified"}
+- Industrial Park Units: ${buildingConfig.numUnits ?? buildingConfig.totalUnits ?? 1}
+
+Your Task:
+Provide market benchmarks in ${location.currency}. Construction rates MUST reflect warehouse sub-type (${warehouseSubType}) and quality grade (${qualityGrade}).
+
+CRITICAL: Before outputting the JSON, write a <reasoning> block covering location, industrial land rates, warehouse construction comps, and sales price assumptions for build-to-sell warehouses.
+
+ADDITIONAL RESEARCH TASK (FX Rate):
+- If Currency is "USD": set "fx_rate_to_usd" to 1.0.
+- Otherwise research mid-market ${location.currency} per 1 USD.
+
+PART 1: DEVELOPMENT OUTFLOWS (Component 1)
+Return warehouse-specific construction rates (building shell, site/yard, dock/drive-in doors, parking stalls, specialised systems, common infrastructure, professional fees %), soft costs, land rate for ${landCategory}, construction period, S-curve, POWC/SC breakdowns.
+
+PART 2: SALES INFLOWS (Component 2)
+1. Average Sales Price (per sqft of saleable BUA) for strata / freehold warehouse sale in ${subMarket}.
+2. Market deductions: agent commission %, VAT %, escrow fees %, average sales discount %.
+
+After </reasoning>, output ONLY this JSON:
+
+{
+  "fx_rate_to_usd": 0.00,
+  "c1_development": {
+    "construction_rates": {
+      "building_rate_psf": 000,
+      "site_yard_rate_psf": 000,
+      "dock_door_cost_per_unit": 000,
+      "drive_in_door_cost_per_unit": 000,
+      "car_parking_cost_per_space": 000,
+      "trailer_parking_cost_per_space": 000,
+      "infrastructure_rate_psf": 000,
+      "common_infrastructure_rate_psf": 000,
+      "racking_shelving_cost_per_unit": 000,
+      "refrigeration_cost_per_unit": 000,
+      "automation_conveyors_cost_per_unit": 000,
+      "professional_fees_percent": 000
+    },
+    "soft_costs": { "sc_percentage": 0.00, "powc_percentage": 0.00, "ffe_percentage": { "recommended": 0.00, "min_range": 0.00, "max_range": 0.00 } },
+    "land_rate_psf": 000,
+    "construction_period": { "months": 00, "range": "e.g. 12-24", "justification": "short string" },
+    "guardrails": {
+      "land_tdc_target_pct": { "min": 0.00, "max": 0.00, "recommended": 0.00 },
+      "dc_tdc_target_pct": { "min": 0.00, "max": 0.00, "recommended": 0.00 }
+    },
+    "hints": { "contingency_text": "...", "construction_period_text": "...", "sales_launch_text": "..." },
+    "s_curve": { "stage_1_pct": 0.00, "stage_2_pct": 0.00, "stage_3_pct": 0.00, "stage_4_pct": 0.00 },
+    "powc_breakdown": { "site_establishment_pct": 0.00, "overhead_pct": 0.00, "authority_fees_pct": 0.00 },
+    "sc_breakdown": { "architect_pct": 0.00, "pm_pct": 0.00, "engineering_pct": 0.00, "geotech_pct": 0.00, "other_pct": 0.00 }
+  },
+  "c2_sales": {
+    "avg_sales_price_psf": 000,
+    "deductions": {
+      "agent_commission_pct": 0.00,
+      "vat_pct": 0.00,
+      "escrow_fees_pct": 0.00,
+      "avg_sales_discount_pct": 0.00
+    }
+  },
+  "market_benchmarks": {
+    "all_in_cost_per_sqft": { "min": 0.00, "max": 0.00, "recommended": 0.00 }
+  },
+  "hints": { "contingency_text": "...", "construction_period_text": "...", "sales_launch_text": "..." },
+  "guardrails": {
+    "land_tdc_target_pct": { "min": 0.00, "max": 0.00, "recommended": 0.00 },
+    "dc_tdc_target_pct": { "min": 0.00, "max": 0.00, "recommended": 0.00 }
+  }
+}
+
+CRITICAL CONSTRAINTS:
+- Percentages are whole numbers (e.g. 18 for 18%, not 0.18).
+- Construction rates MUST match ${warehouseSubType} / ${qualityGrade} — cold storage and multi-storey carry premiums.
+- Land Rate MUST be for ${landCategory} only.
+- S-Curve, POWC, and SC breakdown percentages MUST each sum to exactly 100%.
+- market_benchmarks.all_in_cost_per_sqft is REQUIRED.
+- After </reasoning>, return ONLY the JSON object (no markdown fences).`;
 }
 
 function buildSaleStreamUserPrompt(options: AiResearchOptions): string {
@@ -824,6 +1222,9 @@ CRITICAL CONSTRAINTS:
 }
 
 export function buildUserPrompt(options: AiResearchOptions): string {
+  if (isSaleWarehouseAssetType(options.assetType)) {
+    return buildSaleWarehouseUserPrompt(options);
+  }
   if (options.assetType.startsWith("sale-")) {
     return buildSaleStreamUserPrompt(options);
   }
@@ -841,6 +1242,17 @@ export function buildUserPrompt(options: AiResearchOptions): string {
       0
   );
   const hasGla = Number.isFinite(resolvedGlaSqft) && resolvedGlaSqft > 0;
+  const dcItLoadMw = Number(buildingConfig.dataCentreITLoadCapacityMW ?? 0);
+  const dcTotalGfa = Number(
+    buildingConfig.totalBuildingBUA ?? buildingConfig.totalBUA ?? 0
+  );
+  const dcWhiteSpace = Number(buildingConfig.dataCentreWhiteSpaceArea ?? 0);
+  const explicitDcPhase = buildingConfig.researchPhase;
+  // Strict phasing: if caller provides an explicit researchPhase, trust it.
+  // Otherwise fall back to "full" heuristic (IT load + GFA + white space present).
+  const dcIsFullPhase = explicitDcPhase
+    ? explicitDcPhase === "full"
+    : dcItLoadMw > 0 && dcTotalGfa > 0 && dcWhiteSpace > 0;
   const phaseInstruction =
     assetType === "retail"
       ? hasGla
@@ -854,9 +1266,14 @@ export function buildUserPrompt(options: AiResearchOptions): string {
         ? hasGla
           ? `\n\nSINGLE-REQUEST: GLA is ${resolvedGlaSqft} sqft. Return BOTH c1_development and c2_operational in one JSON response using the nested residential BTR step structure. Include hints and guardrails.`
           : `\n\nPHASE 1 REQUEST: Return ONLY c1_development, hints, and guardrails. Omit c2_operational — GLA is not yet set.`
-        : options.assetType !== "hotel"
-          ? `\n\nPHASE 1 REQUEST: Return ONLY c1_development, hints, and guardrails. Omit c2_operational — operational metrics are researched in Phase 2 after GLA is set.`
-          : "";
+        : assetType === "operational-data-centre"
+          ? dcIsFullPhase
+            ? `\n\nPHASE 2 (FULL) REQUEST: IT Load ${dcItLoadMw} MW, Total GFA ${dcTotalGfa} sqft, White Space ${dcWhiteSpace} sqft are set. Return BOTH c1_development (full construction_rates, soft_costs, land_rate_psf, construction period) AND nested c2_operational (steps 1–4). All values must be researched for this location/currency — no hardcoded global defaults.`
+            : `\n\nPHASE 1 (BASICS) REQUEST: Return ONLY c1_development basics for Step 5 sizing: it_load_density_kw_sqft (or it_load_density), typical_pue, construction_period_months, lease_rate_per_kw_month, lease_rate_per_sqft_month. Include hints and guardrails. Omit detailed CapEx construction_rates and omit c2_operational.`
+          : options.assetType !== "hotel" &&
+              options.assetType !== "warehouse-industrial"
+            ? `\n\nPHASE 1 REQUEST: Return ONLY c1_development, hints, and guardrails. Omit c2_operational — operational metrics are researched in Phase 2 after GLA is set.`
+            : "";
 
   const hotelBuildingSection =
     assetType === "hotel"
@@ -973,6 +1390,54 @@ CRITICAL RENT RESEARCH:
 - DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.`
       : "";
 
+  const warehouseBuildingSection =
+    assetType === "warehouse-industrial" || isSaleWarehouseAssetType(assetType)
+      ? `
+Building Configuration & Areas:
+- Warehouse Sub-Type: ${buildingConfig.warehouseSubType ?? buildingConfig.operatingSegment ?? "Not specified"}
+- Quality Grade: ${buildingConfig.qualityGrade ?? buildingConfig.positioning ?? "Not specified"}
+- Configuration: ${buildingConfig.configurationType ?? "Not specified"}
+- Total Warehouse BUA (sqft): ${buildingConfig.totalBUA ?? buildingConfig.totalBuildingBUA ?? 0}
+- Number of Floors: ${buildingConfig.singleWarehouseFloors ?? buildingConfig.upperFloors ?? buildingConfig.towerFloors ?? 1}
+- Clear Height (ft): ${buildingConfig.singleWarehouseClearHeight ?? "Not specified"}
+- Dock Doors: ${buildingConfig.singleWarehouseDockDoors ?? "Not specified"}
+- Drive-In Doors: ${buildingConfig.singleWarehouseDriveInDoors ?? "Not specified"}
+- Total Land Area (sqft): ${buildingConfig.totalLandArea ?? buildingConfig.plotArea ?? buildingConfig.landArea ?? 0}
+- Number of Units (if Industrial Park): ${buildingConfig.numUnits ?? buildingConfig.totalUnits ?? 1}
+
+CRITICAL: Use these exact physical dimensions to calculate and provide benchmarks. 
+- Research base rent rates for warehouse assets in ${location.city}, ${location.subMarket?.trim() || "General City Area"}.
+- ALL rent rates MUST be ANNUAL (per year per sqft), NOT monthly. If you find monthly rates, multiply by 12.
+- Research and cite ACTUAL recent market transactions or listings for Industrial Land in this location.
+- DO NOT apply arbitrary percentage discounts. Base all rates on actual market evidence.
+`
+      : "";
+
+  const dataCentreBuildingSection =
+    assetType === "operational-data-centre"
+      ? `
+Building Configuration & Areas (Data Centre — Colocation / Edge only):
+- Segment: ${buildingConfig.dataCentreSegment ?? buildingConfig.operatingSegment ?? "colocation"}
+- Tier Level: ${buildingConfig.dataCentreTierLevel ?? "tier-iii"}
+- Positioning: ${buildingConfig.dataCentrePositioning ?? buildingConfig.positioning ?? "standard"}
+- Research Phase: ${buildingConfig.researchPhase ?? (dcIsFullPhase ? "full" : "basics")}
+- IT Load Capacity (MW): ${buildingConfig.dataCentreITLoadCapacityMW ?? "Not specified"}
+- Power Density (kW/rack): ${buildingConfig.dataCentrePowerDensityKwPerRack ?? "Not specified"}
+- PUE: ${buildingConfig.dataCentrePUE ?? "Not specified"}
+- Cooling: ${buildingConfig.dataCentreCoolingSystemType ?? "Not specified"}
+- Fiber Connectivity: ${buildingConfig.dataCentreFiberConnectivity ?? "Not specified"}
+- White Space Area (sqft): ${buildingConfig.dataCentreWhiteSpaceArea ?? "Not specified"}
+- Total Building GFA (sqft): ${buildingConfig.totalBuildingBUA ?? buildingConfig.totalBUA ?? 0}
+- Land Area: ${buildingConfig.totalLandArea ?? buildingConfig.plotArea ?? buildingConfig.landArea ?? 0}
+
+CRITICAL:
+- Restrict comps to Colocation and Edge — exclude Hyperscale megacampus assumptions.
+- Research building shell $/sqft and M&E costs per MW (electrical + cooling) for ${location.city} in project currency ${location.currency}.
+- Cite actual industrial / tech-park land transactions where possible.
+- Do NOT hardcode generic global averages; every number must reflect this location and segment/tier.
+`
+      : "";
+
   return `${config.userPromptIntro}
 
 I am conducting a feasibility study for a new ${assetType.replace(/-/g, " ")} development.
@@ -989,7 +1454,7 @@ Project Parameters:
 - Asset Type: ${assetType}
 - Land Use Category: ${landCategory} ← CRITICAL: Research land rates for THIS category
 - Building Configuration:
-${JSON.stringify(buildingConfig, null, 2)}${hotelBuildingSection}${retailBuildingSection}${officeBuildingSection}${residentialBuildingSection}
+${JSON.stringify(buildingConfig, null, 2)}${hotelBuildingSection}${retailBuildingSection}${officeBuildingSection}${residentialBuildingSection}${warehouseBuildingSection}${dataCentreBuildingSection}
 ${phaseInstruction}
 
 Research current market benchmarks for this specific location and asset profile. Return realistic, location-specific values — not generic global averages. Where local data is limited, use the closest comparable sub-market and note assumptions briefly in the hints fields.
@@ -1044,6 +1509,48 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
     ratesRaw.infrastructureRate,
     c1Raw.infrastructureRate,
     c1Raw.infrastructure_rate_psf
+  );
+  // Warehouse/industrial-specific construction rates (preserve through normalize)
+  const siteYardRate = num(ratesRaw.site_yard_rate_psf, ratesRaw.siteYardRatePsf);
+  const dockDoorCost = num(
+    ratesRaw.dock_door_cost_per_unit,
+    ratesRaw.dock_door_cost,
+    ratesRaw.dockDoorCostPerUnit
+  );
+  const driveInDoorCost = num(
+    ratesRaw.drive_in_door_cost_per_unit,
+    ratesRaw.drive_in_door_cost,
+    ratesRaw.driveInDoorCostPerUnit
+  );
+  const carParkingCost = num(
+    ratesRaw.car_parking_cost_per_space,
+    ratesRaw.car_parking_rate_per_stall,
+    ratesRaw.carParkingCostPerSpace
+  );
+  const trailerParkingCost = num(
+    ratesRaw.trailer_parking_cost_per_space,
+    ratesRaw.trailer_parking_rate_per_stall,
+    ratesRaw.trailerParkingCostPerSpace
+  );
+  const commonInfraRate = num(
+    ratesRaw.common_infrastructure_rate_psf,
+    ratesRaw.commonInfrastructureRatePsf
+  );
+  const rackingCost = num(
+    ratesRaw.racking_shelving_cost_per_unit,
+    ratesRaw.rackingCostPerUnit
+  );
+  const refrigerationCost = num(
+    ratesRaw.refrigeration_cost_per_unit,
+    ratesRaw.refrigerationCostPerUnit
+  );
+  const automationCost = num(
+    ratesRaw.automation_conveyors_cost_per_unit,
+    ratesRaw.automationCostPerUnit
+  );
+  const professionalFeesPercent = num(
+    ratesRaw.professional_fees_percent,
+    ratesRaw.professionalFeesPercent
   );
 
   const scPct = num(softRaw.sc_percentage, softRaw.softCostsPercent, c1Raw.softCostsPercent, c1Raw.sc_percentage) ?? 0;
@@ -1294,6 +1801,34 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
         parking_rate_psf: parking,
         basement_rate_psf: basement,
         ...(infrastructure !== undefined ? { infrastructure_rate_psf: infrastructure } : {}),
+        ...(siteYardRate !== undefined ? { site_yard_rate_psf: siteYardRate } : {}),
+        ...(dockDoorCost !== undefined
+          ? { dock_door_cost_per_unit: dockDoorCost }
+          : {}),
+        ...(driveInDoorCost !== undefined
+          ? { drive_in_door_cost_per_unit: driveInDoorCost }
+          : {}),
+        ...(carParkingCost !== undefined
+          ? { car_parking_cost_per_space: carParkingCost }
+          : {}),
+        ...(trailerParkingCost !== undefined
+          ? { trailer_parking_cost_per_space: trailerParkingCost }
+          : {}),
+        ...(commonInfraRate !== undefined
+          ? { common_infrastructure_rate_psf: commonInfraRate }
+          : {}),
+        ...(rackingCost !== undefined
+          ? { racking_shelving_cost_per_unit: rackingCost }
+          : {}),
+        ...(refrigerationCost !== undefined
+          ? { refrigeration_cost_per_unit: refrigerationCost }
+          : {}),
+        ...(automationCost !== undefined
+          ? { automation_conveyors_cost_per_unit: automationCost }
+          : {}),
+        ...(professionalFeesPercent !== undefined
+          ? { professional_fees_percent: professionalFeesPercent }
+          : {}),
       },
       soft_costs: {
         sc_percentage: scPct,
@@ -1345,6 +1880,10 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
       },
     },
     ...(c2_operational ? { c2_operational } : {}),
+    ...(() => {
+      const marketBenchmarks = asRecord(root.market_benchmarks);
+      return marketBenchmarks ? { market_benchmarks: marketBenchmarks } : {};
+    })(),
     ...(asRecord(root.c2_sales)
       ? (() => {
           const c2Raw = asRecord(root.c2_sales)!;
@@ -1407,17 +1946,35 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
         (typeof hintsRaw?.sales_launch_text === "string" && hintsRaw.sales_launch_text) ||
         undefined,
     },
-    guardrails: {
-      land_tdc_target_pct: {
-        min: num(landGuard?.min) ?? 0,
-        max: num(landGuard?.max) ?? 51,
-        recommended: num(landGuard?.recommended) ?? 35,
-      },
-      dc_tdc_target_pct: {
-        min: num(dcGuard?.min) ?? 49,
-        max: num(dcGuard?.max) ?? 100,
-        recommended: num(dcGuard?.recommended) ?? 65,
-      },
-    },
+    ...(() => {
+      const landMin = num(landGuard?.min);
+      const landMax = num(landGuard?.max);
+      const landRec = num(landGuard?.recommended);
+      const dcMin = num(dcGuard?.min);
+      const dcMax = num(dcGuard?.max);
+      const dcRec = num(dcGuard?.recommended);
+      const hasAny =
+        landMin != null ||
+        landMax != null ||
+        landRec != null ||
+        dcMin != null ||
+        dcMax != null ||
+        dcRec != null;
+      if (!hasAny) return {};
+      return {
+        guardrails: {
+          land_tdc_target_pct: {
+            min: landMin ?? 15,
+            max: landMax ?? 35,
+            recommended: landRec ?? 25,
+          },
+          dc_tdc_target_pct: {
+            min: dcMin ?? 65,
+            max: dcMax ?? 85,
+            recommended: dcRec ?? 75,
+          },
+        },
+      };
+    })(),
   };
 }

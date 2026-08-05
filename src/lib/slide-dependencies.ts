@@ -128,9 +128,15 @@ export function buildOperationalStableInputs(
     lat: lat != null && Number.isFinite(lat) ? roundForHash(lat, 5) : "",
     lng: lng != null && Number.isFinite(lng) ? roundForHash(lng, 5) : "",
     location: `${city},${country},${subMarket}`,
-    assetType: normStr(bundle.assetType),
+    /** Explicit building type so DC/warehouse/BTR never share commentary cache keys */
+    buildingType: normStr(bundle.buildingType),
+    assetType: normStr(bundle.buildingType || bundle.assetType),
     segment: normStr(bundle.segment),
     currency: normStr(bundle.currency),
+    // Data Centre capacity — changes invalidate exec/market commentary independently of hotel ADR fields
+    dcItLoadMw: roundForHash(bundle.dataCentreMetrics?.itLoadMw ?? 0, 2),
+    dcPue: roundForHash(bundle.dataCentreMetrics?.pue ?? 0, 2),
+    dcWhiteSpace: roundForHash(bundle.dataCentreMetrics?.whiteSpaceSqft ?? 0, 0),
     rooms: c1.rooms,
     bua: roundForHash(c1.bua, 0),
     constructionPeriod: c1.constructionPeriod,
@@ -274,13 +280,18 @@ export function buildOperationalBundleHashes(
     lat: stable.lat,
     lng: stable.lng,
     currency: stable.currency,
+    buildingType: stable.buildingType,
     assetType: stable.assetType,
     segment: stable.segment,
+    dcItLoadMw: stable.dcItLoadMw,
+    dcPue: stable.dcPue,
+    dcWhiteSpace: stable.dcWhiteSpace,
   };
 
   const marketData = {
     city: stable.city,
     country: stable.country,
+    buildingType: stable.buildingType,
     assetType: stable.assetType,
     segment: stable.segment,
     starRating: stable.starRating,
@@ -288,6 +299,8 @@ export function buildOperationalBundleHashes(
     adrStabilized: stable.adrStabilized,
     occupancyYear1: stable.occupancyYear1,
     occupancyStabilized: stable.occupancyStabilized,
+    dcItLoadMw: stable.dcItLoadMw,
+    dcPue: stable.dcPue,
   };
 
   const component1Data = {
@@ -471,14 +484,21 @@ export function buildCommentaryCacheKey(
 
 export function buildOperationalCommentaryCacheKey(
   slideId: string,
-  hashes: Record<string, string>
+  hashes: Record<string, string>,
+  buildingType?: string
 ): string {
-  return buildCommentaryCacheKey(
+  const base = buildCommentaryCacheKey(
     slideId,
     hashes,
     getOperationalSlideDependencySection(slideId),
     "op"
   );
+  // Scope by building type so shared IDs (exec-1, macro-*) never reuse
+  // warehouse/BTR commentary on a data_centre deck.
+  const scope = (buildingType || "unknown")
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  return `${scope}_${base}`;
 }
 
 /** Layer 2: true when any dependency hash changed since last generation. */

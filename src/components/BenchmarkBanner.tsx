@@ -20,6 +20,7 @@ const BUILDING_SUBTYPE_LABELS: Record<string, string> = {
   residential_high_rise: "Residential - High-Rise",
   commercial_landed: "Commercial - Landed",
   commercial_strata_office: "Commercial - Strata Office",
+  commercial_strata_warehouse: "Commercial - Strata Warehouse",
 };
 
 export function BenchmarkBanner() {

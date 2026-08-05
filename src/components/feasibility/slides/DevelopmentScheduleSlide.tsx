@@ -76,7 +76,7 @@ export default function DevelopmentScheduleSlide({
     <SlideContainer className="[&>div]:p-6">
       <SlideHeader
         title="Financial Analysis"
-        subtitle="Hotel Development Schedule"
+        subtitle="Development Schedule"
         className="mb-4"
       />
 
@@ -94,7 +94,7 @@ export default function DevelopmentScheduleSlide({
             <thead>
               <tr className="bg-slate-800 text-white">
                 <th className="border border-slate-300 px-2 py-1 text-left w-[34%]">
-                  Hotel Development Schedule
+                  Development Schedule
                 </th>
                 <th className="border border-slate-300 px-2 py-1 text-right w-[12%]">
                   Total ({data.currency} &apos;000)

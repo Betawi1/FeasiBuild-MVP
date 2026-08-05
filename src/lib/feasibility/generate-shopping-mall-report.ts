@@ -371,14 +371,14 @@ function generateMallFinancialSlides(
     schedule
       ? {
           ...schedule,
-          subtitle: "Mall Development Schedule",
+          subtitle: "Development Schedule",
           paragraphs: commentary(bundle, "Development Schedule"),
         }
       : {
           id: "fin-dev-schedule",
           section: "financial",
           title: "Financial Analysis",
-          subtitle: "Mall Development Schedule",
+          subtitle: "Development Schedule",
           paragraphs: commentary(bundle, "Development Schedule"),
         },
     {

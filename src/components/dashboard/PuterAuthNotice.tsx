@@ -11,42 +11,55 @@ export default function PuterAuthNotice() {
 
   useEffect(() => {
     let cancelled = false;
+    let intervalId: number | undefined;
+
+    const stopPolling = () => {
+      if (intervalId != null) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+    };
 
     const pollPuter = async () => {
-      const status = await checkPuterStatus();
+      try {
+        const status = await checkPuterStatus();
+        if (cancelled) return;
 
-      if (cancelled) return;
+        if (!status.available) {
+          setPuterStatus("loading");
+          return; // keep polling until script loads
+        }
 
-      if (!status.available) {
-        console.log("[Puter] Script not loaded yet");
-        setPuterStatus("loading");
-        return;
+        if (status.authenticated) {
+          console.log("[Puter] ✓ Authenticated and ready");
+          setPuterStatus("ready");
+          stopPolling();
+          return;
+        }
+
+        console.log(
+          "[Puter] ⚠️ Needs authentication - popup will appear on first KV operation"
+        );
+        setPuterStatus("needs-auth");
+        // Auth popup is lazy (first KV use) — no need to keep probing Puter
+        stopPolling();
+      } catch (error) {
+        console.debug("[Puter] Auth poll failed (non-critical):", error);
       }
-
-      if (status.authenticated) {
-        console.log("[Puter] ✓ Authenticated and ready");
-        setPuterStatus("ready");
-        return;
-      }
-
-      console.log(
-        "[Puter] ⚠️ Needs authentication - popup will appear on first KV operation"
-      );
-      setPuterStatus("needs-auth");
     };
 
     const timer = window.setTimeout(() => {
       void pollPuter();
     }, 2000);
 
-    const interval = window.setInterval(() => {
+    intervalId = window.setInterval(() => {
       void pollPuter();
     }, 5000);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
-      window.clearInterval(interval);
+      stopPolling();
     };
   }, []);
 

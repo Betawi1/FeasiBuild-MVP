@@ -297,8 +297,15 @@ export const useAiResearch = () => {
           );
         }
 
+        // Data-centre AI payload uses a specialised schema (especially for Phase 1 basics).
+        // `normalizeAiResearchData` rebuilds `c1_development` and can drop those fields.
+        // For `operational-data-centre`, keep the raw parsed JSON and rely on `sanitizeAiData`.
+        const aiData = options.assetType === "operational-data-centre"
+          ? parsedRaw
+          : normalizeAiResearchData(parsedRaw);
+
         const parsedData = sanitizeAiData(
-          normalizeAiResearchData(parsedRaw),
+          aiData,
           options.location.currency || "USD"
         );
         console.log("🎉 Successfully normalized AI data:", parsedData);

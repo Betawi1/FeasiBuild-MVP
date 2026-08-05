@@ -118,6 +118,618 @@ export type BuildingConfig = {
   landedBUAPerUnit?: number;
 };
 
+// Warehouse/Industrial Asset Types
+export type WarehouseDevelopmentType = "SINGLE_WAREHOUSE" | "INDUSTRIAL_PARK";
+export type WarehouseSubType =
+  | "BULK_DISTRIBUTION"
+  | "LAST_MILE_URBAN"
+  | "MULTI_STOREY"
+  | "COLD_STORAGE"
+  | "LIGHT_MANUFACTURING";
+export type WarehouseQualityGrade = "GRADE_A" | "GRADE_B";
+export type IndustrialParkPhasing = "SINGLE_PHASE" | "MULTI_PHASE";
+
+export type WarehouseConfig = {
+  // Building Configuration
+  totalBua: number; // sqft
+  clearHeight: number; // ft (32-40)
+  columnSpacing: string; // e.g., "40x50"
+  numberOfFloors: number; // 1, or 2-4 for multi-storey
+
+  // Loading & Access
+  dockDoors: number;
+  driveInDoors: number;
+
+  // Site & Yard
+  siteCoveragePct: number; // 40-60%
+  yardArea: number; // sqft
+  parkingCars: number;
+  parkingTrailers: number;
+
+  // Land
+  totalLandArea: number; // sqft
+  landCoveragePct: number; // auto-calculated
+};
+
+export type IndustrialParkConfig = {
+  numberOfWarehouses: number; // 4-50 units
+  phasing: IndustrialParkPhasing;
+  warehouseMix: Array<{
+    id: string;
+    name: string;
+    size: number; // sqft
+  }>;
+
+  /** % of warehouse land allocated to common infrastructure (typically 20–30). */
+  commonInfrastructurePct?: number;
+  /** Units × single-warehouse land area. */
+  warehouseLandArea?: number;
+  /** Warehouse land × commonInfrastructurePct. */
+  commonInfrastructureArea?: number;
+
+  // Common Infrastructure (legacy detailed costs — still used when set)
+  internalRoadsArea: number; // sqft
+  drainageUtilitiesCost: number;
+  securityPerimeterCost: number;
+  landscapingCost: number;
+
+  // Land
+  totalLandArea: number; // sqft
+  landCoveragePct: number; // auto-calculated
+};
+
+export type WarehouseCosts = {
+  // Building & Shell
+  buildingShellRate: number; // AED/sqft (AI-suggested)
+  buildingShellCost: number; // auto-calculated
+
+  // Site & Yard Works
+  siteYardRate: number; // AED/sqft
+  siteYardWorksCost: number; // auto-calculated
+
+  // Parking (optional line items; folded into site/yard when rates set)
+  carParkingRate?: number; // AED per stall
+  trailerParkingRate?: number; // AED per stall
+  carParkingCost?: number;
+  trailerParkingCost?: number;
+
+  // Loading & Access
+  costPerDockDoor: number;
+  costPerDriveInDoor?: number;
+  loadingAccessCost: number; // auto-calculated
+
+  // Specialised Systems
+  rackingCost: number;
+  refrigerationCost: number;
+  automationCost: number;
+  specialisedSystemsCost: number; // sum of above
+
+  // Common Infrastructure (Industrial Park only)
+  roadRate: number; // AED/sqft (legacy roads)
+  roadCost: number; // auto-calculated
+  /** Rate applied to commonInfrastructureArea when park uses area-based infra. */
+  infrastructureRate?: number;
+  commonInfrastructureCost: number; // sum of roads + drainage + security + landscaping (or area × rate)
+
+  // Professional Fees
+  professionalFeesPct: number; // % of (Building + Infrastructure)
+  professionalFees: number; // auto-calculated
+};
+
+export type WarehousePhasing = {
+  // S-Curve distribution for each cost category (array of percentages by month)
+  buildingShell: number[]; // Standard: 15/35/35/15
+  siteYardWorks: number[]; // Front-loaded: 40/30/20/10
+  loadingAccess: number[]; // Mid-Late: 10/20/40/30
+  specialisedSystems: number[]; // Back-loaded: 10/20/40/30
+};
+
+/** Data Centre CapEx phasing — % of each category by month (M0..Mn). */
+export type DataCentrePhasing = {
+  /** Building & shell — standard S-curve. */
+  buildingShell: number[];
+  /** Critical infrastructure (M&E electrical + cooling) — mid/late loaded. */
+  criticalME: number[];
+  /** IT hardware — back-loaded; only used when operator provides. */
+  itHardware: number[];
+};
+
+export type WarehouseRevenue = {
+  // Rental Revenue
+  totalGfa: number; // sqft (auto from C1S5)
+  occupancyRate: number; // % (95% Single, 85-90% Park) — stabilized / target
+  ratePerSqftYear: number; // AED/sqft/year
+  annualGrossRent: number; // auto-calculated (Year 1)
+
+  /** Annual rent escalation (%) for 10-year projection. */
+  rentEscalationPct?: number;
+  /** Lease-up period in years (occupancy ramps to target). */
+  leaseUpYears?: number;
+  /** Average free rent months applied in Year 1 only. */
+  freeRentMonths?: number;
+
+  // Yard Revenue
+  yardArea: number; // sqft (auto)
+  yardRate: number; // AED/sqft/year
+  annualYardRevenue: number; // auto-calculated
+
+  // Parking Revenue
+  parkingSpacesCars: number;
+  parkingRateCars: number; // AED/month
+  annualParkingRevenueCars: number; // auto-calculated
+
+  parkingSpacesTrailers: number;
+  parkingRateTrailers: number; // AED/month
+  annualParkingRevenueTrailers: number; // auto-calculated
+
+  // Total
+  totalAnnualRevenue: number; // auto-calculated (Year 1)
+};
+
+export type WarehouseOtherIncome = {
+  // CAM Recoveries — % of recoverable OpEx (maintenance + landscaping + utilities + security + mgmt fee)
+  camRecoveryPct: number;
+  annualCamRevenue: number; // auto-calculated
+
+  // Tax Recoveries
+  taxRecoveryPct: number; // % of annual property tax
+  annualTaxRecovery: number; // auto-calculated
+
+  // Insurance Recoveries
+  insuranceRecoveryPct: number; // % of annual insurance
+  annualInsuranceRecovery: number; // auto-calculated
+
+  // Advertising/Signage
+  signageRevenue: number; // annual
+
+  // Total
+  totalOtherIncome: number; // auto-calculated
+};
+
+export type WarehouseOpEx = {
+  // Property Taxes
+  totalCapEx: number; // auto-populated
+  propertyTaxRate: number; // % of CapEx (1.0%)
+  annualPropertyTax: number; // auto-calculated
+
+  // Insurance
+  insuranceRate: number; // % of CapEx (0.4%)
+  annualInsurance: number; // auto-calculated
+
+  // Maintenance & Repairs
+  totalBuildingCost: number; // auto-populated
+  maintenanceRate: number; // % of Building (1.5%)
+  annualMaintenance: number; // auto-calculated
+
+  // Landscaping (Common Area)
+  commonAreaSqft: number; // auto from Step 5
+  landscapingRate: number; // currency / sqft / year
+  annualLandscaping: number; // auto-calculated
+
+  // Utilities (Common Area)
+  totalGfa: number; // auto-populated
+  utilityRate: number; // AED/sqft/year ($0.50 Single, $0.45 Park)
+  annualUtilities: number; // auto-calculated
+
+  // Security
+  annualSecurity: number; // $50k Single, $150k Park
+
+  // Management Fee
+  managementFeeRate: number; // % of Revenue (3%)
+  annualManagementFee: number; // auto-calculated
+
+  // G&A
+  gAndARate: number; // % of Revenue (2%)
+  annualGAndA: number; // auto-calculated
+
+  // Total
+  totalAnnualOpEx: number; // auto-calculated
+  opExAsPctOfRevenue: number; // auto-calculated (~51% Single, ~58% Park)
+};
+
+export type WarehouseDepreciation = {
+  buildingUsefulLifeYears: number;
+  siteUsefulLifeYears: number;
+  ffeUsefulLifeYears: number;
+  ffeReservePctOfRevenue: number;
+  arDays: number;
+  apDays: number;
+  buildingCostBase: number;
+  siteImprovementsCostBase: number;
+  ffeCostBase: number;
+};
+
+/** Operational Data Centre — Component 2 Step 1 primary revenue. */
+export type DataCentreRevenue = {
+  /** IT load in kW (from C1 MW × 1000). */
+  itLoadKw: number;
+  /** Lease / power rate (currency per kW per month). */
+  ratePerKwMonth: number;
+  monthlyPowerRevenue: number;
+  annualPowerRevenue: number;
+  /** Annual escalation on power + space revenue (%). */
+  annualEscalationPct: number;
+  totalBuildingGFA: number;
+  whiteSpaceArea: number;
+  occupancyRate: number;
+  /** White-space rate (currency per sqft per month). */
+  ratePerSqftMonth: number;
+  monthlySpaceRevenue: number;
+  annualSpaceRevenue: number;
+  /** Year-1 total = annual power + annual space. */
+  totalAnnualRevenue: number;
+  /** Optional per-year table overrides (C2S1 10-year table). */
+  manualYearValues?: Record<
+    number,
+    Partial<{
+      occupancyPct: number;
+      ratePerKw: number;
+      ratePerSqft: number;
+    }>
+  >;
+};
+
+export function calculateDataCentreRevenue(
+  input: Pick<
+    DataCentreRevenue,
+    | "itLoadKw"
+    | "ratePerKwMonth"
+    | "annualEscalationPct"
+    | "totalBuildingGFA"
+    | "whiteSpaceArea"
+    | "occupancyRate"
+    | "ratePerSqftMonth"
+  >
+): DataCentreRevenue {
+  const itLoadKw = input.itLoadKw || 0;
+  const ratePerKwMonth = input.ratePerKwMonth || 0;
+  const monthlyPowerRevenue = itLoadKw * ratePerKwMonth;
+  const annualPowerRevenue = monthlyPowerRevenue * 12;
+  const whiteSpaceArea = input.whiteSpaceArea || 0;
+  const occupancy = (input.occupancyRate || 0) / 100;
+  const ratePerSqftMonth = input.ratePerSqftMonth || 0;
+  const monthlySpaceRevenue = whiteSpaceArea * occupancy * ratePerSqftMonth;
+  const annualSpaceRevenue = monthlySpaceRevenue * 12;
+  return {
+    itLoadKw,
+    ratePerKwMonth,
+    monthlyPowerRevenue,
+    annualPowerRevenue,
+    annualEscalationPct: input.annualEscalationPct ?? 3,
+    totalBuildingGFA: input.totalBuildingGFA || 0,
+    whiteSpaceArea,
+    occupancyRate: input.occupancyRate || 0,
+    ratePerSqftMonth,
+    monthlySpaceRevenue,
+    annualSpaceRevenue,
+    totalAnnualRevenue: annualPowerRevenue + annualSpaceRevenue,
+  };
+}
+
+/** Operational Data Centre — Component 2 Step 2 other income. */
+export type DataCentreOtherIncome = {
+  numberOfRacks: number;
+  crossConnectRatePerRackMonth: number;
+  annualCrossConnect: number;
+  itLoadKw: number;
+  powerPassThroughRatePerKwh: number;
+  powerUtilisationPct: number;
+  annualMeteredPower: number;
+  /** From OpEx when available; provisional until C2S3. */
+  maintenanceCostBase: number;
+  maintenanceMarkupPercent: number;
+  annualMaintenanceMarkup: number;
+  newRacksYear1: number;
+  setupFeePerRack: number;
+  annualInstallation: number;
+  totalOtherIncome: number;
+  /** Escalation for recurring other-income lines (%). */
+  annualEscalationPct: number;
+  /** Optional per-year table overrides (C2S2 10-year table). Absolute currency. */
+  manualYearValues?: Record<
+    number,
+    Partial<{
+      crossConnect: number;
+      meteredPower: number;
+      maintenanceMarkup: number;
+      installation: number;
+    }>
+  >;
+};
+
+export function calculateDataCentreOtherIncome(
+  input: Pick<
+    DataCentreOtherIncome,
+    | "numberOfRacks"
+    | "crossConnectRatePerRackMonth"
+    | "itLoadKw"
+    | "powerPassThroughRatePerKwh"
+    | "powerUtilisationPct"
+    | "maintenanceCostBase"
+    | "maintenanceMarkupPercent"
+    | "newRacksYear1"
+    | "setupFeePerRack"
+    | "annualEscalationPct"
+  >
+): DataCentreOtherIncome {
+  const numberOfRacks = input.numberOfRacks || 0;
+  const crossConnectRatePerRackMonth =
+    input.crossConnectRatePerRackMonth || 0;
+  const annualCrossConnect =
+    numberOfRacks * crossConnectRatePerRackMonth * 12;
+
+  const itLoadKw = input.itLoadKw || 0;
+  const utilisation = (input.powerUtilisationPct || 0) / 100;
+  const powerPassThroughRatePerKwh = input.powerPassThroughRatePerKwh || 0;
+  const annualMeteredPower =
+    itLoadKw * utilisation * 8760 * powerPassThroughRatePerKwh;
+
+  const maintenanceCostBase = input.maintenanceCostBase || 0;
+  const maintenanceMarkupPercent = input.maintenanceMarkupPercent || 0;
+  const annualMaintenanceMarkup =
+    maintenanceCostBase * (maintenanceMarkupPercent / 100);
+
+  const newRacksYear1 = input.newRacksYear1 || 0;
+  const setupFeePerRack = input.setupFeePerRack || 0;
+  const annualInstallation = newRacksYear1 * setupFeePerRack;
+
+  return {
+    numberOfRacks,
+    crossConnectRatePerRackMonth,
+    annualCrossConnect,
+    itLoadKw,
+    powerPassThroughRatePerKwh,
+    powerUtilisationPct: input.powerUtilisationPct || 0,
+    annualMeteredPower,
+    maintenanceCostBase,
+    maintenanceMarkupPercent,
+    annualMaintenanceMarkup,
+    newRacksYear1,
+    setupFeePerRack,
+    annualInstallation,
+    totalOtherIncome:
+      annualCrossConnect +
+      annualMeteredPower +
+      annualMaintenanceMarkup +
+      annualInstallation,
+    annualEscalationPct: input.annualEscalationPct ?? 3,
+  };
+}
+
+/** Operational Data Centre — Component 2 Step 3 operating expenses. */
+export type DataCentreOpEx = {
+  itLoadKw: number;
+  pue: number;
+  electricityPricePerKwh: number;
+  annualPowerCost: number;
+  meCostBase: number;
+  maintenanceRatePct: number;
+  annualMaintenance: number;
+  numberOfStaff: number;
+  averageSalary: number;
+  annualLabor: number;
+  totalCapExBase: number;
+  insuranceRatePct: number;
+  annualInsurance: number;
+  propertyTaxRatePct: number;
+  annualPropertyTax: number;
+  annualSecurity: number;
+  annualWaterUtilities: number;
+  totalAnnualRevenueBase: number;
+  gAndAPercent: number;
+  annualGAndA: number;
+  mgmtFeePercent: number;
+  annualMgmtFee: number;
+  totalAnnualOpEx: number;
+  /** Escalation for CapEx-/revenue-linked lines (%). */
+  annualEscalationPct: number;
+  /** Inflation for labor / security / utilities (%). */
+  inflationPct: number;
+  /** Optional per-year table overrides (C2S3 10-year table). Absolute currency. */
+  manualYearValues?: Record<
+    number,
+    Partial<{
+      power: number;
+      maintenance: number;
+      labor: number;
+      insurance: number;
+      tax: number;
+      security: number;
+      utilities: number;
+      mgmtFee: number;
+      gAndA: number;
+    }>
+  >;
+};
+
+export function calculateDataCentreOpEx(
+  input: Pick<
+    DataCentreOpEx,
+    | "itLoadKw"
+    | "pue"
+    | "electricityPricePerKwh"
+    | "meCostBase"
+    | "maintenanceRatePct"
+    | "numberOfStaff"
+    | "averageSalary"
+    | "totalCapExBase"
+    | "insuranceRatePct"
+    | "propertyTaxRatePct"
+    | "annualSecurity"
+    | "annualWaterUtilities"
+    | "totalAnnualRevenueBase"
+    | "gAndAPercent"
+    | "mgmtFeePercent"
+    | "annualEscalationPct"
+    | "inflationPct"
+  >
+): DataCentreOpEx {
+  const itLoadKw = input.itLoadKw || 0;
+  const pue = input.pue || 1.35;
+  const electricityPricePerKwh = input.electricityPricePerKwh || 0;
+  const annualPowerCost = itLoadKw * pue * 8760 * electricityPricePerKwh;
+
+  const meCostBase = input.meCostBase || 0;
+  const maintenanceRatePct = input.maintenanceRatePct || 0;
+  const annualMaintenance = meCostBase * (maintenanceRatePct / 100);
+
+  const numberOfStaff = input.numberOfStaff || 0;
+  const averageSalary = input.averageSalary || 0;
+  const annualLabor = numberOfStaff * averageSalary;
+
+  const totalCapExBase = input.totalCapExBase || 0;
+  const insuranceRatePct = input.insuranceRatePct || 0;
+  const annualInsurance = totalCapExBase * (insuranceRatePct / 100);
+  const propertyTaxRatePct = input.propertyTaxRatePct || 0;
+  const annualPropertyTax = totalCapExBase * (propertyTaxRatePct / 100);
+
+  const annualSecurity = input.annualSecurity || 0;
+  const annualWaterUtilities = input.annualWaterUtilities || 0;
+
+  const totalAnnualRevenueBase = input.totalAnnualRevenueBase || 0;
+  const gAndAPercent = input.gAndAPercent || 0;
+  const annualGAndA = totalAnnualRevenueBase * (gAndAPercent / 100);
+  const mgmtFeePercent = input.mgmtFeePercent || 0;
+  const annualMgmtFee = totalAnnualRevenueBase * (mgmtFeePercent / 100);
+
+  return {
+    itLoadKw,
+    pue,
+    electricityPricePerKwh,
+    annualPowerCost,
+    meCostBase,
+    maintenanceRatePct,
+    annualMaintenance,
+    numberOfStaff,
+    averageSalary,
+    annualLabor,
+    totalCapExBase,
+    insuranceRatePct,
+    annualInsurance,
+    propertyTaxRatePct,
+    annualPropertyTax,
+    annualSecurity,
+    annualWaterUtilities,
+    totalAnnualRevenueBase,
+    gAndAPercent,
+    annualGAndA,
+    mgmtFeePercent,
+    annualMgmtFee,
+    totalAnnualOpEx:
+      annualPowerCost +
+      annualMaintenance +
+      annualLabor +
+      annualInsurance +
+      annualPropertyTax +
+      annualSecurity +
+      annualWaterUtilities +
+      annualGAndA +
+      annualMgmtFee,
+    annualEscalationPct: input.annualEscalationPct ?? 3,
+    inflationPct: input.inflationPct ?? 3,
+  };
+}
+
+/** Operational Data Centre — Component 2 Step 4 depreciation & working capital. */
+export type DataCentreDepreciation = {
+  buildingCostBase: number;
+  meCostBase: number;
+  itHardwareCostBase: number;
+  itHardwareProvidedByOperator: boolean;
+  buildingUsefulLifeYears: number;
+  meUsefulLifeYears: number;
+  itHardwareUsefulLifeYears: number;
+  annualBuildingDeprec: number;
+  annualMEDeprec: number;
+  annualITHardwareDeprec: number;
+  totalAnnualRevenueBase: number;
+  ffeReservePercent: number;
+  annualFFEReserve: number;
+  totalDA: number;
+  totalOpExBase: number;
+  arDays: number;
+  apDays: number;
+  accountsReceivable: number;
+  accountsPayable: number;
+  netWorkingCapital: number;
+  annualEscalationPct: number;
+  inflationPct: number;
+};
+
+export function calculateDataCentreDepreciation(
+  input: Pick<
+    DataCentreDepreciation,
+    | "buildingCostBase"
+    | "meCostBase"
+    | "itHardwareCostBase"
+    | "itHardwareProvidedByOperator"
+    | "buildingUsefulLifeYears"
+    | "meUsefulLifeYears"
+    | "itHardwareUsefulLifeYears"
+    | "totalAnnualRevenueBase"
+    | "ffeReservePercent"
+    | "totalOpExBase"
+    | "arDays"
+    | "apDays"
+    | "annualEscalationPct"
+    | "inflationPct"
+  >
+): DataCentreDepreciation {
+  const buildingLife = Math.max(0, input.buildingUsefulLifeYears || 0);
+  const meLife = Math.max(0, input.meUsefulLifeYears || 0);
+  const itLife = Math.max(0, input.itHardwareUsefulLifeYears || 0);
+  const buildingCostBase = input.buildingCostBase || 0;
+  const meCostBase = input.meCostBase || 0;
+  const itHardwareCostBase = input.itHardwareCostBase || 0;
+  const includeIT = !!input.itHardwareProvidedByOperator;
+
+  const annualBuildingDeprec =
+    buildingLife > 0 ? buildingCostBase / buildingLife : 0;
+  const annualMEDeprec = meLife > 0 ? meCostBase / meLife : 0;
+  const annualITHardwareDeprec =
+    includeIT && itLife > 0 ? itHardwareCostBase / itLife : 0;
+
+  const totalAnnualRevenueBase = input.totalAnnualRevenueBase || 0;
+  const ffeReservePercent = input.ffeReservePercent || 0;
+  const annualFFEReserve =
+    totalAnnualRevenueBase * (ffeReservePercent / 100);
+
+  const totalOpExBase = input.totalOpExBase || 0;
+  const arDays = input.arDays || 0;
+  const apDays = input.apDays || 0;
+  const accountsReceivable = totalAnnualRevenueBase * (arDays / 365);
+  const accountsPayable = totalOpExBase * (apDays / 365);
+
+  return {
+    buildingCostBase,
+    meCostBase,
+    itHardwareCostBase,
+    itHardwareProvidedByOperator: includeIT,
+    buildingUsefulLifeYears: buildingLife,
+    meUsefulLifeYears: meLife,
+    itHardwareUsefulLifeYears: itLife,
+    annualBuildingDeprec,
+    annualMEDeprec,
+    annualITHardwareDeprec,
+    totalAnnualRevenueBase,
+    ffeReservePercent,
+    annualFFEReserve,
+    totalDA:
+      annualBuildingDeprec +
+      annualMEDeprec +
+      annualITHardwareDeprec +
+      annualFFEReserve,
+    totalOpExBase,
+    arDays,
+    apDays,
+    accountsReceivable,
+    accountsPayable,
+    netWorkingCapital: accountsReceivable - accountsPayable,
+    annualEscalationPct: input.annualEscalationPct ?? 3,
+    inflationPct: input.inflationPct ?? 3,
+  };
+}
+
 export type ProjectInfo = {
   country: string;
   /** ISO-style country code (e.g. AE) — used by Sale wizard country/currency UX. */
@@ -140,7 +752,13 @@ export type ProjectInfo = {
     | "VND"
     | "THB"
     | "AUD";
-  buildingType: "residential" | "office" | "retail" | "hotel";
+  buildingType:
+    | "residential"
+    | "office"
+    | "retail"
+    | "hotel"
+    | "warehouse"
+    | "data_centre";
   /** Active model stream — set in Component 1 (sale vs operational). */
   stream?: "sale" | "operational";
   /** Business model for engine routing (e.g. DEV_FOR_SALE, HOLD, HOTEL). */
@@ -152,7 +770,8 @@ export type ProjectInfo = {
     | "residential_landed"
     | "residential_high_rise"
     | "commercial_landed"
-    | "commercial_strata_office";
+    | "commercial_strata_office"
+    | "commercial_strata_warehouse";
   hotelStarRating: string;
   /** Operational / hold hotel: budget | boutique | business | resort (empty when unset). */
   hotelOperatingType?: HotelOperatingType | "";
@@ -192,6 +811,57 @@ export type ProjectInfo = {
     | "fully_furnished";
   /** Serviced apartment overlay (high/mid-rise + luxury/grade A only). */
   residentialIsServicedApartment?: boolean;
+
+  // ── Operational Data Centre (C1S4–S6) ──────────────────────────────────
+  /** Colocation or Edge only (no Hyperscale / Enterprise in this model). */
+  dataCentreSegment?: "colocation" | "edge";
+  dataCentreTierLevel?: "tier-ii" | "tier-iii" | "tier-iv";
+  dataCentrePositioning?: "premium" | "standard";
+  /** IT load capacity (MW). */
+  dataCentreITLoadCapacity?: number;
+  /** Power density (kW per rack). */
+  dataCentrePowerDensity?: number;
+  /** IT load density (kW/sqft). */
+  dataCentreITLoadDensity?: number;
+  /** White space as % of GFA. */
+  dataCentreWhiteSpaceRatio?: number;
+  dataCentreCoolingSystemType?: "air-cooled" | "liquid-cooled" | "hybrid";
+  dataCentrePUE?: number;
+  /** UPS / backup power (MW). */
+  dataCentreUPSBackupPower?: number;
+  dataCentreNumberOfGenerators?: number;
+  dataCentreFiberConnectivity?: "on-net" | "near-net" | "off-net";
+  dataCentreNumberOfDiverseFiberPaths?: number;
+  dataCentreNumberOfBuildings?: number;
+  dataCentreFloorsPerBuilding?: number;
+  /** Building height (ft). */
+  dataCentreBuildingHeight?: number;
+  /** Total land area (sqft). */
+  dataCentreTotalLandArea?: number;
+  /** Auto-calculated: rack count. */
+  dataCentreNumberOfRacks?: number;
+  /** Auto-calculated: white space area (sqft). */
+  dataCentreWhiteSpaceArea?: number;
+  /** Auto-calculated: total building GFA (sqft). */
+  dataCentreTotalBuildingGFA?: number;
+  /** Auto-calculated: land coverage %. */
+  dataCentreLandCoverage?: number;
+  /** Building shell rate (currency/sqft). */
+  dataCentreBuildingRate?: number;
+  dataCentreMECostPerMWElectrical?: number;
+  dataCentreMECostPerMWCooling?: number;
+  dataCentreITHardwareCostPerMW?: number;
+  /** When false, IT hardware is customer-provided (excluded from developer CapEx). */
+  dataCentreITHardwareProvidedByOperator?: boolean;
+  dataCentreProfessionalFeesPercent?: number;
+  dataCentreContingencyPercent?: number;
+  /** AI-suggested construction period (months) from C1S4 research. */
+  dataCentreConstructionPeriod?: number;
+  /** AI / C2 prep: wholesale colo lease rate (currency per kW per month). */
+  dataCentreLeaseRatePerKwMonth?: number;
+  /** AI / C2 prep: space lease rate (currency per sqft per month). */
+  dataCentreLeaseRatePerSqftMonth?: number;
+
   /** Operational retail Component 2 Step 3 — operating expenses summary. */
   retailOpex?: RetailOpexConfig;
   /** Operational residential Component 2 Step 3 — operating expenses summary. */
@@ -266,6 +936,34 @@ export type ProjectInfo = {
   salesLandedSaleableRatio?: number;
   salesLandedLandAreaPerUnit?: number;
   salesLandedCommonAreaPct?: number;
+  // Sale stream — Warehouse / Industrial (build-to-sell)
+  salesWarehouseSubType?:
+    | "bulk-distribution"
+    | "last-mile-urban"
+    | "multi-storey"
+    | "cold-storage"
+    | "light-manufacturing";
+  salesQualityGrade?: "grade-a" | "grade-b";
+  salesWarehouseConfigType?: "single-warehouse" | "industrial-park";
+  salesWarehouseSingle?: {
+    bua: number;
+    floors: number;
+    clearHeight: number;
+    columnSpacing: string;
+    dockDoors: number;
+    driveInDoors: number;
+    landArea: number;
+    yardArea?: number;
+    parkingCars?: number;
+    parkingTrailers?: number;
+    siteCoveragePct?: number;
+  };
+  salesWarehousePark?: {
+    numberOfUnits: number;
+    warehouseLandArea: number;
+    commonInfrastructureAreaPct: number;
+    totalLandArea: number;
+  };
   buildingConfig: BuildingConfig;
 };
 
@@ -445,6 +1143,12 @@ export type AiResearchData = {
       parking_rate_psf: number;
       basement_rate_psf: number;
       infrastructure_rate_psf?: number;
+      /** Warehouse/industrial */
+      site_yard_rate_psf?: number;
+      dock_door_cost_per_unit?: number;
+      drive_in_door_cost_per_unit?: number;
+      car_parking_cost_per_space?: number;
+      trailer_parking_cost_per_space?: number;
     };
     soft_costs: {
       sc_percentage: number;
@@ -462,7 +1166,8 @@ export type AiResearchData = {
       range: string;
       justification?: string;
     };
-    s_curve: {
+    /** Omitted for warehouse/industrial (phasing via rule engine). */
+    s_curve?: {
       stage_1_pct: number;
       stage_2_pct: number;
       stage_3_pct: number;
@@ -550,6 +1255,18 @@ export type AiResearchData = {
         percentage_rent_rate_pct?: number;
       };
     };
+    /** Warehouse / industrial primary revenue (AI schema). */
+    step1_primary_revenue?: {
+      base_rent_year_1_psf?: number;
+      rent_escalation_pct?: number;
+      opening_occupancy_pct?: number;
+      stabilized_occupancy_pct?: number;
+      lease_up_years?: number;
+      free_rent_months?: number;
+      yard_rate_psf?: number;
+      parking_car_rate_monthly?: number;
+      parking_trailer_rate_monthly?: number;
+    };
     step2_other_income?: {
       avg_tenant_sales_psf?: number;
       sales_growth_pct?: number;
@@ -580,6 +1297,13 @@ export type AiResearchData = {
       utility_uptake_pct?: number;
       other_fee_per_unit?: number;
       other_fee_uptake_pct?: number;
+      /** Warehouse / industrial */
+      cam_recovery_pct?: number;
+      property_tax_recovery_pct?: number;
+      tax_recovery_pct?: number;
+      insurance_recovery_pct?: number;
+      signage_annual_revenue?: number;
+      signage_revenue_annual?: number;
     };
     step3_operating_expenses?: {
       cam_fixed_base_annual?: number;
@@ -600,6 +1324,30 @@ export type AiResearchData = {
       marketing_pct_of_EGI?: number;
       g_and_a_pct_of_revenue?: number;
       capex_reserve_pct_of_gla?: number;
+      /** Warehouse / industrial */
+      property_tax_pct_of_capex?: number;
+      insurance_pct_of_capex?: number;
+      maintenance_pct_of_building_cost?: number;
+      maintenance_pct_of_building?: number;
+      landscaping_rate_psf?: number;
+      utilities_rate_psf?: number;
+      utility_rate_psf?: number;
+      security_annual_cost?: number;
+      security_annual?: number;
+      management_fee_pct?: number;
+      g_and_a_pct?: number;
+    };
+    step4_depreciation_wc?: {
+      building_useful_life_years?: number;
+      site_improvements_useful_life_years?: number;
+      site_useful_life_years?: number;
+      ffe_useful_life_years?: number;
+      ffe_reserve_pct_revenue?: number;
+      ffe_reserve_pct_of_revenue?: number;
+      accounts_receivable_days?: number;
+      accounts_payable_days?: number;
+      ar_days?: number;
+      ap_days?: number;
     };
     step6_useful_life_working_capital?: {
       construction_useful_life_years?: number;
@@ -685,6 +1433,15 @@ export type AiResearchData = {
       avg_sales_discount_pct: number;
     };
   };
+  /** Warehouse/industrial all-in cost benchmarks (Review & Summary). */
+  market_benchmarks?: {
+    all_in_cost_per_sqft?: {
+      min?: number;
+      max?: number;
+      recommended?: number;
+      justification?: string;
+    };
+  };
   hints?: {
     contingency_text?: string;
     construction_period_text?: string;
@@ -708,6 +1465,34 @@ export type CashOutflows = {
   basementRate: number;
   /** Sale stream (landed): infrastructure rate per sqft of total land area. */
   infrastructureRate?: number;
+  /** Sale stream (warehouse): building & shell rate per sqft of total BUA. */
+  warehouseBuildingRate?: number;
+  /** Sale stream (warehouse): site & yard works rate per sqft of total land. */
+  warehouseSiteYardRate?: number;
+  /** Sale stream (warehouse): car parking rate per stall. */
+  warehouseCarParkingRate?: number;
+  /** Sale stream (warehouse): trailer parking rate per stall. */
+  warehouseTrailerParkingRate?: number;
+  /** Sale stream (warehouse): cost per dock door. */
+  warehouseDockDoorCost?: number;
+  /** Sale stream (warehouse): cost per drive-in door. */
+  warehouseDriveInDoorCost?: number;
+  /** Sale stream (warehouse): racking / shelving cost per unit. */
+  warehouseRackingCostPerUnit?: number;
+  /** Sale stream (warehouse): refrigeration cost per unit. */
+  warehouseRefrigerationCostPerUnit?: number;
+  /** Sale stream (warehouse): automation / conveyors cost per unit. */
+  warehouseAutomationCostPerUnit?: number;
+  /** Sale stream (warehouse): common infrastructure rate per sqft. */
+  warehouseCommonInfraRate?: number;
+  /** Sale stream (warehouse): professional fees %. */
+  warehouseProfFeesPercent?: number;
+  /** Sale stream (warehouse): loading & access lump sum. */
+  warehouseLoadingAccessCost?: number;
+  /** Sale stream (warehouse): specialised systems lump sum. */
+  warehouseSpecialisedSystemsCost?: number;
+  /** Sale stream (warehouse / industrial park): common infrastructure lump sum. */
+  warehouseCommonInfraCost?: number;
   contingencyPercent: number;
   softCostPercent: number;
   powcPercent: number;
@@ -779,8 +1564,38 @@ export type CashOutflows = {
   operationalResidentialPowcManual?: boolean;
   operationalResidentialFfeManual?: boolean;
   operationalResidentialLandRateManual?: boolean;
+  /** Warehouse/industrial soft-cost % overrides (Step 8). */
+  operationalWarehouseScManual?: boolean;
+  operationalWarehousePowcManual?: boolean;
+  operationalWarehouseFfeManual?: boolean;
+  /** Warehouse/industrial land rate override (Step 9). */
+  operationalWarehouseLandRateManual?: boolean;
   /** AI research data from Puter.js (Component 1 & 2 benchmarks) */
   aiResearchData?: AiResearchData;
+
+  // Warehouse/Industrial specific (C1S3–C1S4 + later cost/revenue steps)
+  developmentType?: WarehouseDevelopmentType;
+  warehouseSubType?: WarehouseSubType;
+  qualityGrade?: WarehouseQualityGrade;
+  /** Industrial Park: count of buildings (4–20+). */
+  numberOfWarehouses?: number;
+  /** Industrial Park: single vs multi-phase delivery. */
+  phasingStrategy?: IndustrialParkPhasing;
+  /** Industrial Park: shared roads / drainage / utilities / security. */
+  commonInfrastructure?: boolean;
+  warehouseConfig?: WarehouseConfig;
+  industrialParkConfig?: IndustrialParkConfig;
+  warehouseCosts?: WarehouseCosts;
+  warehousePhasing?: WarehousePhasing;
+  /** Data Centre CapEx category S-curves (% by month, M0..Mn). */
+  dataCentrePhasing?: DataCentrePhasing;
+  /**
+   * Absolute monthly hard CapEx (Building + M&E + IT + fees + contingency),
+   * M0..M{constructionPeriod}. Used by `buildCashOutflowProfile` for DC.
+   */
+  monthlyConstructionCosts?: number[];
+  /** Data Centre OpEx maintenance (synced from C2S3 for C2S2 markup). */
+  dcMaintenanceCost?: number;
 };
 
 export type PaymentPlans = {
@@ -834,6 +1649,22 @@ export type CashInflows = {
    */
   buyerDownPayment?: number;
   downPaymentMonths?: number[];
+
+  // Warehouse/Industrial specific
+  warehouseRevenue?: WarehouseRevenue;
+  warehouseOtherIncome?: WarehouseOtherIncome;
+  warehouseOpEx?: WarehouseOpEx;
+  warehouseDepreciation?: WarehouseDepreciation;
+
+  /** Operational Data Centre — C2S1 primary revenue. */
+  dataCentreRevenue?: DataCentreRevenue;
+  /** Operational Data Centre — C2S2 other income. */
+  dataCentreOtherIncome?: DataCentreOtherIncome;
+  /** Operational Data Centre — C2S3 operating expenses. */
+  dataCentreOpEx?: DataCentreOpEx;
+  /** Operational Data Centre — C2S4 depreciation & working capital. */
+  dataCentreDepreciation?: DataCentreDepreciation;
+
   // Derived (filled on Generate Model)
   grossSales: number;
   netProceeds: number;
@@ -1302,6 +2133,42 @@ const defaultProjectInfo: ProjectInfo = {
   salesLandedSaleableRatio: 100,
   salesLandedLandAreaPerUnit: 0,
   salesLandedCommonAreaPct: 0,
+  salesWarehouseSubType: undefined,
+  salesQualityGrade: undefined,
+  salesWarehouseConfigType: undefined,
+  salesWarehouseSingle: undefined,
+  salesWarehousePark: undefined,
+  dataCentreSegment: undefined,
+  dataCentreTierLevel: undefined,
+  dataCentrePositioning: undefined,
+  dataCentreITLoadCapacity: undefined,
+  dataCentrePowerDensity: undefined,
+  dataCentreITLoadDensity: undefined,
+  dataCentreWhiteSpaceRatio: undefined,
+  dataCentreCoolingSystemType: undefined,
+  dataCentrePUE: undefined,
+  dataCentreUPSBackupPower: undefined,
+  dataCentreNumberOfGenerators: undefined,
+  dataCentreFiberConnectivity: undefined,
+  dataCentreNumberOfDiverseFiberPaths: undefined,
+  dataCentreNumberOfBuildings: undefined,
+  dataCentreFloorsPerBuilding: undefined,
+  dataCentreBuildingHeight: undefined,
+  dataCentreTotalLandArea: undefined,
+  dataCentreNumberOfRacks: undefined,
+  dataCentreWhiteSpaceArea: undefined,
+  dataCentreTotalBuildingGFA: undefined,
+  dataCentreLandCoverage: undefined,
+  dataCentreBuildingRate: undefined,
+  dataCentreMECostPerMWElectrical: undefined,
+  dataCentreMECostPerMWCooling: undefined,
+  dataCentreITHardwareCostPerMW: undefined,
+  dataCentreITHardwareProvidedByOperator: undefined,
+  dataCentreProfessionalFeesPercent: undefined,
+  dataCentreContingencyPercent: undefined,
+  dataCentreConstructionPeriod: undefined,
+  dataCentreLeaseRatePerKwMonth: undefined,
+  dataCentreLeaseRatePerSqftMonth: undefined,
   buildingConfig: defaultBuildingConfig,
 };
 
@@ -1313,6 +2180,21 @@ const defaultCashOutflows: CashOutflows = {
   basementBUA: 8000,
   basementRate: 250,
   infrastructureRate: 0,
+  warehouseBuildingRate: 150,
+  warehouseSiteYardRate: 25,
+  warehouseCarParkingRate: 0,
+  warehouseTrailerParkingRate: 0,
+  warehouseDockDoorCost: 0,
+  warehouseDriveInDoorCost: 0,
+  warehouseRackingCostPerUnit: 0,
+  warehouseRefrigerationCostPerUnit: 0,
+  warehouseAutomationCostPerUnit: 0,
+  warehouseCommonInfraRate: 0,
+  warehouseProfFeesPercent: 8,
+  warehouseLoadingAccessCost: 0,
+  warehouseSpecialisedSystemsCost: 0,
+  warehouseCommonInfraCost: 0,
+  warehouseCosts: undefined,
   contingencyPercent: 7.5,
   softCostPercent: 12,
   powcPercent: 4,
@@ -1376,6 +2258,10 @@ const defaultCashOutflows: CashOutflows = {
   operationalResidentialPowcManual: false,
   operationalResidentialFfeManual: false,
   operationalResidentialLandRateManual: false,
+  operationalWarehouseScManual: false,
+  operationalWarehousePowcManual: false,
+  operationalWarehouseFfeManual: false,
+  operationalWarehouseLandRateManual: false,
   aiResearchData: undefined,
 };
 
@@ -1646,6 +2532,550 @@ export type FinModelState = {
 
 export type FinModelStreamKey = "sale" | "operational";
 
+/** Seed C1S4 warehouse segment defaults when unset. */
+export function ensureWarehouseSegmentDefaults(
+  cashOutflows: CashOutflows
+): Partial<CashOutflows> {
+  const patch: Partial<CashOutflows> = {};
+  if (!cashOutflows.developmentType) {
+    patch.developmentType = "SINGLE_WAREHOUSE";
+  }
+  if (!cashOutflows.warehouseSubType) {
+    patch.warehouseSubType = "BULK_DISTRIBUTION";
+  }
+  if (!cashOutflows.qualityGrade) {
+    patch.qualityGrade = "GRADE_A";
+  }
+  return patch;
+}
+
+export const DEFAULT_WAREHOUSE_CONFIG: WarehouseConfig = {
+  totalBua: 100000,
+  clearHeight: 32,
+  columnSpacing: "40x50",
+  numberOfFloors: 1,
+  dockDoors: 20,
+  driveInDoors: 2,
+  siteCoveragePct: 50,
+  yardArea: 40000,
+  parkingCars: 40,
+  parkingTrailers: 10,
+  totalLandArea: 200000,
+  landCoveragePct: 50,
+};
+
+export const DEFAULT_INDUSTRIAL_PARK_CONFIG: IndustrialParkConfig = {
+  numberOfWarehouses: 6,
+  phasing: "SINGLE_PHASE",
+  warehouseMix: [
+    { id: "wh-1", name: "Warehouse 1", size: 100000 },
+    { id: "wh-2", name: "Warehouse 2", size: 100000 },
+    { id: "wh-3", name: "Warehouse 3", size: 100000 },
+    { id: "wh-4", name: "Warehouse 4", size: 100000 },
+    { id: "wh-5", name: "Warehouse 5", size: 100000 },
+    { id: "wh-6", name: "Warehouse 6", size: 100000 },
+  ],
+  commonInfrastructurePct: 25,
+  warehouseLandArea: 1200000,
+  commonInfrastructureArea: 300000,
+  internalRoadsArea: 80000,
+  drainageUtilitiesCost: 0,
+  securityPerimeterCost: 0,
+  landscapingCost: 0,
+  totalLandArea: 1500000,
+  landCoveragePct: 0,
+};
+
+export const DEFAULT_WAREHOUSE_COSTS: WarehouseCosts = {
+  buildingShellRate: 120,
+  buildingShellCost: 0,
+  siteYardRate: 20,
+  siteYardWorksCost: 0,
+  carParkingRate: 15000,
+  trailerParkingRate: 25000,
+  carParkingCost: 0,
+  trailerParkingCost: 0,
+  costPerDockDoor: 50000,
+  costPerDriveInDoor: 35000,
+  loadingAccessCost: 0,
+  rackingCost: 0,
+  refrigerationCost: 0,
+  automationCost: 0,
+  specialisedSystemsCost: 0,
+  roadRate: 25,
+  roadCost: 0,
+  infrastructureRate: 40,
+  commonInfrastructureCost: 0,
+  professionalFeesPct: 8,
+  professionalFees: 0,
+};
+
+export function ensureWarehouseConfigDefaults(
+  cashOutflows: CashOutflows
+): Partial<CashOutflows> {
+  const patch: Partial<CashOutflows> = {};
+  const developmentType =
+    cashOutflows.developmentType ?? "SINGLE_WAREHOUSE";
+
+  if (!cashOutflows.warehouseConfig) {
+    patch.warehouseConfig = { ...DEFAULT_WAREHOUSE_CONFIG };
+  }
+
+  if (developmentType === "INDUSTRIAL_PARK" && !cashOutflows.industrialParkConfig) {
+    const template =
+      cashOutflows.warehouseConfig ?? DEFAULT_WAREHOUSE_CONFIG;
+    const count = Math.max(4, cashOutflows.numberOfWarehouses ?? 6);
+    const pct = 25;
+    const derived = deriveIndustrialParkFromTemplate(
+      template,
+      count,
+      pct,
+      cashOutflows.phasingStrategy ?? "SINGLE_PHASE"
+    );
+    patch.industrialParkConfig = derived;
+    patch.numberOfWarehouses = count;
+    patch.phasingStrategy = cashOutflows.phasingStrategy ?? "SINGLE_PHASE";
+  }
+
+  if (!cashOutflows.warehouseCosts) {
+    const isPark = developmentType === "INDUSTRIAL_PARK";
+    patch.warehouseCosts = {
+      ...DEFAULT_WAREHOUSE_COSTS,
+      buildingShellRate: isPark ? 100 : 120,
+    };
+  }
+
+  return patch;
+}
+
+// === WAREHOUSE/INDUSTRIAL HELPERS ===
+
+export function calculateLandCoverage(
+  buildingGfa: number,
+  totalLandArea: number
+): number {
+  if (totalLandArea === 0) return 0;
+  return (buildingGfa / totalLandArea) * 100;
+}
+
+export function calculateWarehouseCosts(
+  config: WarehouseConfig | IndustrialParkConfig,
+  costs: WarehouseCosts,
+  developmentType: WarehouseDevelopmentType,
+  /** Single-warehouse template used when costing an industrial park. */
+  template?: WarehouseConfig
+): WarehouseCosts {
+  const updated = { ...costs };
+  const carRate = costs.carParkingRate ?? 0;
+  const trailerRate = costs.trailerParkingRate ?? 0;
+  const driveInRate = costs.costPerDriveInDoor ?? 0;
+  const infraRate = costs.infrastructureRate ?? costs.roadRate ?? 0;
+
+  if (developmentType === "SINGLE_WAREHOUSE" && "totalBua" in config) {
+    const units = 1;
+    updated.buildingShellCost = config.totalBua * costs.buildingShellRate;
+    updated.carParkingCost = (config.parkingCars || 0) * carRate * units;
+    updated.trailerParkingCost =
+      (config.parkingTrailers || 0) * trailerRate * units;
+    updated.siteYardWorksCost =
+      config.yardArea * costs.siteYardRate +
+      (updated.carParkingCost || 0) +
+      (updated.trailerParkingCost || 0);
+    updated.loadingAccessCost =
+      (config.dockDoors || 0) * costs.costPerDockDoor +
+      (config.driveInDoors || 0) * driveInRate;
+    updated.specialisedSystemsCost =
+      costs.rackingCost + costs.refrigerationCost + costs.automationCost;
+    updated.roadCost = 0;
+    updated.commonInfrastructureCost = 0;
+
+    const baseCost =
+      updated.buildingShellCost +
+      updated.siteYardWorksCost +
+      updated.loadingAccessCost +
+      updated.specialisedSystemsCost;
+    updated.professionalFees = baseCost * (costs.professionalFeesPct / 100);
+  } else if (
+    developmentType === "INDUSTRIAL_PARK" &&
+    "numberOfWarehouses" in config
+  ) {
+    const units = Math.max(1, config.numberOfWarehouses || 1);
+    const tpl = template;
+    const unitBua =
+      tpl?.totalBua ||
+      config.warehouseMix.reduce((s, w) => s + (w.size || 0), 0) / units ||
+      0;
+    const unitYard = tpl?.yardArea ?? 0;
+    const unitDock = tpl?.dockDoors ?? 0;
+    const unitDriveIn = tpl?.driveInDoors ?? 0;
+    const unitCars = tpl?.parkingCars ?? 0;
+    const unitTrailers = tpl?.parkingTrailers ?? 0;
+
+    const totalBua =
+      tpl?.totalBua != null
+        ? unitBua * units
+        : config.warehouseMix.reduce((s, w) => s + (w.size || 0), 0);
+
+    updated.buildingShellCost = totalBua * costs.buildingShellRate;
+    updated.carParkingCost = unitCars * units * carRate;
+    updated.trailerParkingCost = unitTrailers * units * trailerRate;
+    updated.siteYardWorksCost =
+      unitYard * units * costs.siteYardRate +
+      (updated.carParkingCost || 0) +
+      (updated.trailerParkingCost || 0);
+    updated.loadingAccessCost =
+      unitDock * units * costs.costPerDockDoor +
+      unitDriveIn * units * driveInRate;
+    updated.specialisedSystemsCost =
+      (costs.rackingCost + costs.refrigerationCost + costs.automationCost) *
+      units;
+
+    const commonArea = config.commonInfrastructureArea ?? 0;
+    if (commonArea > 0 && infraRate > 0) {
+      updated.roadCost = 0;
+      updated.commonInfrastructureCost = commonArea * infraRate;
+    } else {
+      updated.roadCost = (config.internalRoadsArea || 0) * costs.roadRate;
+      updated.commonInfrastructureCost =
+        updated.roadCost +
+        (config.drainageUtilitiesCost || 0) +
+        (config.securityPerimeterCost || 0) +
+        (config.landscapingCost || 0);
+    }
+
+    const hardCosts =
+      updated.buildingShellCost +
+      updated.siteYardWorksCost +
+      updated.loadingAccessCost +
+      updated.specialisedSystemsCost;
+    updated.professionalFees =
+      (hardCosts + updated.commonInfrastructureCost) *
+      (costs.professionalFeesPct / 100);
+  }
+
+  return updated;
+}
+
+/** Derive park land + mix from single-warehouse template and unit count. */
+export function deriveIndustrialParkFromTemplate(
+  template: WarehouseConfig,
+  numberOfUnits: number,
+  commonInfrastructurePct: number,
+  phasing: IndustrialParkPhasing = "SINGLE_PHASE"
+): IndustrialParkConfig {
+  const units = Math.max(0, Math.floor(numberOfUnits));
+  const pct = Math.max(0, Math.min(100, commonInfrastructurePct));
+  const unitLand = template.totalLandArea || 0;
+  const warehouseLandArea = units * unitLand;
+  const commonInfrastructureArea = Math.round(
+    warehouseLandArea * (pct / 100)
+  );
+  const totalLandArea = warehouseLandArea + commonInfrastructureArea;
+  const totalBua = (template.totalBua || 0) * units;
+  const mix =
+    units > 0
+      ? Array.from({ length: units }, (_, i) => ({
+          id: `wh-${i + 1}`,
+          name: `Warehouse ${i + 1}`,
+          size: template.totalBua || 0,
+        }))
+      : [];
+
+  return {
+    numberOfWarehouses: units,
+    phasing,
+    warehouseMix: mix,
+    commonInfrastructurePct: pct,
+    warehouseLandArea,
+    commonInfrastructureArea,
+    internalRoadsArea: commonInfrastructureArea,
+    drainageUtilitiesCost: 0,
+    securityPerimeterCost: 0,
+    landscapingCost: 0,
+    totalLandArea,
+    landCoveragePct: calculateLandCoverage(totalBua, totalLandArea),
+  };
+}
+
+export function calculateWarehouseRevenue(
+  revenue: WarehouseRevenue
+): WarehouseRevenue {
+  const updated = { ...revenue };
+  const leaseUpYears = Math.max(0.1, updated.leaseUpYears ?? 2);
+  const freeRentMonths = Math.max(0, updated.freeRentMonths ?? 0);
+  const y1Occupancy =
+    1 <= leaseUpYears
+      ? updated.occupancyRate * (1 / leaseUpYears)
+      : updated.occupancyRate;
+  const freeRentFactor = (12 - Math.min(12, freeRentMonths)) / 12;
+
+  // Annual Gross Rent (Year 1 with lease-up + free rent)
+  updated.annualGrossRent =
+    updated.totalGfa *
+    (y1Occupancy / 100) *
+    updated.ratePerSqftYear *
+    freeRentFactor;
+
+  // Annual Yard Revenue
+  updated.annualYardRevenue = updated.yardArea * updated.yardRate;
+
+  // Annual Parking Revenue
+  updated.annualParkingRevenueCars =
+    updated.parkingSpacesCars * updated.parkingRateCars * 12;
+  updated.annualParkingRevenueTrailers =
+    updated.parkingSpacesTrailers * updated.parkingRateTrailers * 12;
+
+  // Total Annual Revenue
+  updated.totalAnnualRevenue =
+    updated.annualGrossRent +
+    updated.annualYardRevenue +
+    updated.annualParkingRevenueCars +
+    updated.annualParkingRevenueTrailers;
+
+  return updated;
+}
+
+export function calculateWarehouseOtherIncome(
+  otherIncome: WarehouseOtherIncome,
+  opts: {
+    totalCamExpenses: number;
+    annualPropertyTax: number;
+    annualInsurance: number;
+  }
+): WarehouseOtherIncome {
+  const updated = { ...otherIncome };
+
+  updated.annualCamRevenue =
+    opts.totalCamExpenses * ((updated.camRecoveryPct ?? 0) / 100);
+
+  updated.annualTaxRecovery =
+    opts.annualPropertyTax * ((updated.taxRecoveryPct ?? 0) / 100);
+
+  updated.annualInsuranceRecovery =
+    opts.annualInsurance * ((updated.insuranceRecoveryPct ?? 0) / 100);
+
+  updated.totalOtherIncome =
+    updated.annualCamRevenue +
+    updated.annualTaxRecovery +
+    (updated.annualInsuranceRecovery || 0) +
+    (updated.signageRevenue || 0);
+
+  return updated;
+}
+
+/** Recoverable CAM expense pool used by C2S2. */
+export function warehouseCamExpensePool(opEx?: Partial<WarehouseOpEx> | null): number {
+  if (!opEx) return 0;
+  return (
+    (opEx.annualMaintenance || 0) +
+    (opEx.annualLandscaping || 0) +
+    (opEx.annualUtilities || 0) +
+    (opEx.annualSecurity || 0) +
+    (opEx.annualManagementFee || 0)
+  );
+}
+
+export function calculateWarehouseOpEx(
+  opEx: WarehouseOpEx,
+  totalAnnualRevenue: number
+): WarehouseOpEx {
+  const updated = { ...opEx };
+
+  // Property Tax
+  updated.annualPropertyTax =
+    updated.totalCapEx * (updated.propertyTaxRate / 100);
+
+  // Insurance
+  updated.annualInsurance =
+    updated.totalCapEx * (updated.insuranceRate / 100);
+
+  // Maintenance
+  updated.annualMaintenance =
+    updated.totalBuildingCost * (updated.maintenanceRate / 100);
+
+  // Landscaping
+  updated.annualLandscaping =
+    (updated.commonAreaSqft || 0) * (updated.landscapingRate || 0);
+
+  // Utilities
+  updated.annualUtilities = updated.totalGfa * updated.utilityRate;
+
+  // Management Fee
+  updated.annualManagementFee =
+    totalAnnualRevenue * (updated.managementFeeRate / 100);
+
+  // G&A
+  updated.annualGAndA = totalAnnualRevenue * (updated.gAndARate / 100);
+
+  // Total Annual OpEx
+  updated.totalAnnualOpEx =
+    updated.annualPropertyTax +
+    updated.annualInsurance +
+    updated.annualMaintenance +
+    (updated.annualLandscaping || 0) +
+    updated.annualUtilities +
+    updated.annualSecurity +
+    updated.annualManagementFee +
+    updated.annualGAndA;
+
+  // OpEx as % of Revenue
+  updated.opExAsPctOfRevenue =
+    totalAnnualRevenue > 0
+      ? (updated.totalAnnualOpEx / totalAnnualRevenue) * 100
+      : 0;
+
+  return updated;
+}
+
+export function generateWarehousePhasingSCurve(
+  constructionPeriodMonths: number,
+  _subType: WarehouseSubType
+): WarehousePhasing {
+  // Generate S-curve distributions for each cost category
+  // These are simplified distributions - in production, use more sophisticated curves
+
+  const generateCurve = (
+    earlyPct: number,
+    midPct: number,
+    latePct: number,
+    finalPct: number
+  ): number[] => {
+    const months = Math.max(1, Math.floor(constructionPeriodMonths));
+    const curve: number[] = new Array(months + 1).fill(0);
+    const quarter = Math.max(1, Math.floor(months / 4));
+
+    for (let m = 0; m <= months; m++) {
+      if (m <= quarter) {
+        curve[m] = earlyPct / (quarter + 1);
+      } else if (m <= quarter * 2) {
+        curve[m] = midPct / quarter;
+      } else if (m <= quarter * 3) {
+        curve[m] = latePct / quarter;
+      } else {
+        const finalMonths = Math.max(1, months - quarter * 3);
+        curve[m] = finalPct / finalMonths;
+      }
+    }
+
+    // Normalize so the monthly series sums to 100%
+    const sum = curve.reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      for (let i = 0; i < curve.length; i++) {
+        curve[i] = (curve[i] / sum) * 100;
+      }
+    }
+
+    return curve;
+  };
+
+  return {
+    buildingShell: generateCurve(15, 35, 35, 15), // Standard S-curve
+    siteYardWorks: generateCurve(40, 30, 20, 10), // Front-loaded
+    loadingAccess: generateCurve(10, 20, 40, 30), // Mid-Late
+    specialisedSystems: generateCurve(10, 20, 40, 30), // Back-loaded
+  };
+}
+
+/** Data Centre CapEx category S-curves (percent by month, sum ≈ 100). */
+export function generateDataCentrePhasingSCurve(
+  constructionPeriodMonths: number
+): DataCentrePhasing {
+  const generateCurve = (
+    earlyPct: number,
+    midPct: number,
+    latePct: number,
+    finalPct: number
+  ): number[] => {
+    const months = Math.max(1, Math.floor(constructionPeriodMonths));
+    const curve: number[] = new Array(months + 1).fill(0);
+    const quarter = Math.max(1, Math.floor(months / 4));
+
+    for (let m = 0; m <= months; m++) {
+      if (m <= quarter) {
+        curve[m] = earlyPct / (quarter + 1);
+      } else if (m <= quarter * 2) {
+        curve[m] = midPct / quarter;
+      } else if (m <= quarter * 3) {
+        curve[m] = latePct / quarter;
+      } else {
+        const finalMonths = Math.max(1, months - quarter * 3);
+        curve[m] = finalPct / finalMonths;
+      }
+    }
+
+    const sum = curve.reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      for (let i = 0; i < curve.length; i++) {
+        curve[i] = (curve[i] / sum) * 100;
+      }
+    }
+
+    return curve;
+  };
+
+  return {
+    buildingShell: generateCurve(15, 35, 35, 15), // Standard S-curve
+    criticalME: generateCurve(10, 25, 40, 25), // Mid–late (power & cooling fit-out)
+    itHardware: generateCurve(5, 15, 40, 40), // Back-loaded (racks / IT late)
+  };
+}
+
+/**
+ * Translate DC category % curves into absolute monthly hard CapEx
+ * (Building + M&E + optional IT + professional fees + contingency).
+ * Fees & contingency are spread equally across M1..Mn (not M0).
+ */
+export function buildDataCentreMonthlyConstructionCosts(
+  phasing: DataCentrePhasing,
+  amounts: {
+    buildingCost: number;
+    meCost: number;
+    itHardwareCost: number;
+    professionalFees: number;
+    contingency: number;
+  },
+  includeIT: boolean
+): number[] {
+  const n = phasing.buildingShell.length;
+  if (n <= 0) return [];
+
+  const monthly = Array(n).fill(0) as number[];
+  const alloc = (total: number, pctSeries: number[]) => {
+    for (let m = 0; m < n; m++) {
+      monthly[m] += total * ((pctSeries[m] ?? 0) / 100);
+    }
+  };
+
+  alloc(amounts.buildingCost || 0, phasing.buildingShell);
+  alloc(amounts.meCost || 0, phasing.criticalME);
+  if (includeIT) {
+    alloc(amounts.itHardwareCost || 0, phasing.itHardware);
+  }
+
+  const feesAndContingency =
+    (amounts.professionalFees || 0) + (amounts.contingency || 0);
+  const constructionMonths = Math.max(1, n - 1); // M1..Mn
+  if (feesAndContingency > 0 && constructionMonths > 0) {
+    const perMonth = feesAndContingency / constructionMonths;
+    for (let m = 1; m < n; m++) {
+      monthly[m] += perMonth;
+    }
+  }
+
+  const target =
+    (amounts.buildingCost || 0) +
+    (amounts.meCost || 0) +
+    (includeIT ? amounts.itHardwareCost || 0 : 0) +
+    feesAndContingency;
+  const sum = monthly.reduce((a, b) => a + b, 0);
+  const diff = target - sum;
+  if (Math.abs(diff) > 0.01 && n > 0) {
+    monthly[n - 1] += diff;
+  }
+
+  return monthly;
+}
+
 export function resolveFinModelStreamKey(
   explicit: FinModelStreamKey | undefined,
   assetType: "sale" | "operational" | null
@@ -1809,6 +3239,54 @@ function mergeCashInflowsPatch(
         ...data.launchTiming,
       },
     }),
+    ...(data.warehouseRevenue && {
+      warehouseRevenue: {
+        ...prev.warehouseRevenue,
+        ...data.warehouseRevenue,
+      },
+    }),
+    ...(data.warehouseOtherIncome && {
+      warehouseOtherIncome: {
+        ...prev.warehouseOtherIncome,
+        ...data.warehouseOtherIncome,
+      },
+    }),
+    ...(data.warehouseOpEx && {
+      warehouseOpEx: {
+        ...prev.warehouseOpEx,
+        ...data.warehouseOpEx,
+      },
+    }),
+    ...(data.warehouseDepreciation && {
+      warehouseDepreciation: {
+        ...prev.warehouseDepreciation,
+        ...data.warehouseDepreciation,
+      },
+    }),
+    ...(data.dataCentreRevenue && {
+      dataCentreRevenue: {
+        ...prev.dataCentreRevenue,
+        ...data.dataCentreRevenue,
+      },
+    }),
+    ...(data.dataCentreOtherIncome && {
+      dataCentreOtherIncome: {
+        ...prev.dataCentreOtherIncome,
+        ...data.dataCentreOtherIncome,
+      },
+    }),
+    ...(data.dataCentreOpEx && {
+      dataCentreOpEx: {
+        ...prev.dataCentreOpEx,
+        ...data.dataCentreOpEx,
+      },
+    }),
+    ...(data.dataCentreDepreciation && {
+      dataCentreDepreciation: {
+        ...prev.dataCentreDepreciation,
+        ...data.dataCentreDepreciation,
+      },
+    }),
   };
 }
 
@@ -1942,6 +3420,24 @@ const useFinModelStore = create<FinModelStore>()(
                 ...prev.softCostAllocation,
                 ...data.softCostAllocation,
               },
+            }),
+            ...(data.warehouseConfig && {
+              warehouseConfig: {
+                ...prev.warehouseConfig,
+                ...data.warehouseConfig,
+              } as WarehouseConfig,
+            }),
+            ...(data.industrialParkConfig && {
+              industrialParkConfig: {
+                ...prev.industrialParkConfig,
+                ...data.industrialParkConfig,
+              } as IndustrialParkConfig,
+            }),
+            ...(data.warehouseCosts && {
+              warehouseCosts: {
+                ...prev.warehouseCosts,
+                ...data.warehouseCosts,
+              } as WarehouseCosts,
             }),
           };
           const syncConstructionToFinancing =
@@ -2887,6 +4383,22 @@ export function buildCashOutflowProfile(
   // cashOutflows.constructionCost is already the final value (including contingency)
   const constructionFinal = cashOutflows.constructionCost || 0;
   const construction = (() => {
+    // Data Centre: use translated monthly CapEx from category S-curves when present.
+    const dcMonthly = cashOutflows.monthlyConstructionCosts;
+    if (
+      dcMonthly &&
+      dcMonthly.length === constructionPeriod + 1 &&
+      dcMonthly.some((v) => (v || 0) > 0)
+    ) {
+      const arr = dcMonthly.map((v) => v || 0);
+      const sum = arr.reduce((s, v) => s + v, 0);
+      const diff = constructionFinal - sum;
+      if (Math.abs(diff) > 1e-6 && arr.length > 0) {
+        arr[arr.length - 1] += diff;
+      }
+      return arr;
+    }
+
     // Use professional market-based S-curve when project context is available.
     try {
       if (projectInfo) {

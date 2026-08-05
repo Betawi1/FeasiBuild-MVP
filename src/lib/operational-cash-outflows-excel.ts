@@ -120,7 +120,7 @@ export type OperationalMonthlyExportArgs = {
 
 /**
  * Operational "Monthly (000)": columns = M0…Mn + Total; rows = cost lines
- * (profile timing for construction / POWC / soft; FFE ∝ construction when hotel).
+ * (profile timing for construction / POWC / soft; FFE ∝ construction S-curve).
  */
 export function buildOperationalMonthlyExportRows(
   args: OperationalMonthlyExportArgs
@@ -190,7 +190,11 @@ export function buildOperationalMonthlyExportRows(
   const ffeMonthly = profile.ffe || [];
   const showFfe =
     ffeTotal > 0 &&
-    (projectInfo.buildingType === "hotel" || projectInfo.buildingType === "retail");
+    (projectInfo.buildingType === "hotel" ||
+      projectInfo.buildingType === "retail" ||
+      projectInfo.buildingType === "office" ||
+      projectInfo.buildingType === "residential" ||
+      projectInfo.buildingType === "warehouse");
 
   const period = cashOutflows.constructionPeriod || 0;
   const powcSubs = allocatePowcSubMonthlyFromStep13(
@@ -232,7 +236,7 @@ export function buildOperationalMonthlyExportRows(
   ];
 
   if (showFfe) {
-    rows.push(rowFromMonthly("FFE", ffeMonthly, ffeTotal));
+    rows.push(rowFromMonthly("FF&E", ffeMonthly, ffeTotal));
   }
 
   const po = cashOutflows.powcAllocation ?? { ...DEFAULT_POWC_ALLOCATION };
@@ -470,7 +474,13 @@ export function buildOperationalCashOutExcelSheets(
         ? "Hotel — % of CC incl. contingency in wizard"
         : projectInfo.buildingType === "retail"
           ? "Retail — % of CC incl. contingency in wizard"
-          : "N/A for non-hotel / non-retail",
+          : projectInfo.buildingType === "office"
+            ? "Office — % of CC incl. contingency in wizard"
+            : projectInfo.buildingType === "residential"
+              ? "Residential — % of CC incl. contingency in wizard"
+              : projectInfo.buildingType === "warehouse"
+                ? "Warehouse / Industrial — % of CC incl. contingency in wizard"
+                : "N/A",
     ],
     ["", "", "", "", ""],
     [

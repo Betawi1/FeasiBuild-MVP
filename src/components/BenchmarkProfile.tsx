@@ -25,12 +25,15 @@ const ASSET_TYPE_DISPLAY: Record<string, string> = {
   retail: "Shopping Mall",
   office: "Office",
   residential: "Residential",
+  warehouse: "Warehouse / Industrial",
+  data_centre: "Data Centre",
 };
 
 export default function BenchmarkProfile() {
   const streamPrefix = useStreamPrefix();
   const finStream = streamKeyFromPrefix(streamPrefix);
   const projectInfo = useFinModelStore((s) => s[finStream].projectInfo);
+  const cashOutflows = useFinModelStore((s) => s[finStream].cashOutflows);
   const buildingType = projectInfo?.buildingType || "hotel";
 
   const assetTypeDisplay =
@@ -48,6 +51,14 @@ export default function BenchmarkProfile() {
         return formatToken(projectInfo.officeSegment) || "High-Rise Tower";
       case "residential":
         return formatToken(projectInfo.residentialSegment) || "High-Rise";
+      case "warehouse":
+        return (
+          formatToken(cashOutflows.warehouseSubType) ||
+          formatToken(cashOutflows.developmentType) ||
+          "Bulk Distribution"
+        );
+      case "data_centre":
+        return formatToken(projectInfo.dataCentreSegment) || "Colocation";
       default:
         return "";
     }
@@ -65,6 +76,17 @@ export default function BenchmarkProfile() {
         return formatToken(projectInfo.officePositioning) || "Grade A";
       case "residential":
         return formatToken(projectInfo.residentialPositioning) || "Grade A";
+      case "warehouse":
+        return formatToken(cashOutflows.qualityGrade) || "Grade A";
+      case "data_centre":
+        return (
+          [
+            formatToken(projectInfo.dataCentreTierLevel),
+            formatToken(projectInfo.dataCentrePositioning),
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Tier Iii · Standard"
+        );
       default:
         return "";
     }
