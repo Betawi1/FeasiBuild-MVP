@@ -22,6 +22,7 @@ export type DataCentreCommentarySection =
   | "Market - Historical & Projected Market Metrics (Power, Pricing, Utilization)"
   | "Market - Current & Projected Supply Pipeline"
   | "Market - Competitive Landscape & Benchmarking"
+  | "Market - Competitive Analysis (Pricing, PUE & Latency)"
   | "Market - Target Tenant & Catchment Profile"
   | "Market - Market Summary & Project Implications"
   | "Market Implications"
@@ -226,6 +227,15 @@ Benchmark vs Equinix, GDS, Telco/hyperscale campuses, and local operators on:
 - Fiber connectivity and latency to major hubs (Singapore, KL, Hong Kong, Tokyo)
 DO NOT benchmark warehouses, industrial parks, malls, or residential towers.`,
 
+    "Market - Competitive Analysis (Pricing, PUE & Latency)": `
+Generate a VERY BRIEF commentary (max 2 bullet points, ~12 words each) for the Data Centre competitive analysis slide in ${loc}.
+${details}
+
+Focus only on: pricing competitiveness vs peers (Equinix, GDS-class), PUE efficiency advantage, and connectivity/latency benefits.
+Keep it extremely concise for a presentation slide with 3 charts.
+Return JSON: { "paragraphs": string[] } with at most 2 short strings.
+DO NOT write long paragraphs. DO NOT benchmark warehouses, malls, or residential.`,
+
     "Market - Target Tenant & Catchment Profile": `
 Describe the target tenant profile for a ${assetLabel} in ${loc}.
 ${details}
@@ -380,6 +390,11 @@ export function generateDataCentreCommentaryFallback(
         `Primary competition comprises colo and wholesale campuses within ${ctx.city}'s digital catchment (including regional platforms such as Equinix / GDS-class operators where present).`,
         `Benchmark assets achieve utilization above ${ctx.occupancyRate}% with PUE and Tier specs matching institutional standards.`,
         `Differentiation rests on power density, latency, fiber diversity, and ESG / renewable credentials.`,
+      ];
+    case "Market - Competitive Analysis (Pricing, PUE & Latency)":
+      return [
+        `Subject pricing and PUE ${ctx.pue} compete with Equinix / GDS-class peers in ${ctx.city}.`,
+        `Fiber diversity and hub latency support enterprise and cloud connectivity.`,
       ];
     case "Market - Target Tenant & Catchment Profile":
       return [

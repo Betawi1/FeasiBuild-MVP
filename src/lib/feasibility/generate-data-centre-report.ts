@@ -90,7 +90,7 @@ export const DATACENTRE_AI_SLIDE_SECTIONS: Array<{
   },
   {
     slideId: "datacentre-competitive-analysis",
-    section: "Market - Competitive Landscape & Benchmarking",
+    section: "Market - Competitive Analysis (Pricing, PUE & Latency)",
   },
   {
     slideId: "datacentre-tenant-profile",
@@ -180,15 +180,16 @@ export async function generateDataCentreCommentary(
         generateDataCentreCommentaryFallback(section, bundle)
       );
     }
-    // Keep operational-assumption slides presentation-length
+    // Keep chart / assumption slides presentation-length
     if (
       section === "Operational Revenues" ||
-      section === "Operational Expenses"
+      section === "Operational Expenses" ||
+      section === "Market - Competitive Analysis (Pricing, PUE & Latency)"
     ) {
       return cleanAIContent(raw)
         .map((p) => p.trim())
         .filter(Boolean)
-        .slice(0, 3);
+        .slice(0, section === "Market - Competitive Analysis (Pricing, PUE & Latency)" ? 2 : 3);
     }
     return raw;
   } catch (error) {
@@ -366,7 +367,7 @@ function generateDataCentreMarketSlides(
       subtitle: "Competitive Analysis — Pricing, PUE & Latency",
       paragraphs: commentary(
         bundle,
-        "Market - Competitive Landscape & Benchmarking"
+        "Market - Competitive Analysis (Pricing, PUE & Latency)"
       ),
       data: buildDataCentreCompetitiveAnalysisData(bundle),
     },
