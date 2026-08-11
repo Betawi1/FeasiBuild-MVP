@@ -75,28 +75,44 @@ export default function SaleComponent3Docs() {
           </div>
 
           {/* Phase 2 */}
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-5">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="h-3 w-3 rounded-full bg-amber-500"></div>
-              <h3 className="text-lg font-semibold text-white">Phase 2: Post-Completion (M31–M36)</h3>
-              <span className="ml-auto text-xs font-medium text-amber-400 bg-amber-500/10 px-2 py-1 rounded">FIXED 6-MONTH PERIOD</span>
+          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h4 className="text-lg font-semibold text-amber-400">
+                Phase 2: Post-Completion Collection Period
+              </h4>
+              <span className="shrink-0 rounded border border-amber-700 bg-amber-900/50 px-2 py-1 text-xs font-medium text-amber-400">
+                DYNAMIC JURISDICTION TIMELINE
+              </span>
             </div>
-            <p className="text-slate-400 text-sm mb-3">
-              <strong className="text-amber-300">Fixed 6-Month Buffer:</strong> After construction completion,
-              FeasiBuild automatically extends the timeline by 6 months to capture final sales collections,
-              handover payments, and mortgage disbursements from banks.
+            <p className="mb-4 text-slate-300">
+              After construction completion, FeasiBuild automatically extends the timeline to capture
+              final sales collections, handover payments, and mortgage disbursements. Unlike a fixed
+              buffer, this period is{' '}
+              <strong className="text-white">
+                dynamically calculated based on your project&apos;s jurisdiction and asset type
+              </strong>
+              :
             </p>
-            <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
-              <li>No construction outflows during this period</li>
-              <li>Sales revenue continues (final payments, handover collections)</li>
-              <li>Cash flow typically turns positive as collections exceed zero outflows</li>
-              <li>Helps close the funding gap before financing costs are applied</li>
+            <ul className="mb-4 list-disc space-y-2 pl-5 text-slate-300">
+              <li>
+                <strong className="text-white">Malaysia (HDA):</strong> Construction Period + 24 months
+                (to account for VP retention and staged releases).
+              </li>
+              <li>
+                <strong className="text-white">UAE / Australia:</strong> Construction Period + 12 months
+                (standard escrow release and final settlement).
+              </li>
+              <li>
+                <strong className="text-white">Commercial / Non-Escrow:</strong> Construction Period + 6
+                months (direct sales collection).
+              </li>
             </ul>
-            <div className="mt-4 p-3 rounded bg-amber-500/10 border border-amber-500/20">
-              <p className="text-xs text-amber-200">
-                <strong>Why Fixed?</strong> In real estate development, not all buyers pay immediately at
-                construction completion. Mortgage approvals, handover paperwork, and final payment collections
-                typically take 3-6 months. This buffer ensures realistic cash flow modeling.
+            <div className="rounded-r border-l-4 border-amber-500 bg-slate-900/50 p-4">
+              <p className="text-sm text-slate-400">
+                <strong className="text-amber-200">Why Dynamic?</strong> Different jurisdictions have
+                strict regulatory timelines for escrow release, defect liability periods, and final title
+                transfers. FeasiBuild enforces these canonical horizons to ensure realistic cash flow
+                modeling and accurate IRR calculations.
               </p>
             </div>
           </div>

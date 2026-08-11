@@ -90,8 +90,8 @@ export default function SaleComponent2Docs() {
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Average Sales Price (AED/sqft)</h4>
             <p className="text-sm text-slate-400 mb-3">
-              Use market comparables and AI-researched benchmarks to determine your average price. In production,
-              this will be dynamically researched based on your location, building type, and market positioning.
+              Use market comparables and AI-researched benchmarks to determine your average price. These values are
+              dynamically researched in real-time by the AI based on your exact pin-drop location and building type.
             </p>
             <div className="p-3 rounded bg-emerald-500/10 border border-emerald-500/30">
               <p className="text-xs text-emerald-300 font-medium mb-1">Unadjusted Sales Revenue (Gross)</p>

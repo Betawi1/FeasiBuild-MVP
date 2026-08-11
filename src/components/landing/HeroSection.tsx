@@ -8,13 +8,6 @@ export default function HeroSection() {
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-emerald-500/5 via-slate-950 to-slate-950" />
 
       <div className="relative mx-auto max-w-7xl text-center">
-        <div className="mb-8 inline-flex items-center rounded-full border border-slate-700 bg-slate-800/50 px-4 py-2">
-          <span className="mr-2 flex h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-          <span className="text-sm font-medium text-emerald-400">
-            Now in Private Beta
-          </span>
-        </div>
-
         <h1 className="mb-6 text-5xl font-bold tracking-tight text-white md:text-6xl lg:text-7xl">
           The AI-Powered Financial Engine
           <br />
@@ -27,15 +20,16 @@ export default function HeroSection() {
           Built for developers, investors, financiers, and consultants, FeasiBuild
           transforms raw project data into bankable feasibility studies. AI-powered
           market research, automated financial modeling, and intelligent content
-          generation—delivered in institutional format.
+          generation—delivered in institutional format, production-ready for your
+          next underwriting cycle.
         </p>
 
         <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
-            href="/waitlist"
+            href="/sign-up"
             className="w-full rounded-xl bg-emerald-500 px-8 py-4 text-lg font-bold text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-600 sm:w-auto"
           >
-            Request Beta Access
+            Launch App
           </Link>
         </div>
 
@@ -55,4 +49,3 @@ export default function HeroSection() {
     </section>
   );
 }
-

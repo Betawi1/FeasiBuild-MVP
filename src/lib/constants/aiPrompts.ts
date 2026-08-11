@@ -952,10 +952,27 @@ const ASSET_TYPE_TO_PROMPT_KEY: Record<AiAssetType, keyof typeof AI_PROMPTS> = {
   "operational-data-centre": "operationalDataCentre",
 };
 
-export function getSystemPrompt(assetType: AiAssetType): string {
+const CLAUDE_JSON_STRICT_INSTRUCTIONS = `
+**CRITICAL INSTRUCTIONS (Claude):**
+1. You MUST return ONLY valid JSON — NO markdown, NO explanations, NO reasoning text
+2. Do NOT use code blocks (\`\`\`) — return raw JSON only
+3. Do NOT add any text before or after the JSON
+4. Do NOT use <reasoning> tags or STEP / ## headers
+5. Your response must start with { and end with }
+6. If you cannot provide a value, use null or 0 — DO NOT explain why
+
+**OUTPUT FORMAT:**
+Return ONLY the requested JSON structure with no additional text.
+`;
+
+export function getSystemPrompt(assetType: AiAssetType, model?: string): string {
   const key = ASSET_TYPE_TO_PROMPT_KEY[assetType];
   const base = AI_PROMPTS[key]?.systemPrompt ?? AI_PROMPTS.hotel.systemPrompt;
-  return `${base}\n${HYPER_LOCAL_INSTRUCTIONS}`;
+  const withLocal = `${base}\n${HYPER_LOCAL_INSTRUCTIONS}`;
+  if (model && /claude/i.test(model)) {
+    return `${withLocal}\n${CLAUDE_JSON_STRICT_INSTRUCTIONS}`;
+  }
+  return withLocal;
 }
 
 function isSaleLandedAssetType(assetType: AiAssetType): boolean {

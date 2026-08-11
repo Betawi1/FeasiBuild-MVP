@@ -4,6 +4,9 @@ import {
   getCachedContent,
   setCachedContent,
 } from "@/lib/cache-service";
+import { extractJsonFromClaudeResponse } from "@/lib/extract-json-from-claude";
+import { DEFAULT_MODEL, getPreferredModel } from "@/lib/puter-kv-preferences";
+import { isClaudeModel } from "@/lib/puter-models";
 import {
   COMMENTARY_NO_QUOTES_CONSTRAINT,
   parseAIParagraphs,
@@ -39,8 +42,8 @@ export interface AIProvider {
 
 /** Centralized Puter model config for feasibility study commentary / charts. */
 export const AI_MODEL_CONFIG = {
-  FEASIBILITY_STUDY: "qwen/qwen3.7-plus",
-  FALLBACK: "qwen/qwen3.7-plus",
+  FEASIBILITY_STUDY: DEFAULT_MODEL,
+  FALLBACK: DEFAULT_MODEL,
   TEMPERATURE: 0.6,
   MAX_TOKENS: 6000,
   /** REQUIRED for Qwen 3.7 Plus on Puter */
@@ -49,7 +52,7 @@ export const AI_MODEL_CONFIG = {
 
 if (typeof window !== "undefined") {
   console.log("[AI Service] Configuration:", {
-    model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+    defaultModel: DEFAULT_MODEL,
     temperature: AI_MODEL_CONFIG.TEMPERATURE,
     maxTokens: AI_MODEL_CONFIG.MAX_TOKENS,
     stream: AI_MODEL_CONFIG.STREAM,
@@ -362,22 +365,35 @@ async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
 
 async function chatWithPuter(
   puter: NonNullable<typeof window.puter>,
-  prompt: string
+  prompt: string,
+  extras?: { jsonMode?: boolean }
 ): Promise<string> {
+  const model = await getPreferredModel();
+  const claude = isClaudeModel(model);
+  const temperature = extras?.jsonMode
+    ? 0.1
+    : claude
+      ? 0.3
+      : AI_MODEL_CONFIG.TEMPERATURE;
   console.log(
     "[AI Service] Generating with model:",
-    AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+    model,
     "(stream:",
     AI_MODEL_CONFIG.STREAM,
+    "temp:",
+    temperature,
     ")"
   );
 
   const callOnce = async (stream: boolean): Promise<string> => {
     const response = await puter.ai.chat(prompt, {
-      model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+      model,
       stream,
-      temperature: AI_MODEL_CONFIG.TEMPERATURE,
+      temperature,
       max_tokens: AI_MODEL_CONFIG.MAX_TOKENS,
+      ...(extras?.jsonMode
+        ? { response_format: { type: "json_object" as const } }
+        : {}),
     });
     return handleStreamingResponse(response);
   };
@@ -400,20 +416,17 @@ async function chatWithPuter(
 
     if (!content || !content.trim()) {
       console.error("[AI Service] Invalid/empty Puter response:", {
-        model: AI_MODEL_CONFIG.FEASIBILITY_STUDY,
+        model,
         promptPreview: prompt?.substring(0, 200),
         promptLength: prompt?.length ?? 0,
         contentLength: content?.length ?? 0,
       });
       throw new Error(
-        `[AI Service] Invalid/empty streaming response for model ${AI_MODEL_CONFIG.FEASIBILITY_STUDY}`
+        `[AI Service] Invalid/empty streaming response for model ${model}`
       );
     }
 
-    console.log(
-      "[AI Service] Response received from model:",
-      AI_MODEL_CONFIG.FEASIBILITY_STUDY
-    );
+    console.log("[AI Service] Response received from model:", model);
 
     return content;
   } catch (error: unknown) {
@@ -601,15 +614,12 @@ class PuterAIProvider implements AIProvider {
         throw new Error("Puter.js is not loaded");
       }
 
-      const chartPrompt = `${prompt}\n\nReturn ONLY valid JSON. No markdown formatting.`;
-      const content = await chatWithPuter(puter, chartPrompt);
+      const chartPrompt = `${prompt}\n\nReturn ONLY valid JSON. No markdown formatting, no reasoning text, no code fences. The response must start with { or [.`;
+      const content = await chatWithPuter(puter, chartPrompt, {
+        jsonMode: true,
+      });
 
-      const jsonStr = content
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "")
-        .trim();
-
-      const parsed = JSON.parse(jsonStr);
+      const parsed = extractJsonFromClaudeResponse(content);
       console.log(`[AI Service] Chart data parsed for: ${logKey}`);
 
       if (chartCacheKey && parsed) {

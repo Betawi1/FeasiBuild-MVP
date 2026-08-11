@@ -5,7 +5,7 @@ export default function OperationalStream() {
     <div className="space-y-12">
       <h1 className="text-3xl font-bold text-white mb-6">Operational Stream</h1>
       <p className="text-slate-300 leading-relaxed mb-10">
-        The Operational Stream models hold assets that generate recurring income over their lifecycle — Hotels, Retail (Mall), Offices, and Residential (Build-to-Rent). Work through the components in order; each step builds on the previous one.
+        The Operational Stream models hold assets that generate recurring income over their lifecycle — Hotels, Retail (Mall), Offices, Residential (Build-to-Rent), <strong className="text-white">Warehouse</strong>, and <strong className="text-white">Data Centre</strong>. Work through the components in order; each step builds on the previous one.
       </p>
 
       <section className="mb-10">

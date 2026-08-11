@@ -10,11 +10,6 @@ export default function AIResearchDocs() {
           a location and asset type, AI works in the background to research market benchmarks, calibrate financial
           models, and generate institutional-grade commentary.
         </p>
-        <div className="mt-6 p-4 rounded-lg border border-blue-500/30 bg-blue-500/5 text-sm text-blue-200">
-          <strong>MVP vs. Production:</strong> This page clearly distinguishes between what the AI does in the
-          current MVP (using pre-researched static databases) and what it will do in the Production version
-          (conducting dynamic, real-time market research).
-        </div>
       </div>
 
       {/* Core Pillars */}
@@ -29,29 +24,13 @@ export default function AIResearchDocs() {
             values for construction rates, land costs, revenue benchmarks, and operating expense ratios.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-            <div className="rounded-lg border border-slate-700 bg-slate-900 p-5">
-              <h3 className="text-white font-semibold mb-2 flex items-center gap-2">
-                <span className="text-xs font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-400">MVP</span>
-                Pre-Researched Placeholders
-              </h3>
-              <p className="text-sm text-slate-400">
-                In the MVP, the AI has already conducted extensive market research. When you select &quot;Residential - High-Rise - Dubai&quot;,
-                the system pulls pre-calculated, static benchmark values from our curated database (e.g., ADCB Project Database).
-                These serve as highly accurate starting anchors.
-              </p>
-            </div>
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5">
-              <h3 className="text-emerald-400 font-semibold mb-2 flex items-center gap-2">
-                <span className="text-xs font-bold px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">PRODUCTION</span>
-                Dynamic Real-Time Research
-              </h3>
-              <p className="text-sm text-slate-400">
-                In Production, the AI will conduct live market research the moment you make your selections. It will scrape
-                and analyze current transaction data, construction cost indices, and rental comparables to generate
-                bespoke, up-to-the-minute placeholder values and S-Curve phasing profiles.
-              </p>
-            </div>
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5 mt-6">
+            <h3 className="text-emerald-400 font-semibold mb-2">Dynamic Real-Time Research</h3>
+            <p className="text-sm text-slate-400">
+              FeasiBuild conducts live market research the moment you make your selections. It scrapes and analyzes
+              current transaction data, construction cost indices, and rental comparables to generate bespoke,
+              up-to-the-minute placeholder values and S-Curve phasing profiles.
+            </p>
           </div>
         </section>
 
@@ -102,9 +81,6 @@ export default function AIResearchDocs() {
               <li><strong className="text-white">Market Commentary:</strong> AI-researched context about the specific sub-market (e.g., Dubai Marina high-rise trends).</li>
               <li><strong className="text-white">Risk Factors:</strong> Automatically generated risk matrices based on the scenario analysis.</li>
             </ul>
-            <p className="text-sm text-slate-400 mt-4">
-              <em>(Note: This capability is fully operational in the current MVP version.)</em>
-            </p>
           </div>
         </section>
 

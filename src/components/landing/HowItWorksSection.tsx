@@ -3,7 +3,7 @@ const steps = [
     number: "01",
     title: "Define the Benchmark",
     description:
-      "Select asset class, location, segment and scale. Set the macro context that drives market logic and pricing.",
+      "Pin-drop your project location on the interactive map to capture exact coordinates. Select asset class, segment, and scale to set the macro context.",
   },
   {
     number: "02",

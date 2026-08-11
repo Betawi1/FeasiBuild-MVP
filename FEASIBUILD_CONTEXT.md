@@ -25,7 +25,7 @@ FeasiBuild runs **two parallel financial streams**, selected from the dashboard.
 
 | Stream | Entry | Intent | Asset types |
 |--------|--------|--------|-------------|
-| **Operational** | `/operational` → `/operational/cash-outflows` | Hold / income-producing assets | Hotel, Retail (mall), Office, Residential BTR, Warehouse |
+| **Operational** | `/operational` → `/operational/cash-outflows` | Hold / income-producing assets | Hotel, Retail (mall), Office, Residential BTR, Warehouse, **Data Centre** (`data_centre` / enrich key `datacentre`) |
 | **Sale** | `/sale` → `/sale/cash-outflows` | Build-to-sell developments | Residential landed / high-rise, Commercial landed / strata office, **Commercial strata warehouse** (`commercial_strata_warehouse`) |
 
 **Key routing / layout**
@@ -55,11 +55,23 @@ Each Component ends with a **preview** (“Generate Model”) that materializes 
 **C1 Cash Outflows (~13 UI steps, both streams)**  
 Project Location → Currency → Asset / Building Type → Segmentation → Building Configuration → Construction Costs → Contingency → Soft Costs / POWC / FF&E → Land → Construction Period → Phasing (S-curve) → Review → Generate Model.
 
-- Ops page: `src/app/operational/cash-outflows/page.tsx` (+ `steps/`, warehouse-specific steps)
+- Ops page: `src/app/operational/cash-outflows/page.tsx` (+ `steps/`, warehouse- and **data-centre**-specific steps)
 - Sale page: `src/app/sale/cash-outflows/page.tsx` (+ **Sale warehouse Path A** steps under `src/app/sale/cash-outflows/steps/`)
 - Shared UI: `src/components/cash-outflows/`
 - Step name maps: `src/lib/operational-audit-fields.ts`, `src/lib/sale-audit-fields.ts`
 - Sale warehouse types: `src/types/sale-warehouse-config.ts`
+
+**Operational Data Centre C1 steps (gated by `buildingType === "data_centre"`)**
+
+| Step | Component |
+|------|-----------|
+| Segmentation | `DataCentreSegmentationStep.tsx` |
+| Building config | `DataCentreBuildingConfigStep.tsx` |
+| Construction costs | `DataCentreConstructionCostsStep.tsx` |
+| Phasing | `DataCentreConstructionPhasingStep.tsx` |
+| Review | `DataCentreReviewSummaryStep.tsx` |
+
+Costs preview: `src/app/operational/preview/cash-outflows/components/cash-outflows-table-data-centre.tsx`.
 
 **Sale warehouse C1 steps (gated by `buildingSubType === "commercial_strata_warehouse"`)**
 
@@ -74,9 +86,10 @@ Project Location → Currency → Asset / Building Type → Segmentation → Bui
 Warehouse CapEx lives in store `cashOutflows.warehouseCosts` / `warehousePhasing` (shared shape with Ops) plus flat sale rates (`warehouseBuildingRate`, FF&E %, etc.). Saleable ratio forced to **100%** for warehouse.
 
 **C2 Cash Inflows**  
-- Operational: 4–5 steps by asset (hotel 5; retail / office / BTR / warehouse 4) → preview P&L  
+- Operational: 4–5 steps by asset (hotel 5; retail / office / BTR / warehouse / **data centre** 4) → preview P&L  
 - Sale: 8 steps (Saleable BUA → ASP → Cash / Mortgage buyers → Uptake → Mix & deductions → Defaults & bulk → Launch timing) → preview sales CF  
-- Warehouse sale: C2 shows conditional **FF&E** between Construction and Soft Costs in pre-financing cash-flow preview
+- Warehouse sale: C2 shows conditional **FF&E** between Construction and Soft Costs in pre-financing cash-flow preview  
+- **Data Centre C2 UI:** `c2s1`–`c2s4` under `operational/cash-inflows/components/` (`*-data-centre.tsx`); P&L series `src/lib/data-centre-pnl-series.ts`; table `DataCentrePnlTable.tsx`; AI helpers `src/lib/data-centre-ai.ts`
 
 **C3–C5** mostly configure or review engines already fed by C1/C2 (+ financing inputs in C4).  
 **C6** applies base / downside / upside shocks and re-runs C1–C5 engines.
@@ -121,6 +134,10 @@ Scenario engines:
 | Concern | Paths |
 |---------|--------|
 | **Frontend wizards** | `src/app/operational/**`, `src/app/sale/**`, `src/components/cash-outflows/`, `src/components/BenchmarkProfile.tsx`, `src/components/PreviewFloatingBar.tsx` |
+| **Ops warehouse C1** | `src/app/operational/cash-outflows/steps/Warehouse*.tsx` |
+| **Ops data centre C1** | `src/app/operational/cash-outflows/steps/DataCentre*.tsx` |
+| **Ops data centre C2 / P&L** | `operational/cash-inflows/components/c2s*-data-centre.tsx`, `src/lib/data-centre-ai.ts`, `src/lib/data-centre-pnl-series.ts`, `preview/pnl/components/DataCentrePnlTable.tsx` |
+| **Ops data centre feasibility** | `src/lib/feasibility/data-centre-context.ts`, `build-data-centre-market-data.ts`, `generate-data-centre-commentary.ts`, `generate-data-centre-report.ts`; slides `src/components/feasibility/slides/DataCentre*.tsx`; enrich router key **`datacentre`** in `enrich-operational-slides-puter.ts` (**resolve DC before BTR** to avoid wrong-asset decks) |
 | **Sale warehouse C1** | `src/app/sale/cash-outflows/steps/SaleWarehouse*.tsx`, `src/types/sale-warehouse-config.ts` |
 | **Sale cash / NCF** | `src/lib/sale-cash-preview-profile.ts` (`buildSaleCashflowDetailProfile`, `buildSalePreFinancingCashFlows`) |
 | **Sale financing UI** | `src/app/sale/preview/financing/` (bridge, MY/UAE/AU tables, export) |
@@ -129,6 +146,7 @@ Scenario engines:
 | **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts` |
 | **Calculation engine** | `src/lib/irr-calculations.ts`, `equity-irr.ts`, `operational-pnl.ts`, `operational-project-irr-pnl.ts`, `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, `src/app/operational/engine/c4.levered.engine.ts`, `c5.equity.engine.ts` |
 | **Report generator** | `src/lib/feasibility/**`, `src/types/feasibility.ts`, `src/components/feasibility/**`, `src/app/api/feasibility/**`, `src/lib/pdf-export.ts` |
+| **Shared UI helpers** | `src/components/ui/AiInput.tsx` (override / reset baseline; avoid `string === number` comparisons under TS strict narrowing) |
 
 **Sale feasibility deck rules (presentation, not engine math)**
 
@@ -148,7 +166,7 @@ Two AI layers; both are **Qwen-family via Puter.js** on the client (no OpenAI/An
 |------|--------|
 | **Hook** | `src/hooks/useAiResearch.ts` → `performResearch()` |
 | **API** | Client `puter.ai.chat` (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`) |
-| **Model** | `qwen/qwen3.7-plus` (`AI_RESEARCH_MODEL`) |
+| **Model** | User-selectable via Puter KV (`src/lib/puter-models.ts`); default `qwen/qwen3.7-plus` (`getPreferredModel`) |
 | **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` |
 | **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt`, `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
 | **Auth / status** | `src/lib/puter-auth.ts`, `src/lib/cache-service.ts` (`checkPuterStatus`) |
@@ -179,12 +197,12 @@ Two AI layers; both are **Qwen-family via Puter.js** on the client (no OpenAI/An
 
 | Item | Detail |
 |------|--------|
-| **Client path (primary)** | `src/lib/ai-service.ts` — `AI_MODEL_CONFIG.FEASIBILITY_STUDY = "qwen/qwen3.7-plus"`, temp `0.6`, max tokens `6000`, streaming preferred |
-| **Ops enrich** | `src/lib/feasibility/enrich-operational-slides-puter.ts` → asset generators (`generate-hotel-report.ts`, `generate-shopping-mall-report.ts`, `generate-office-report.ts`, `generate-btr-report.ts`, `generate-warehouse-report.ts`) |
+| **Client path (primary)** | `src/lib/ai-service.ts` — `getPreferredModel()` (default `qwen/qwen3.7-plus`), temp `0.6`, max tokens `6000`, streaming preferred |
+| **Ops enrich** | `src/lib/feasibility/enrich-operational-slides-puter.ts` → asset generators (`generate-hotel-report.ts`, `generate-shopping-mall-report.ts`, `generate-office-report.ts`, `generate-btr-report.ts`, `generate-warehouse-report.ts`, **`generate-data-centre-report.ts`**) |
 | **Sale enrich** | `src/lib/feasibility/sale/enrich-sale-slides-puter.ts`, `generate-sale-report.ts`, `create-sale-puter-prompts.ts` (warehouse-aware prompts when `assetLabel` is warehouse/industrial) |
 | **Sale subtype → deck template** | `sale-stream-config.ts` — e.g. `commercial_strata_warehouse` → `"Commercial-Strata-Warehouse"` / asset label `"Commercial - Strata Warehouse"` |
 | **Data bundle** | `data-aggregator.ts` (`getFeasibilityProjectBundle`), sale `sale/sale-context.ts` |
-| **Commentary helpers** | `generate-*-commentary.ts`, `clean-ai-content.ts`, `commentary-prompt-utils.ts`; warehouse ops: `generate-warehouse-commentary.ts`, `build-warehouse-market-data.ts`; sale fallbacks: `generate-sale-commentary.ts` |
+| **Commentary helpers** | `generate-*-commentary.ts`, `clean-ai-content.ts`, `commentary-prompt-utils.ts`; warehouse ops: `generate-warehouse-commentary.ts`, `build-warehouse-market-data.ts`; **data centre ops:** `generate-data-centre-commentary.ts`, `build-data-centre-market-data.ts`, `data-centre-context.ts` (hard DO NOT warehouse/BTR/retail/hotel; cache keys scoped by `buildingType`); sale fallbacks: `generate-sale-commentary.ts` |
 | **Operational AI charts** | See modules below — wired from `enrich-operational-slides-puter.ts` with Puter + cache + static fallbacks |
 | **Server optional** | `src/lib/feasibility/qwen-commentary.ts` + `src/app/api/feasibility/*` using `FEASIBILITY_AI_URL` / `FEASIBILITY_AI_API_KEY` / `FEASIBILITY_AI_MODEL` (default `qwen-plus`) |
 | **Deck sections** | Title → Executive (A) → Project (B) → Market (C) → Financial (D); editable in `useFeasibilityStore`; export via `pdf-export.ts` |
@@ -308,30 +326,31 @@ Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx` (`JURISDICTION
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **2 Aug 2026** (Sale Stream Warehouse — Feasibility Study Path A wiring + Puter resilience). Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **5 Aug 2026** (Operational **Data Centre** — C2 stability, full Feasibility Study deck, slide layout / TS hygiene). Prefer editing this file over scattering architecture notes across chats.
 
-### Completed this session (Sale Warehouse Feasibility Study)
+### Completed this session (Operational Data Centre)
 
-- **Sale stream config:** Added `"Commercial-Strata-Warehouse"` to `SALE_CONFIG` + mapped `commercial_strata_warehouse` / kebab + `warehouse_industrial` aliases in `SUBTYPE_TO_CONFIG_KEY` (fixes High-Rise Residential title fallback).
-- **Title / implications:** Title uses warehouse `assetLabel`; implications subtitle resolves Single Warehouse vs Industrial Park from `salesWarehouseConfigType`.
-- **Development Assumptions:** Warehouse CapEx rows (Building & Shell, Site & Yard, Loading & Access, Specialised Systems, Professional Fees, FF&E) via `buildSaleDevelopmentCostsData` + `SaleDevelopmentCostsSlide`.
-- **Puter AI empty stream:** Hardened `ai-service.ts` for typed Puter chunks; non-stream retry; sale commentary falls back to `generateSaleCommentaryFallback` so decks don’t crash.
-- **Warehouse sale prompts:** `create-sale-puter-prompts.ts` injects industrial/logistics guidance when asset is warehouse.
-- **Escrow slide gate:** `sale-escrow` included only for residential subtypes — warehouse/commercial decks omit “Escrow Withdrawal Configuration”.
+- **C2 React “update during render”:** Data Centre `c2s1`–`c2s3` no longer call `updateCashInflows` inside `setState` updaters; local state + `useEffect` persist (ref-safe) so overrides are not wiped.
+- **Data Centre Feasibility Study:** Full deck path mirrored from warehouse — `data-centre-context.ts`, `build-data-centre-market-data.ts`, `generate-data-centre-commentary.ts`, `generate-data-centre-report.ts`, `DataCentre*Slide.tsx`, wired via `enrich-operational-slides-puter.ts` (`case "datacentre"`), `FeasibilitySlideView`, aggregator `dataCentreMetrics`.
+- **Wrong-asset content guardrails:** Resolve **`datacentre` before BTR** in `resolveOperationalAssetType`; DC-only prompts with hard DO NOT (warehouse/BTR/retail/hotel); `assertDataCentreBundle`; reject wrong-asset AI → DC fallback; commentary cache keys / hashes scoped by `buildingType`; UI **Clear AI Cache & Regenerate**.
+- **Slide layout polish:** `DataCentreOperationalAssumptionsSlide` — max 3 short bullets; `DataCentreCompetitiveAnalysisSlide` — **2+1 chart layout** (Pricing + PUE top, Latency centered below), max 2 brief bullets + dedicated commentary section `Market - Competitive Analysis (Pricing, PUE & Latency)`.
+- **Build hygiene:** `AiInput.tsx` — removed invalid `originalValue === 0` after `!== ""` narrowing (TS2367); numeric `0` already passes `!== ""`.
 
-### Prior completed (Sale Warehouse Path A — C1–C4)
+### Prior completed (Sale Warehouse Feasibility / Path A)
 
-- C1 wizard Path A, costs preview CapEx rows, shared `buildSalePreFinancingCashFlows`, C4 FF&E row + engine `monthlyCosts.ffe`, AI research `sale-warehouse` mapping.
+- Sale `"Commercial-Strata-Warehouse"` stream config, Dev Assumptions CapEx, escrow slide residential-only, Puter stream resilience, C1–C4 Path A + FF&E in NCF/financing.
 
-### Next Steps / Remaining — Sale Warehouse & beyond
+### Next Steps / Remaining — Data Centre & beyond
 
-- **End-to-end QA:** C1 → C2 → C3 → C4 → **Feasibility Study** with a real warehouse project (title, market wording, no escrow slide, Dev Assumptions CapEx, Puter or fallback commentary).
-- **C5 Equity / C6 Scenarios** smoke-test with warehouse FF&E in post-financing series.
-- **UX polish:** Confirm Steps 1–3 headers match Step 4 pattern if desired; reduce leftover debug `console.log` on sale IRR/financing pages.
+- **End-to-end QA (Ops Data Centre):** C1 → C2 → C3 → C4 → **Feasibility Study** with a real DC project; after upgrades, **Clear AI Cache & Regenerate** and confirm no warehouse/BTR wording on market / exec slides.
+- **Visual QA:** Competitive Analysis (slide ~12) and Operational Assumptions fit 16:9 without overflow; remaining market slides if cramped.
+- **Sale warehouse E2E:** Still worth a full C1→C6 + Feasibility pass on a live warehouse project (title, no escrow slide, Puter/fallback).
+- **C5 Equity / C6 Scenarios** smoke-test for warehouse FF&E and data-centre series.
 
 ### Still open / fragile
 
 - **Warehouse (Operational) polish:** Verify all AI schema fields (e.g. `free_rent_months`) are fully wired in UI consumers.
+- **Data Centre polish:** Confirm all C1 AI research fields map cleanly into store / review; optional further chart density tuning on other DC market slides.
 - **Scenario Analysis:** Operational / shared scenario pages still carry **placeholder / UI-first** metric paths in places; harden so C6 always re-runs full engines and feeds Feasibility consistently.
 - **Feasibility chrome:** Some preview chrome still shows Feasibility as “Coming Soon” when the study path is disabled.
 - **Jurisdiction / engine hygiene:** Fix **OTHER** horizon vs logic mismatch when `escrowWithdrawalMode` is unset; reduce debug `console.log` noise in `generate-cash-flow.ts`; clarify dual levered IRR definitions in UI.
@@ -349,8 +368,9 @@ Snapshot as of **2 Aug 2026** (Sale Stream Warehouse — Feasibility Study Path 
 5. **Thailand ≠ UAE** — `OTHER` must not inherit UAE escrow strategy by accident.  
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
-8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show HDA/Schedule H escrow.
+8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show HDA/Schedule H escrow.  
+9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.
 
 ---
 
-*Last updated 2 Aug 2026 (Sale Warehouse Feasibility Study — config, Puter resilience, escrow slide gate). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 5 Aug 2026 (Operational Data Centre feasibility deck, C2 persist fix, competitive-analysis layout, AiInput TS fix). Prefer editing this file over scattering architecture notes across chats.*

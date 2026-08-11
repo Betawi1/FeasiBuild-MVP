@@ -205,6 +205,40 @@ export default function Component4FinancingDocs() {
           <p className="text-sm text-slate-400">
             An illustrative IDC mechanics table and DSCR projection table (showing debt service coverage during operations) are generated for review.
           </p>
+
+          <div className="mt-6 rounded-lg border border-blue-700/50 bg-blue-900/20 p-5">
+            <h5 className="mb-2 flex items-center font-semibold text-blue-400">
+              <svg
+                className="mr-2 h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              Canonical Rule: The 1-Month Offset
+            </h5>
+            <p className="mb-3 text-sm text-slate-300">
+              FeasiBuild applies a strict <strong className="text-white">1-month offset</strong> to interest
+              calculations to reflect real-world banking lags:
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-slate-400">
+              <li>
+                <strong className="text-white">Construction / RCF Interest:</strong> Interest payments at Month{' '}
+                <em>t</em> are calculated on the cumulative loan balance at the end of Month <em>t-1</em>.
+              </li>
+              <li>
+                <strong className="text-white">IDC (Interest During Construction):</strong> Accrued interest
+                follows the same prior-period balance logic.
+              </li>
+            </ul>
+          </div>
         </div>
 
         {/* Step 7 */}

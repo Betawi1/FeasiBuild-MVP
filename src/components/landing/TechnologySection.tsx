@@ -36,16 +36,26 @@ export default function TechnologySection() {
             TECHNOLOGY STACK
           </div>
           <h2 className="mb-6 text-3xl font-bold text-white md:text-4xl">
-            Powered by Enterprise-Grade AI
+            Powered by Enterprise-Grade AI &amp; Private Cloud
           </h2>
           <p className="text-lg leading-relaxed text-slate-400">
-            FeasiBuild leverages{" "}
-            <span className="font-semibold text-white">Qwen</span>, an advanced
-            large language model with specialized capabilities in financial
-            analysis and multi-jurisdiction market research. Qwen&apos;s strong
-            performance in structured reasoning and institutional-quality
-            content generation ensures every feasibility study meets
-            professional underwriting standards.
+            FeasiBuild runs on{" "}
+            <span className="font-semibold text-white">Puter.js</span>—your
+            bring-your-own infrastructure layer for both the{" "}
+            <span className="font-semibold text-white">AI Engine (Qwen)</span>{" "}
+            and{" "}
+            <span className="font-semibold text-white">
+              Secure Cloud Storage (KV)
+            </span>
+            . Financial reasoning, multi-jurisdiction market research, and
+            institutional commentary stay under your control: FeasiBuild servers
+            never store your project data, delivering{" "}
+            <span className="font-semibold text-white">data sovereignty</span>{" "}
+            and{" "}
+            <span className="font-semibold text-white">
+              zero-knowledge privacy
+            </span>{" "}
+            by design.
           </p>
         </div>
 

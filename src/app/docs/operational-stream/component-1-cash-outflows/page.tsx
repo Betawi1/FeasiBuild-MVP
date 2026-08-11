@@ -47,7 +47,23 @@ export default function Component1Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 1: Project Location</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Select the <strong className="text-white">country</strong> and <strong className="text-white">city</strong> where the project is located.
+            Select the <strong className="text-white">country</strong> and{" "}
+            <strong className="text-white">city</strong> where the project is located, or use the{" "}
+            <strong className="text-white">interactive map</strong> to virtually pinpoint your exact site.
+          </p>
+          <ul className="space-y-2 text-slate-400 ml-4 list-disc mb-3">
+            <li>
+              <strong className="text-white">Pin-Drop Precision:</strong> Click anywhere on the map to drop a pin.
+              The system captures the exact <strong className="text-white">Latitude and Longitude</strong>. This
+              precision allows the AI Research Engine to pull hyper-local micro-market data (e.g., specific
+              neighborhood trends).
+            </li>
+            <li>
+              <strong className="text-white">Auto-Currency:</strong> Selecting a country automatically suggests the
+              local currency (e.g., Malaysia → MYR), which can be overridden in Step 2.
+            </li>
+          </ul>
+          <p className="text-slate-300 leading-relaxed mb-3">
             This selection is critical because it determines:
           </p>
           <ul className="space-y-1 text-slate-400 ml-4 list-disc">
@@ -92,6 +108,14 @@ export default function Component1Docs() {
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
               <h4 className="text-white font-semibold mb-1">🏠 Residential BTR</h4>
               <p className="text-sm text-slate-400">Revenue from monthly residential leases. Requires unit mix and furnishing level modeling.</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h4 className="text-white font-semibold mb-1">📦 Warehouse / Industrial</h4>
+              <p className="text-sm text-slate-400">Revenue from long-term industrial leases. Requires modeling of loading docks, clear height, and specialized storage.</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h4 className="text-white font-semibold mb-1">🖥️ Data Centre</h4>
+              <p className="text-sm text-slate-400">Revenue from power capacity (MW), rack space, and cooling services. Requires PUE (Power Usage Effectiveness) and IT load modeling.</p>
             </div>
           </div>
         </div>
@@ -235,6 +259,76 @@ export default function Component1Docs() {
                 <tr>
                   <td className="py-2 text-white">Compact Units</td>
                   <td className="py-2">G+4 to G+16, studios & 1BR, young professional demand</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 className="text-white font-semibold mb-2 mt-4">📦 Warehouse Segments</h4>
+          <div className="overflow-x-auto mb-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="text-left py-2 text-slate-400 font-medium">Segment</th>
+                  <th className="text-left py-2 text-slate-400 font-medium">Description</th>
+                  <th className="text-left py-2 text-slate-400 font-medium">Key Features</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                <tr className="border-b border-slate-800">
+                  <td className="py-2 text-white">Grade A / Institutional</td>
+                  <td className="py-2">Large-format, modern logistics facilities</td>
+                  <td className="py-2">10m+ clear height, 30m × 30m column spacing, ESFR sprinklers</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="py-2 text-white">Last-Mile / Urban</td>
+                  <td className="py-2">Smaller facilities in dense urban areas</td>
+                  <td className="py-2">2–5km from city center, rapid delivery focus</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="py-2 text-white">Cold Storage / Refrigerated</td>
+                  <td className="py-2">Temperature-controlled warehousing</td>
+                  <td className="py-2">Freezer (−25°C), Chill (0–4°C), Multi-temp zones</td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-white">Specialized / Heavy Industrial</td>
+                  <td className="py-2">Manufacturing, heavy storage, high power</td>
+                  <td className="py-2">3-phase power, crane facilities, heavy floor loading</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 className="text-white font-semibold mb-2 mt-4">🖥️ Data Centre Segments</h4>
+          <div className="overflow-x-auto mb-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="text-left py-2 text-slate-400 font-medium">Segment</th>
+                  <th className="text-left py-2 text-slate-400 font-medium">Description</th>
+                  <th className="text-left py-2 text-slate-400 font-medium">Key Features</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                <tr className="border-b border-slate-800">
+                  <td className="py-2 text-white">Hyperscale</td>
+                  <td className="py-2">Massive facilities for cloud providers (AWS, Google, Microsoft)</td>
+                  <td className="py-2">50MW+ IT load, campus-style, redundant infrastructure</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="py-2 text-white">Colocation (Retail)</td>
+                  <td className="py-2">Multi-tenant facilities with shared infrastructure</td>
+                  <td className="py-2">1–50MW IT load, flexible rack/cabinet/cage options</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="py-2 text-white">Edge Data Centre</td>
+                  <td className="py-2">Smaller facilities closer to end users</td>
+                  <td className="py-2">&lt;5MW IT load, low latency focus, distributed locations</td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-white">Enterprise / Private</td>
+                  <td className="py-2">Dedicated facility for single organization</td>
+                  <td className="py-2">Custom specs, on-premise or near-premise</td>
                 </tr>
               </tbody>
             </table>

@@ -9,7 +9,8 @@ export default function SaleStreamDocs() {
         <h1 className="text-4xl font-bold text-white mb-4">Sale Stream</h1>
         <p className="text-lg text-slate-400 leading-relaxed">
           The Sale Stream models development-for-sale projects where units are sold upon completion —
-          Residential Towers, Landed Properties, Commercial Strata, and Mixed-Use developments. Work
+          Residential Towers, Landed Properties, Commercial Strata (Office &amp;{' '}
+          <strong className="text-white">Warehouse</strong>), and Mixed-Use developments. Work
           through the components in order; each step builds on the previous one.
         </p>
       </div>

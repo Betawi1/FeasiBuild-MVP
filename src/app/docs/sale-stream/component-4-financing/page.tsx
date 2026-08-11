@@ -4,9 +4,9 @@ export default function SaleComponent4Docs() {
       {/* Header */}
       <div>
         <p className="text-sm font-semibold text-emerald-400 uppercase tracking-wide mb-2">Sale Stream</p>
-        <h1 className="text-4xl font-bold text-white mb-4">Component 4: Residential Financing (Sale)</h1>
+        <h1 className="text-4xl font-bold text-white mb-4">Component 4: Financing (Sale)</h1>
         <p className="text-lg text-slate-400 leading-relaxed">
-          Component 4 models the complete financing structure for for-sale residential developments, including
+          Component 4 models the complete financing structure for for-sale developments, including
           land term loans, construction revolving credit facilities (RCF), escrow-regulated sales proceeds, and
           jurisdiction-specific withdrawal rules. The component uses a dynamic gap-fill engine to determine
           equity requirements and calculates levered Equity IRR based on the waterfall payment structure.
@@ -17,6 +17,12 @@ export default function SaleComponent4Docs() {
           long-term hold financing with DSCR covenants. The focus is on funding the development gap until
           sales collections cover costs.
         </div>
+        <p className="mt-4 text-sm text-slate-400 leading-relaxed">
+          <strong className="text-white">Note:</strong> For{' '}
+          <strong className="text-white">Commercial Strata</strong> assets (Office and Warehouse), the system
+          may apply <strong className="text-white">Non-Escrow</strong> logic or simplified withdrawal rules
+          depending on jurisdiction, as these assets are not subject to residential HDA/RERA regulations.
+        </p>
       </div>
 
       {/* Overview */}
@@ -276,6 +282,49 @@ export default function SaleComponent4Docs() {
               <h4 className="text-white font-medium">Escrow Deposit Rate %</h4>
               <p className="text-sm text-slate-400">The interest rate earned on funds held in the escrow account (default set by jurisdiction, e.g., 3.9%).</p>
             </div>
+          </div>
+
+          <div className="mt-6 rounded-lg border border-blue-700/50 bg-blue-900/20 p-5">
+            <h5 className="mb-2 flex items-center font-semibold text-blue-400">
+              <svg
+                className="mr-2 h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              Canonical Rule: The 1-Month Offset
+            </h5>
+            <p className="mb-3 text-sm text-slate-300">
+              To ensure institutional-grade accuracy, FeasiBuild applies a strict{' '}
+              <strong className="text-white">1-month offset</strong> to specific financial calculations:
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-slate-400">
+              <li>
+                <strong className="text-white">Construction Loan Interest:</strong> Interest at Month{' '}
+                <em>t</em> is calculated on the outstanding loan balance at the end of Month <em>t-1</em>.
+              </li>
+              <li>
+                <strong className="text-white">Escrow / Trust Interest Income:</strong> Interest earned in
+                Month <em>t</em> is based on the prior month&apos;s escrow balance.
+              </li>
+              <li>
+                <strong className="text-white">UAE/KSA Progress Withdrawals:</strong> When a milestone is
+                certified in a given month, the actual cash withdrawal occurs in the{' '}
+                <strong className="text-white">following month</strong>.
+              </li>
+            </ul>
+            <p className="mt-3 text-xs italic text-slate-500">
+              This lag reflects real-world banking and regulatory processing times, preventing the model from
+              overstating early-period cash availability.
+            </p>
           </div>
         </div>
 

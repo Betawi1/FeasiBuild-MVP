@@ -38,6 +38,8 @@ export default function GeneratingStudyDocs() {
               <li>• Supply and demand dynamics</li>
               <li>• Competitive landscape analysis</li>
               <li>• Market positioning and target demographics</li>
+              <li>• <strong className="text-slate-300">Data Centre Specifics:</strong> Power capacity demand, latency requirements, connectivity infrastructure</li>
+              <li>• <strong className="text-slate-300">Warehouse Specifics:</strong> Logistics demand, proximity to transport hubs, last-mile delivery trends</li>
             </ul>
           </div>
 
@@ -48,6 +50,8 @@ export default function GeneratingStudyDocs() {
               <li>• Unit mix and area schedules</li>
               <li>• Construction timeline and phasing</li>
               <li>• Key milestones and deliverables</li>
+              <li>• <strong className="text-slate-300">Data Centre Specifics:</strong> IT load capacity, PUE targets, power infrastructure, cooling systems</li>
+              <li>• <strong className="text-slate-300">Warehouse Specifics:</strong> Clear height, loading dock count, floor loading capacity, specialized storage areas</li>
             </ul>
           </div>
 

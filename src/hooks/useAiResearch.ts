@@ -8,10 +8,11 @@ import {
   type AiResearchOptions,
   type AiResearchResult,
 } from "@/lib/constants/aiPrompts";
+import { extractJsonFromClaudeResponse } from "@/lib/extract-json-from-claude";
+import { getPreferredModel } from "@/lib/puter-kv-preferences";
+import { isClaudeModel } from "@/lib/puter-models";
 
 export type { AiResearchOptions, AiResearchResult } from "@/lib/constants/aiPrompts";
-
-const AI_RESEARCH_MODEL = "qwen/qwen3.7-plus";
 
 function extractChatText(response: unknown): string {
   if (typeof response === "string") return response;
@@ -36,21 +37,47 @@ function extractStreamChunkText(chunk: unknown): string {
   if (!chunk || typeof chunk !== "object") return "";
 
   const c = chunk as {
+    type?: string;
     value?: string;
     text?: string;
     content?: string;
     reasoning?: string;
     message?: { content?: string | Array<{ text?: string }> };
+    choices?: Array<{ delta?: { content?: string }; text?: string }>;
   };
 
+  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
+  // Reasoning / CoT must not be mixed into the JSON parse buffer
+  if (
+    chunkType === "reasoning" ||
+    chunkType === "usage" ||
+    chunkType === "compaction" ||
+    chunkType === "tool_use" ||
+    chunkType === "extra_content"
+  ) {
+    return "";
+  }
+
+  if (typeof c.choices?.[0]?.delta?.content === "string") {
+    return c.choices[0].delta.content;
+  }
   if (typeof c.value === "string") return c.value;
   if (typeof c.text === "string") return c.text;
   if (typeof c.content === "string") return c.content;
-  if (typeof c.reasoning === "string") return c.reasoning;
   if (typeof c.message?.content === "string") return c.message.content;
   if (Array.isArray(c.message?.content)) {
     return c.message.content.map((part) => part.text ?? "").join("");
   }
+  return "";
+}
+
+function extractReasoningChunkText(chunk: unknown): string {
+  if (!chunk || typeof chunk !== "object") return "";
+  const c = chunk as { type?: string; reasoning?: string; text?: string };
+  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
+  if (chunkType !== "reasoning") return "";
+  if (typeof c.reasoning === "string") return c.reasoning;
+  if (typeof c.text === "string") return c.text;
   return "";
 }
 
@@ -62,10 +89,16 @@ async function accumulateChatResponse(response: unknown): Promise<string> {
     Symbol.asyncIterator in response
   ) {
     let fullResponse = "";
+    let reasoningOnly = "";
     for await (const chunk of response as AsyncIterable<unknown>) {
+      reasoningOnly += extractReasoningChunkText(chunk);
       fullResponse += extractStreamChunkText(chunk);
     }
-    return fullResponse;
+    if (reasoningOnly.trim()) {
+      console.log("🧠 AI Reasoning:\n", reasoningOnly.trim());
+    }
+    // If the provider streamed only CoT, keep it so the extractor can still try
+    return fullResponse.trim() ? fullResponse : reasoningOnly;
   }
 
   if (typeof response === "string") return response;
@@ -83,57 +116,12 @@ async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
   return undefined;
 }
 
-/**
- * Robust JSON extraction for AI responses that may include:
- * - markdown code fences (```json ... ```)
- * - <reasoning>...</reasoning> blocks followed by raw JSON
- * - prose before/after the JSON object
- */
-function extractJsonFromResponse(rawText: string): AiResearchResult {
-  const trimmed = rawText.trim();
-
-  // Strategy 1: Look for standard markdown code blocks (```json ... ```)
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim()) as AiResearchResult;
-    } catch {
-      // Fall through to next strategy
-    }
+function parseResearchJson(rawText: string): AiResearchResult {
+  const parsed = extractJsonFromClaudeResponse(rawText);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("AI response JSON was not an object");
   }
-
-  // Strategy 2: Look for JSON specifically after the </reasoning> tag
-  const reasoningMatch = trimmed.match(/<\/reasoning>\s*({[\s\S]*})/);
-  if (reasoningMatch) {
-    try {
-      return JSON.parse(reasoningMatch[1].trim()) as AiResearchResult;
-    } catch {
-      // Fall through to next strategy
-    }
-  }
-
-  // Strategy 3: Find the first '{' and the last '}' in the entire string
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const jsonStr = trimmed.substring(firstBrace, lastBrace + 1);
-    try {
-      return JSON.parse(jsonStr) as AiResearchResult;
-    } catch {
-      // Fall through to next strategy
-    }
-  }
-
-  // Strategy 4: Fallback - try parsing the whole string
-  try {
-    return JSON.parse(trimmed) as AiResearchResult;
-  } catch {
-    // All strategies failed
-  }
-
-  throw new Error(
-    `Unable to parse JSON from AI response. Raw response preview: ${trimmed.substring(0, 300)}...`
-  );
+  return parsed as AiResearchResult;
 }
 
 /** Safety clamp to prevent UI-breaking hallucinations */
@@ -256,27 +244,36 @@ export const useAiResearch = () => {
           );
         }
 
-        const systemPrompt = getSystemPrompt(options.assetType);
+        const model = await getPreferredModel();
+        const claude = isClaudeModel(model);
+        const systemPrompt = getSystemPrompt(options.assetType, model);
         const userPrompt = buildUserPrompt(options);
 
-        console.log("🚀 Sending payload to AI (stream)...");
-        const response = await puter.ai.chat(
+        const chatOptions = {
+          model,
+          stream: true, // REQUIRED for Qwen 3.7 Plus
+          temperature: 0.1,
+          max_tokens: claude ? 12000 : 8000,
+          ...(claude
+            ? { response_format: { type: "json_object" as const } }
+            : {}),
+        };
+
+        console.log("🚀 Sending payload to AI (stream)...", model);
+        let response = await puter.ai.chat(
           [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          {
-            model: AI_RESEARCH_MODEL,
-            stream: true, // REQUIRED for Qwen 3.7 Plus
-            temperature: 0.1, // CRITICAL: Locks creativity for financial accuracy
-            max_tokens: 8000, // REQUIRED: reasoning block + full JSON output
-          }
+          chatOptions
         );
 
-        const rawText = await accumulateChatResponse(response);
+        let rawText = await accumulateChatResponse(response);
         console.log("🔍 Complete AI Response:", rawText);
 
-        const reasoningMatch = rawText.match(/<reasoning>([\s\S]*?)<\/reasoning>/i);
+        const reasoningMatch = rawText.match(
+          /<reasoning>([\s\S]*?)<\/reasoning>/i
+        );
         if (reasoningMatch?.[1]) {
           console.log("🧠 AI Reasoning:\n", reasoningMatch[1].trim());
         }
@@ -287,14 +284,32 @@ export const useAiResearch = () => {
 
         let parsedRaw: AiResearchResult;
         try {
-          parsedRaw = extractJsonFromResponse(rawText);
+          parsedRaw = parseResearchJson(rawText);
           console.log("✅ Successfully parsed AI data:", parsedRaw);
         } catch (parseError) {
-          console.error("❌ JSON Parse Error:", parseError);
-          console.error("Raw Response:", rawText);
-          throw new Error(
-            "Failed to parse AI response. Please try again or check console for details."
+          console.warn(
+            "⚠️ Streamed response was not parseable JSON — retrying without stream",
+            parseError
           );
+          response = await puter.ai.chat(
+            [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            { ...chatOptions, stream: false }
+          );
+          rawText = await accumulateChatResponse(response);
+          console.log("🔍 Non-stream retry response:", rawText);
+          try {
+            parsedRaw = parseResearchJson(rawText);
+            console.log("✅ Successfully parsed AI data (retry):", parsedRaw);
+          } catch (retryError) {
+            console.error("❌ JSON Parse Error:", retryError);
+            console.error("Raw Response:", rawText);
+            throw new Error(
+              "Failed to parse AI response. Please try again or check console for details."
+            );
+          }
         }
 
         // Data-centre AI payload uses a specialised schema (especially for Phase 1 basics).

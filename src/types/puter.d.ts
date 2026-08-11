@@ -38,6 +38,8 @@ interface PuterAI {
       stream?: boolean;
       temperature?: number;
       max_tokens?: number;
+      /** OpenAI-style JSON mode when the provider supports it. */
+      response_format?: { type: "json_object" | "text" };
     }
   ): Promise<
     PuterChatResponse | string | AsyncIterable<PuterStreamChunk | string>

@@ -57,9 +57,11 @@ export default function Component2Docs() {
             <li><strong className="text-white">Hotels:</strong> Number of Keys (Rooms), Year 1 ADR (Average Daily Rate), Occupancy %, and annual inflation/escalation rates.</li>
             <li><strong className="text-white">Retail/Office:</strong> Gross Leasable Area (GLA), Year 1 Rent (psf/psm), Lease-up period, and stabilized occupancy.</li>
             <li><strong className="text-white">Residential:</strong> Unit mix, average rent per unit, and vacancy rates.</li>
+            <li><strong className="text-white">Warehouse:</strong> Total Leasable Area (sqm), Base Rent (psf/psm), Loading Dock count, Clear Height (m), and specialized storage rates.</li>
+            <li><strong className="text-white">Data Centre:</strong> IT Load Capacity (MW), Power Price (per kWh), Rack Count, Cooling Capacity, and PUE (Power Usage Effectiveness) target.</li>
           </ul>
           <p className="text-slate-400 text-sm mt-3 italic">
-            Note: The system automatically calculates the stabilized metrics based on your Year 1 inputs and escalation rates.
+            <strong className="text-white not-italic">Note:</strong> The system automatically calculates the stabilized metrics based on your Year 1 inputs and escalation rates.
           </p>
         </div>
 

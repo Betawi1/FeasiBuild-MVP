@@ -4,6 +4,7 @@ import {
   Calculator,
   FileText,
   GitCompare,
+  LockKeyhole,
   RefreshCw,
 } from "lucide-react";
 
@@ -37,6 +38,12 @@ const features = [
     description:
       "Hotel, mall, office, residential rentals and sale developments—using asset-specific assumptions and outputs.",
     icon: Building2,
+  },
+  {
+    title: "BYO-Infrastructure",
+    description:
+      "FeasiBuild never stores your data. You bring your own AI (via Puter) and your own cloud database (Puter KV). Your financial models remain encrypted in your private cloud, accessible from any device.",
+    icon: LockKeyhole,
   },
   {
     title: "Fast Iteration Loops",

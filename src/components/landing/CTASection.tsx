@@ -11,8 +11,7 @@ export default function CTASection() {
             Ready to streamline your development appraisals?
           </h2>
           <p className="mx-auto mb-8 max-w-2xl text-lg text-slate-400">
-            Join our exclusive beta program and be among the first to deploy
-            FeasiBuild on your next project.
+            Create your account and start modeling your next project today.
           </p>
 
           <div className="flex flex-col justify-center gap-4 sm:flex-row">
@@ -20,12 +19,12 @@ export default function CTASection() {
               href="/sign-up"
               className="rounded-xl bg-emerald-500 px-8 py-4 text-lg font-bold text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-600"
             >
-              Get Early Access
+              Start Modeling
             </Link>
           </div>
 
           <p className="mt-6 text-sm text-slate-500">
-            Free for beta testers • No credit card required
+            No credit card required
           </p>
         </div>
       </div>

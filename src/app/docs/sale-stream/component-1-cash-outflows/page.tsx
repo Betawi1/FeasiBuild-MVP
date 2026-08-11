@@ -56,7 +56,22 @@ export default function SaleComponent1Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 1: Project Location</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Select the <strong className="text-white">country</strong> and <strong className="text-white">city</strong> where the project is located.
+            Select the <strong className="text-white">country</strong> and{" "}
+            <strong className="text-white">city</strong> where the project is located, or use the{" "}
+            <strong className="text-white">interactive map</strong> to virtually pinpoint your exact site.
+          </p>
+          <ul className="space-y-2 text-slate-400 ml-4 list-disc mb-3">
+            <li>
+              <strong className="text-white">Pin-Drop Precision:</strong> Click anywhere on the map to drop a pin.
+              The system captures the exact <strong className="text-white">Latitude and Longitude</strong>. This
+              precision allows the AI Research Engine to pull hyper-local micro-market data.
+            </li>
+            <li>
+              <strong className="text-white">Auto-Currency:</strong> Selecting a country automatically suggests the
+              local currency (e.g., Malaysia → MYR), which can be overridden in Step 2.
+            </li>
+          </ul>
+          <p className="text-slate-300 leading-relaxed mb-3">
             This selection determines:
           </p>
           <ul className="space-y-1 text-slate-400 ml-4 list-disc">
@@ -105,6 +120,11 @@ export default function SaleComponent1Docs() {
               <h4 className="text-white font-semibold mb-1">🏛️ Commercial - Strata Office</h4>
               <p className="text-sm text-slate-400 mb-2">Office building (G+4+) with strata titles</p>
               <p className="text-xs text-slate-500">Multi-story office tower with individual unit sales. Similar configuration to high-rise residential.</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h4 className="text-white font-semibold mb-1">📦 Commercial - Strata Warehouse</h4>
+              <p className="text-sm text-slate-400 mb-2">Industrial warehouse with strata titles</p>
+              <p className="text-xs text-slate-500">Multi-level or single-level warehouse units for sale. 100% saleable ratio.</p>
             </div>
           </div>
         </div>
@@ -204,8 +224,8 @@ export default function SaleComponent1Docs() {
 
           <div className="mt-4 rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm text-blue-200">
             <strong>💡 AI-Researched Benchmarks:</strong> Construction rates are pre-populated with AI-researched
-            benchmarks based on your location and building type. In the MVP, these are static values. In production,
-            they will be dynamically researched in real-time based on current market data.
+            benchmarks. These values are dynamically researched in real-time by the AI based on your exact pin-drop
+            location and building type.
           </div>
         </div>
 
@@ -242,7 +262,8 @@ export default function SaleComponent1Docs() {
           </div>
           <div className="mt-4 rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm text-blue-200">
             <strong>💡 AI-Researched Benchmarks:</strong> SC and POWC percentages are pre-populated with AI-researched
-            benchmarks. These will be dynamically researched in the production version.
+            benchmarks. These values are dynamically researched in real-time by the AI based on your exact pin-drop
+            location and building type.
           </div>
         </div>
 
@@ -650,8 +671,8 @@ export default function SaleComponent1Docs() {
         <div className="mt-6 rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm text-blue-200">
           <strong>💡 S-Curve Implementation:</strong> Construction costs are phased using an S-Curve distribution based
           on the stage allocations from Step 12. The S-Curve parameters are AI-researched for your specific building
-          type and location. In the MVP, these are static benchmarks; in production, they will be dynamically researched
-          in real-time.
+          type and location. These values are dynamically researched in real-time by the AI based on your exact
+          pin-drop location and building type.
         </div>
       </section>
 
