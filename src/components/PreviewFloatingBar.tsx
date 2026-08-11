@@ -29,7 +29,6 @@ export type PreviewFloatingBarProps = {
   /** Optional feasibility study action (link or button). */
   showFeasibilityStudy?: boolean;
   feasibilityStudyLabel?: string;
-  feasibilityStudyTitle?: string;
   feasibilityStudyRoute?: string;
   onFeasibilityStudyClick?: () => void;
 };
@@ -58,7 +57,6 @@ export default function PreviewFloatingBar({
   restartLabel = "Restart",
   showFeasibilityStudy = false,
   feasibilityStudyLabel = "Feasibility Study",
-  feasibilityStudyTitle = "Coming Soon!",
   feasibilityStudyRoute,
   onFeasibilityStudyClick,
 }: PreviewFloatingBarProps) {
@@ -107,7 +105,6 @@ export default function PreviewFloatingBar({
           <button
             type="button"
             onClick={onFeasibilityStudyClick}
-            title={feasibilityStudyTitle}
             className={secondaryBtn}
           >
             {feasibilityStudyLabel}
@@ -115,7 +112,6 @@ export default function PreviewFloatingBar({
         ) : feasibilityStudyRoute ? (
           <Link
             href={feasibilityStudyRoute}
-            title={feasibilityStudyTitle}
             className={secondaryBtn}
           >
             {feasibilityStudyLabel}
@@ -124,7 +120,6 @@ export default function PreviewFloatingBar({
           <button
             type="button"
             disabled
-            title={feasibilityStudyTitle}
             className={`${secondaryBtn} cursor-not-allowed opacity-60`}
           >
             {feasibilityStudyLabel}

@@ -32,6 +32,7 @@ FeasiBuild runs **two parallel financial streams**, selected from the dashboard.
 
 - `src/app/operational/layout.tsx`, `src/app/sale/layout.tsx`
 - `src/lib/stream-path.ts` — `withStreamPrefix`, `useStreamPrefix`
+- Dashboard: `src/app/dashboard/` — projects home + **`/dashboard/settings`** (AI model preference)
 - Product docs: `src/app/docs/operational-stream/`, `src/app/docs/sale-stream/`
 
 ### 2.2 Six Component wizards (data input & selection)
@@ -146,6 +147,8 @@ Scenario engines:
 | **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts` |
 | **Calculation engine** | `src/lib/irr-calculations.ts`, `equity-irr.ts`, `operational-pnl.ts`, `operational-project-irr-pnl.ts`, `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, `src/app/operational/engine/c4.levered.engine.ts`, `c5.equity.engine.ts` |
 | **Report generator** | `src/lib/feasibility/**`, `src/types/feasibility.ts`, `src/components/feasibility/**`, `src/app/api/feasibility/**`, `src/lib/pdf-export.ts` |
+| **User AI preference (Puter KV)** | `src/lib/puter-models.ts` (curated catalog), `src/lib/puter-kv-preferences.ts` (`feasi_build_user_preferences`), `src/components/settings/AIModelSelector.tsx`, `src/app/dashboard/settings/page.tsx`; compact selector also in `src/components/dashboard/Header.tsx` |
+| **JSON sanitizer (Claude / verbose LLMs)** | `src/lib/extract-json-from-claude.ts` — used by `useAiResearch.ts` and chart parsing in `ai-service.ts` |
 | **Shared UI helpers** | `src/components/ui/AiInput.tsx` (override / reset baseline; avoid `string === number` comparisons under TS strict narrowing) |
 
 **Sale feasibility deck rules (presentation, not engine math)**
@@ -158,7 +161,7 @@ Scenario engines:
 
 ## 3. AI Functionalities
 
-Two AI layers; both are **Qwen-family via Puter.js** on the client (no OpenAI/Anthropic usage in `src/`). Optional server Qwen via env for some API routes.
+Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`). The user picks the LLM; FeasiBuild never holds vendor API keys (BYO Puter). Optional server Qwen via env for some API routes.
 
 ### 3.1 Market research during Costs & Income (C1 / C2)
 
@@ -166,9 +169,10 @@ Two AI layers; both are **Qwen-family via Puter.js** on the client (no OpenAI/An
 |------|--------|
 | **Hook** | `src/hooks/useAiResearch.ts` → `performResearch()` |
 | **API** | Client `puter.ai.chat` (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`) |
-| **Model** | User-selectable via Puter KV (`src/lib/puter-models.ts`); default `qwen/qwen3.7-plus` (`getPreferredModel`) |
-| **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` |
-| **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt`, `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
+| **Model** | User-selectable via Puter KV (`getPreferredModel()`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`, `deepseek/deepseek-v3.2`. Unknown / failed KV → default. |
+| **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` (Claude **12000**). Claude also sends `response_format: { type: "json_object" }` when Puter forwards it. |
+| **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt(assetType, model?)` appends **Claude-strict JSON rules** when the id contains `claude`; plus `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
+| **JSON parse** | `extractJsonFromClaudeResponse` — strips `<reasoning>`, fenced ```json```, brace-balanced objects. Research **skips `type:"reasoning"` stream chunks** so markdown CoT is not parsed as JSON. Unparseable stream → retry `stream: false`. |
 | **Auth / status** | `src/lib/puter-auth.ts`, `src/lib/cache-service.ts` (`checkPuterStatus`) |
 | **UI** | `BenchmarkProfile.tsx`, `BenchmarkHeader.tsx`; fills C1/C2 fields from structured JSON |
 
@@ -197,7 +201,7 @@ Two AI layers; both are **Qwen-family via Puter.js** on the client (no OpenAI/An
 
 | Item | Detail |
 |------|--------|
-| **Client path (primary)** | `src/lib/ai-service.ts` — `getPreferredModel()` (default `qwen/qwen3.7-plus`), temp `0.6`, max tokens `6000`, streaming preferred |
+| **Client path (primary)** | `src/lib/ai-service.ts` — `getPreferredModel()` (default `qwen/qwen3.7-plus`); commentary temp `0.6` (Claude `0.3`); JSON/chart temp `0.1` + `response_format` json_object; max tokens `6000`; streaming preferred |
 | **Ops enrich** | `src/lib/feasibility/enrich-operational-slides-puter.ts` → asset generators (`generate-hotel-report.ts`, `generate-shopping-mall-report.ts`, `generate-office-report.ts`, `generate-btr-report.ts`, `generate-warehouse-report.ts`, **`generate-data-centre-report.ts`**) |
 | **Sale enrich** | `src/lib/feasibility/sale/enrich-sale-slides-puter.ts`, `generate-sale-report.ts`, `create-sale-puter-prompts.ts` (warehouse-aware prompts when `assetLabel` is warehouse/industrial) |
 | **Sale subtype → deck template** | `sale-stream-config.ts` — e.g. `commercial_strata_warehouse` → `"Commercial-Strata-Warehouse"` / asset label `"Commercial - Strata Warehouse"` |
@@ -207,11 +211,14 @@ Two AI layers; both are **Qwen-family via Puter.js** on the client (no OpenAI/An
 | **Server optional** | `src/lib/feasibility/qwen-commentary.ts` + `src/app/api/feasibility/*` using `FEASIBILITY_AI_URL` / `FEASIBILITY_AI_API_KEY` / `FEASIBILITY_AI_MODEL` (default `qwen-plus`) |
 | **Deck sections** | Title → Executive (A) → Project (B) → Market (C) → Financial (D); editable in `useFeasibilityStore`; export via `pdf-export.ts` |
 
-**Puter streaming resilience (`ai-service.ts`)**
+**Puter streaming resilience (`ai-service.ts` + `useAiResearch.ts`)**
 
-- Puter streams typed chunks (`type: "text" | "reasoning" | "error" | …`). Answer text comes from `type:"text"`; reasoning is skipped for slides (last-resort only if no text arrives).
+- Puter streams typed chunks (`type: "text" | "reasoning" | "error" | …`). Answer text comes from `type:"text"`; reasoning is skipped for slides and for C1/C2 JSON (last-resort only if no text arrives).
 - Empty stream → retry with `stream: false`; still empty → throw with prompt preview logging.
+- Chart JSON uses `extractJsonFromClaudeResponse` (not a naive fence strip + `JSON.parse`).
 - Sale commentary (`generateSaleCommentary`) catches AI failures and uses `generateSaleCommentaryFallback` so the deck still builds.
+
+**Claude Sonnet 4.6 note:** Prefer the Puter id `anthropic/claude-sonnet-4-6` (hyphen). Sonnet often emits markdown CoT; never treat reasoning text as the research payload.
 
 **Operational AI chart modules**
 
@@ -326,35 +333,37 @@ Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx` (`JURISDICTION
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **5 Aug 2026** (Operational **Data Centre** — C2 stability, full Feasibility Study deck, slide layout / TS hygiene). Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **11 Aug 2026**. **MVP coding session is closed.** Next work is the **production version**. Prefer editing this file over scattering architecture notes across chats.
 
-### Completed this session (Operational Data Centre)
+### Completed this session (MVP close-out — user-selectable LLM + Claude JSON)
 
-- **C2 React “update during render”:** Data Centre `c2s1`–`c2s3` no longer call `updateCashInflows` inside `setState` updaters; local state + `useEffect` persist (ref-safe) so overrides are not wiped.
-- **Data Centre Feasibility Study:** Full deck path mirrored from warehouse — `data-centre-context.ts`, `build-data-centre-market-data.ts`, `generate-data-centre-commentary.ts`, `generate-data-centre-report.ts`, `DataCentre*Slide.tsx`, wired via `enrich-operational-slides-puter.ts` (`case "datacentre"`), `FeasibilitySlideView`, aggregator `dataCentreMetrics`.
-- **Wrong-asset content guardrails:** Resolve **`datacentre` before BTR** in `resolveOperationalAssetType`; DC-only prompts with hard DO NOT (warehouse/BTR/retail/hotel); `assertDataCentreBundle`; reject wrong-asset AI → DC fallback; commentary cache keys / hashes scoped by `buildingType`; UI **Clear AI Cache & Regenerate**.
-- **Slide layout polish:** `DataCentreOperationalAssumptionsSlide` — max 3 short bullets; `DataCentreCompetitiveAnalysisSlide` — **2+1 chart layout** (Pricing + PUE top, Latency centered below), max 2 brief bullets + dedicated commentary section `Market - Competitive Analysis (Pricing, PUE & Latency)`.
-- **Build hygiene:** `AiInput.tsx` — removed invalid `originalValue === 0` after `!== ""` narrowing (TS2367); numeric `0` already passes `!== ""`.
+- **Curated model picker:** Users choose Qwen 3.7 Plus (default), Claude Sonnet 4.6, GPT-4o (2024-08-06), or DeepSeek V3.2. Catalog: `src/lib/puter-models.ts`. Preference persisted in the user’s Puter KV (`feasi_build_user_preferences`) via `src/lib/puter-kv-preferences.ts`; cached in-memory so AI calls do not hit KV every request. Fallback: `qwen/qwen3.7-plus`.
+- **Settings UI:** Full selector on `/dashboard/settings`; compact dropdown next to Clerk `UserButton` in the dashboard header.
+- **Dynamic model wiring:** `useAiResearch.ts` and `ai-service.ts` both call `getPreferredModel()` — C1/C2 research and feasibility commentary/charts use the same preference.
+- **Claude JSON reliability:** `extractJsonFromClaudeResponse` recovers JSON from markdown / `<reasoning>` / fences. Research stream **no longer concatenates reasoning chunks** into the parse buffer. Claude gets stricter system prompts, higher `max_tokens` (12000), optional `response_format: json_object`, and a non-stream retry if parse still fails.
 
-### Prior completed (Sale Warehouse Feasibility / Path A)
+### Prior completed (MVP — still in the product)
 
-- Sale `"Commercial-Strata-Warehouse"` stream config, Dev Assumptions CapEx, escrow slide residential-only, Puter stream resilience, C1–C4 Path A + FF&E in NCF/financing.
+- **Operational Data Centre:** C2 persist fix; full Feasibility Study deck; `datacentre` resolved before BTR; DC-only prompts; slide layout polish; `AiInput` TS hygiene.
+- **Sale Warehouse / Path A:** `"Commercial-Strata-Warehouse"` stream config, Dev Assumptions CapEx, escrow slide residential-only, Puter stream resilience, C1–C4 + FF&E in NCF/financing.
+- **Warehouse + Data Centre asset types** on Operational; warehouse on Sale.
 
-### Next Steps / Remaining — Data Centre & beyond
+### Next Steps — Production version
 
-- **End-to-end QA (Ops Data Centre):** C1 → C2 → C3 → C4 → **Feasibility Study** with a real DC project; after upgrades, **Clear AI Cache & Regenerate** and confirm no warehouse/BTR wording on market / exec slides.
-- **Visual QA:** Competitive Analysis (slide ~12) and Operational Assumptions fit 16:9 without overflow; remaining market slides if cramped.
-- **Sale warehouse E2E:** Still worth a full C1→C6 + Feasibility pass on a live warehouse project (title, no escrow slide, Puter/fallback).
-- **C5 Equity / C6 Scenarios** smoke-test for warehouse FF&E and data-centre series.
+- **Production hardening:** Auth, billing, env, error reporting, and remove leftover debug `console.log` noise (especially `generate-cash-flow.ts`).
+- **E2E QA across all 4 LLMs:** C1 research + Feasibility Study on Hotel / Warehouse / Data Centre / Sale warehouse — confirm JSON parse, no wrong-asset wording, deck builds with fallback if Puter fails.
+- **End-to-end QA (Ops Data Centre):** C1 → C6 + Feasibility; **Clear AI Cache & Regenerate** after model changes.
+- **Sale warehouse E2E:** Full C1→C6 + Feasibility (title, no escrow slide, Puter/fallback).
+- **C5 / C6:** Smoke-test warehouse FF&E and data-centre series; harden scenario pages so C6 always re-runs full engines into Feasibility.
 
-### Still open / fragile
+### Still open / carry into production
 
 - **Warehouse (Operational) polish:** Verify all AI schema fields (e.g. `free_rent_months`) are fully wired in UI consumers.
-- **Data Centre polish:** Confirm all C1 AI research fields map cleanly into store / review; optional further chart density tuning on other DC market slides.
-- **Scenario Analysis:** Operational / shared scenario pages still carry **placeholder / UI-first** metric paths in places; harden so C6 always re-runs full engines and feeds Feasibility consistently.
+- **Data Centre polish:** Confirm all C1 AI research fields map cleanly into store / review; optional chart density tuning.
+- **Scenario Analysis:** Some metric paths are still placeholder / UI-first.
 - **Feasibility chrome:** Some preview chrome still shows Feasibility as “Coming Soon” when the study path is disabled.
-- **Jurisdiction / engine hygiene:** Fix **OTHER** horizon vs logic mismatch when `escrowWithdrawalMode` is unset; reduce debug `console.log` noise in `generate-cash-flow.ts`; clarify dual levered IRR definitions in UI.
-- **Server AI:** Server Qwen routes no-op when `FEASIBILITY_AI_URL` / API key are missing — document env setup or fail loudly in admin tooling.
+- **Jurisdiction / engine hygiene:** Fix **OTHER** horizon vs logic mismatch when `escrowWithdrawalMode` is unset; clarify dual levered IRR definitions in UI.
+- **Server AI:** Server Qwen routes no-op when `FEASIBILITY_AI_URL` / API key are missing — document env or fail loudly.
 - **Financing wizard polish:** Some milestone auto-calc / toggles still marked placeholder and do not yet change modeled outputs.
 
 ---
@@ -369,8 +378,9 @@ Snapshot as of **5 Aug 2026** (Operational **Data Centre** — C2 stability, ful
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
 8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show HDA/Schedule H escrow.  
-9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.
+9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
+10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.
 
 ---
 
-*Last updated 5 Aug 2026 (Operational Data Centre feasibility deck, C2 persist fix, competitive-analysis layout, AiInput TS fix). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 11 Aug 2026 (MVP close: user-selectable Puter LLMs, Claude JSON sanitizer, `/dashboard/settings`). Prefer editing this file over scattering architecture notes across chats.*
