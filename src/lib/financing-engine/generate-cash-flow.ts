@@ -235,7 +235,7 @@ export function generateFinancingCashFlow(inputs: FinancingInputs): MonthlyRow[]
   const businessModel = inputs.businessModel || inputs.projectType;
 
   // eslint-disable-next-line no-console
-  console.log("🔀 Routing engine:", { stream, businessModel });
+  console.debug("🔀 Routing engine:", { stream, businessModel });
 
   if (
     stream === "sale" ||
@@ -244,7 +244,7 @@ export function generateFinancingCashFlow(inputs: FinancingInputs): MonthlyRow[]
     businessModel === "COMMERCIAL"
   ) {
     // eslint-disable-next-line no-console
-    console.log("✅ Routing to SALE engine");
+    console.debug("✅ Routing to SALE engine");
     return generateSaleCashFlow(inputs);
   }
 
@@ -254,7 +254,7 @@ export function generateFinancingCashFlow(inputs: FinancingInputs): MonthlyRow[]
     businessModel === "HOTEL"
   ) {
     // eslint-disable-next-line no-console
-    console.log("✅ Routing to OPERATIONAL engine");
+    console.debug("✅ Routing to OPERATIONAL engine");
     return generateOperationalCashFlow(inputs);
   }
 
@@ -325,7 +325,7 @@ export function resolveSaleHorizonLastMonth(inputs: FinancingInputs): number {
   const isCommercial = businessModel === "COMMERCIAL" || inputs.financingModel === "commercial";
 
   const countryBucket = normalizeCountryHorizonBucket(inputs.jurisdiction, inputs.country, inputs.countryCode);
-  const selectedModel = (inputs.escrowWithdrawalMode || inputs.withdrawalMethod || "").toLowerCase();
+  const selectedModel = (inputs.escrowWithdrawalMode || inputs.withdrawalMethod || (countryBucket === "OTHER" ? "none" : "")).toLowerCase();
 
   // 1. Commercial: Always Non-Escrow (CP + 6)
   if (isCommercial) return constructionMonths + 6;
@@ -559,7 +559,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   if (process.env.NODE_ENV === "development") {
     const pre = inputs.monthlyCosts.powc;
     // eslint-disable-next-line no-console
-    console.log("🏭 [Engine POWC Received]:", {
+    console.debug("🏭 [Engine POWC Received]:", {
       stream: inputs.stream,
       exitStrategy: inputs.exitStrategy,
       length: pre.length,
@@ -576,7 +576,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     inputs.exitStrategy === "sale" ||
     inputs.businessModel === "DEV_FOR_SALE";
 
-  console.log("🔍 [DEBUG ENGINE CORE] Starting runFinancingEngineCore:", {
+  console.debug("🔍 [DEBUG ENGINE CORE] Starting runFinancingEngineCore:", {
     isCommercial: inputs.financingModel === "commercial",
     jurisdiction: inputs.jurisdiction,
     constructionPeriod: inputs.constructionPeriodMonths,
@@ -614,7 +614,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   if (process.env.NODE_ENV === "development") {
     const powcArr = inputs.monthlyCosts.powc;
     // eslint-disable-next-line no-console
-    console.log("🧱 [POWC Raw Array Check]:", {
+    console.debug("🧱 [POWC Raw Array Check]:", {
       totalMonths,
       length: powcArr.length,
       M0: powcArr[0],
@@ -849,7 +849,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     // --- ESCROW / TRUST ROUTER (Strategy Pattern) ---
     const isCommercialCheck = inputs.financingModel === "commercial";
 
-    console.log(`🔍 [DEBUG ENGINE ROUTER] Month ${m}:`, {
+    console.debug(`🔍 [DEBUG ENGINE ROUTER] Month ${m}:`, {
       isCommercialCheck,
       selectedModel,
       jurisdiction: inputs.jurisdiction,
@@ -1227,7 +1227,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
 
     if (process.env.NODE_ENV === "development" && (m <= 12 || m % 12 === 0)) {
       // eslint-disable-next-line no-console
-      console.log(`📊 M${m} Equity CF:`, {
+      console.debug(`📊 M${m} Equity CF:`, {
         injection: equityInjection,
         distribution: equityDistributionAmount,
         net: row.equityCashFlow,

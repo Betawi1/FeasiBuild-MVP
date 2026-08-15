@@ -6,9 +6,17 @@ import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import BenchmarkProfile from "@/components/BenchmarkProfile";
 import { withStreamPrefix } from "@/lib/stream-path";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import useFinModelStore from "@/store/useFinModelStore";
 
 type EquityTab = "summary" | "multiple" | "payback" | "waterfall";
+
+const EQUITY_TAB_UI_STEP: Record<EquityTab, number> = {
+  summary: 1,
+  multiple: 2,
+  payback: 3,
+  waterfall: 4,
+};
 
 type CashFlowPoint = { month: number; amount: number };
 
@@ -116,6 +124,7 @@ function EquityReturnsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<EquityTab>("summary");
+  useReportWizardStep(EQUITY_TAB_UI_STEP[activeTab]);
 
   const operational = useFinModelStore((s) => s.operational);
   const projectIRR = operational?.projectIRR;

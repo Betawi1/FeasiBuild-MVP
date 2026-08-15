@@ -4,11 +4,20 @@ import {
   type OperationalLeveredModelRuntime,
 } from "@/app/operational/engine/c4.levered.engine";
 import { calculateEquityReturns } from "@/app/operational/engine/c5.equity.engine";
-import { shocksToOperationalInput } from "@/app/operational/scenario-analysis/config/shockFactors";
+import {
+  normalizeAssetType,
+  shocksToOperationalInput,
+} from "@/app/operational/scenario-analysis/config/shockFactors";
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
+import { computeOperationalProjectIrrPnl } from "@/lib/operational-project-irr-pnl";
+import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
 import {
   buildCashOutflowProfile,
+  calculateDataCentreOpEx,
+  calculateDataCentreOtherIncome,
+  calculateDataCentreRevenue,
   calculateOperationsStartMonth,
+  calculateWarehouseRevenue,
   DEFAULT_PREFERENCE_TENOR_MONTHS,
   getOperationalYearMonthRange,
 } from "@/store/useFinModelStore";
@@ -39,6 +48,132 @@ function cloneStoreSlice<T>(v: T): T {
     /* fallthrough */
   }
   return JSON.parse(JSON.stringify(v)) as T;
+}
+
+function clampPct(n: number, min = 0, max = 100): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
+function applyWarehouseDriverShocks(
+  snap: OperationalScenarioSnapshot,
+  shocks: Record<string, number>
+): void {
+  const rev = snap.cashInflows?.warehouseRevenue;
+  if (!rev || typeof rev !== "object") return;
+
+  const s = (id: string) => shocks[id] ?? 0;
+  const rentPct = s("base_rent_psf");
+  const occPp = s("occupancy");
+  const escPct = s("rent_escalation");
+  const leaseMonths = s("lease_up_period");
+  if (rentPct === 0 && occPp === 0 && escPct === 0 && leaseMonths === 0) return;
+
+  if (rentPct !== 0 && typeof rev.ratePerSqftYear === "number") {
+    rev.ratePerSqftYear *= 1 + rentPct / 100;
+  }
+  if (occPp !== 0) {
+    rev.occupancyRate = clampPct((Number(rev.occupancyRate) || 0) + occPp);
+  }
+  if (escPct !== 0) {
+    rev.rentEscalationPct =
+      (Number(rev.rentEscalationPct) || 0) * (1 + escPct / 100);
+  }
+  if (leaseMonths !== 0) {
+    rev.leaseUpYears = Math.max(
+      0.1,
+      (Number(rev.leaseUpYears) || 2) + leaseMonths / 12
+    );
+  }
+
+  snap.cashInflows.warehouseRevenue = calculateWarehouseRevenue(rev);
+}
+
+function applyDataCentreDriverShocks(
+  snap: OperationalScenarioSnapshot,
+  shocks: Record<string, number>
+): void {
+  const s = (id: string) => shocks[id] ?? 0;
+  const powerPct = s("power_lease_rate");
+  const spacePct = s("white_space_rent");
+  const utilPp = s("utilization");
+  const puePct = s("pue");
+  if (powerPct === 0 && spacePct === 0 && utilPp === 0 && puePct === 0) return;
+
+  const ci = snap.cashInflows ?? {};
+  let rev = ci.dataCentreRevenue;
+  if (rev && typeof rev === "object") {
+    if (powerPct !== 0 && typeof rev.ratePerKwMonth === "number") {
+      rev.ratePerKwMonth *= 1 + powerPct / 100;
+    }
+    if (spacePct !== 0 && typeof rev.ratePerSqftMonth === "number") {
+      rev.ratePerSqftMonth *= 1 + spacePct / 100;
+    }
+    if (utilPp !== 0) {
+      rev.occupancyRate = clampPct((Number(rev.occupancyRate) || 0) + utilPp);
+    }
+    const manual = rev.manualYearValues;
+    if (manual && typeof manual === "object") {
+      for (const year of Object.keys(manual)) {
+        const row = manual[year];
+        if (!row || typeof row !== "object") continue;
+        if (utilPp !== 0 && row.occupancyPct != null) {
+          row.occupancyPct = clampPct(Number(row.occupancyPct) + utilPp);
+        }
+        if (powerPct !== 0 && row.ratePerKw != null) {
+          row.ratePerKw = Number(row.ratePerKw) * (1 + powerPct / 100);
+        }
+        if (spacePct !== 0 && row.ratePerSqft != null) {
+          row.ratePerSqft = Number(row.ratePerSqft) * (1 + spacePct / 100);
+        }
+      }
+    }
+    rev = {
+      ...calculateDataCentreRevenue(rev),
+      manualYearValues: rev.manualYearValues,
+    };
+    ci.dataCentreRevenue = rev;
+  }
+
+  let other = ci.dataCentreOtherIncome;
+  if (other && typeof other === "object" && utilPp !== 0) {
+    other.powerUtilisationPct = clampPct(
+      (Number(other.powerUtilisationPct) || 0) + utilPp
+    );
+    other = {
+      ...calculateDataCentreOtherIncome(other),
+      manualYearValues: other.manualYearValues,
+    };
+    ci.dataCentreOtherIncome = other;
+  }
+
+  let opex = ci.dataCentreOpEx;
+  if (opex && typeof opex === "object") {
+    if (puePct !== 0) {
+      opex.pue = Math.max(1, (Number(opex.pue) || 1.35) * (1 + puePct / 100));
+    }
+    if (rev && typeof rev.totalAnnualRevenue === "number") {
+      opex.totalAnnualRevenueBase = rev.totalAnnualRevenue;
+    }
+    opex = {
+      ...calculateDataCentreOpEx(opex),
+      manualYearValues: opex.manualYearValues,
+    };
+    ci.dataCentreOpEx = opex;
+  }
+
+    if (puePct !== 0 && snap.projectInfo && typeof snap.projectInfo === "object") {
+    if (typeof snap.projectInfo.dataCentrePUE === "number") {
+      snap.projectInfo.dataCentrePUE = Math.max(
+        1,
+        snap.projectInfo.dataCentrePUE * (1 + puePct / 100)
+      );
+    } else if (opex?.pue != null) {
+      snap.projectInfo.dataCentrePUE = opex.pue;
+    }
+  }
+
+  snap.cashInflows = ci;
 }
 
 export type OperationalScenarioId = "base" | "upside" | "downside";
@@ -119,11 +254,15 @@ export function applyDriverShocksToOperationalSnapshot(
   driverShocks: Record<string, number>,
   assetType: string
 ): OperationalScenarioSnapshot {
-  const legacy = shocksToOperationalInput(driverShocks, assetType);
-  if (Object.values(legacy).every((v) => v === 0 || v == null)) {
+  const t = normalizeAssetType(assetType);
+  const hasAnyShock = Object.values(driverShocks).some(
+    (v) => v != null && v !== 0
+  );
+  if (!hasAnyShock) {
     return snap;
   }
 
+  const legacy = shocksToOperationalInput(driverShocks, assetType);
   const out = cloneStoreSlice(snap);
   const co = out.cashOutflows;
   const fin = out.financing;
@@ -208,6 +347,12 @@ export function applyDriverShocksToOperationalSnapshot(
       Number(co.constructionPeriod) || 0,
       fin.constructionPeriodMonths
     );
+  }
+
+  if (t === "warehouse") {
+    applyWarehouseDriverShocks(out, driverShocks);
+  } else if (t === "data_centre") {
+    applyDataCentreDriverShocks(out, driverShocks);
   }
 
   return out;
@@ -401,7 +546,8 @@ export function buildOperationalLeveredEngineArgs(
     return map;
   })();
 
-  const hotelPnl = hotelHoldSnapshot
+  const assetType = normalizeAssetType(projectInfo?.buildingType);
+  let hotelPnl = hotelHoldSnapshot
     ? computeOperationalHotelHoldPnl(
         hotelHoldSnapshot,
         cashOutflows.constructionCost || 0,
@@ -409,21 +555,55 @@ export function buildOperationalLeveredEngineArgs(
       )
     : null;
 
-  const changeInWorkingCapitalYearly = (() => {
+  let changeInWorkingCapitalYearly = (() => {
     const nYears = 10;
-    if (!hotelPnl || !hotelHoldSnapshot)
+    const pnl = hotelPnl;
+    if (!pnl || !hotelHoldSnapshot)
       return Array.from({ length: nYears }, () => 0);
     const arM =
       Number(hotelHoldSnapshot.depFieldValues?.accountsReceivableMonths) || 0;
     const apM =
       Number(hotelHoldSnapshot.depFieldValues?.accountsPayableMonths) || 0;
     const nwcLevels = Array.from({ length: nYears }, (_, i) => {
-      const rev = hotelPnl.totalHotelRevenue[i] ?? 0;
-      const opex = hotelPnl.totalExpenses[i] ?? 0;
+      const rev = pnl.totalHotelRevenue[i] ?? 0;
+      const opex = pnl.totalExpenses[i] ?? 0;
       return (arM / 12) * rev - (apM / 12) * opex;
     });
     return nwcLevels.map((w, i) => w - (i > 0 ? nwcLevels[i - 1]! : 0));
   })();
+
+  if (assetType === "warehouse" || assetType === "data_centre") {
+    const warehouseCapex = resolveWarehouseCapexBases(cashOutflows);
+    const projectPnl = computeOperationalProjectIrrPnl(assetType, {
+      projectInfo,
+      warehouseRevenue: cashInflows?.warehouseRevenue,
+      warehouseOtherIncome: cashInflows?.warehouseOtherIncome,
+      warehouseOpEx: cashInflows?.warehouseOpEx,
+      warehouseDepreciation: cashInflows?.warehouseDepreciation,
+      warehouseBuildingCost: warehouseCapex.buildingCost,
+      warehouseSiteImprovementsCost: warehouseCapex.siteImprovementsCost,
+      dataCentreRevenue: cashInflows?.dataCentreRevenue,
+      dataCentreOtherIncome: cashInflows?.dataCentreOtherIncome,
+      dataCentreOpEx: cashInflows?.dataCentreOpEx,
+      dataCentreDepreciation: cashInflows?.dataCentreDepreciation,
+      constructionCost: cashOutflows.constructionCost || 0,
+      ffe: cashOutflows.ffe || 0,
+    });
+    if (projectPnl) {
+      hotelPnl = {
+        totalHotelRevenue: projectPnl.totalRevenue,
+        totalExpenses: projectPnl.totalExpenses,
+        netIncome: projectPnl.netIncome,
+        ebitda: projectPnl.totalRevenue.map(
+          (r, i) => r - (projectPnl.totalExpenses[i] ?? 0)
+        ),
+        depreciationTotal: projectPnl.depreciationTotal,
+      } as ReturnType<typeof computeOperationalHotelHoldPnl>;
+      changeInWorkingCapitalYearly = Array.from({ length: 10 }, (_, i) =>
+        projectPnl.changeInWorkingCapital[i] ?? 0
+      );
+    }
+  }
 
   const ffeRenovationOps = Math.max(0, (cashOutflows.ffe || 0) * 0.5);
 

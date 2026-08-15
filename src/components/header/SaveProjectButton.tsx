@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useUser } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import useFinModelStore from "@/store/useFinModelStore";
-import { buildAndSaveProject } from "@/lib/project-save";
 import SaveProjectModal from "@/components/modals/SaveProjectModal";
 import { useToast } from "@/components/ui/Toast";
 import { studyToolbarSaveBtn } from "@/components/ui/studyToolbarStyles";
+import {
+  projectSaveButtonLabel,
+  useOptimisticProjectSave,
+} from "@/hooks/useOptimisticProjectSave";
 import type { FinModelStreamKey } from "@/store/useFinModelStore";
 
 type SaveProjectButtonProps = {
@@ -21,8 +23,15 @@ export default function SaveProjectButton({
   className,
   label = "Save Project",
 }: SaveProjectButtonProps) {
-  const { user, isLoaded } = useUser();
   const { showToast } = useToast();
+  const {
+    saveStatus,
+    isLoaded,
+    user,
+    beginOptimisticSave,
+    retryLastSave,
+    hasPendingSave,
+  } = useOptimisticProjectSave();
   const activeProjectId = useFinModelStore((s) => s.activeProjectId);
   const activeProjectName = useFinModelStore((s) => s.activeProjectName);
   const projectInfo = useFinModelStore((s) => {
@@ -31,7 +40,6 @@ export default function SaveProjectButton({
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   const defaultProjectName = useMemo(() => {
     if (activeProjectName?.trim()) return activeProjectName;
@@ -43,6 +51,10 @@ export default function SaveProjectButton({
     if (city) return `${city} ${buildingType}`;
     return buildingType;
   }, [activeProjectName, projectInfo.city, projectInfo.buildingType]);
+
+  const idleLabel = activeProjectId ? "Update Project" : label;
+  const isBusy =
+    saveStatus === "saved_locally" || saveStatus === "syncing";
 
   const handleSave = async (input: {
     projectName: string;
@@ -58,46 +70,46 @@ export default function SaveProjectButton({
       throw new Error("Not authenticated");
     }
 
-    setIsSaving(true);
-    try {
-      const result = await buildAndSaveProject({
-        projectName: input.projectName,
-        description: input.description,
-        tags: input.tags,
-        stream,
-        userId: user.id,
-        projectId: activeProjectId ?? undefined,
+    setIsModalOpen(false);
+
+    void beginOptimisticSave({
+      projectName: input.projectName,
+      description: input.description,
+      tags: input.tags,
+      stream,
+      userId: user.id,
+      projectId: activeProjectId ?? undefined,
+    })
+      .then((result) => {
+        showToast({
+          variant: "success",
+          title: "Synced to vault",
+          description: `Saved ${input.projectName} (${result.projectId})`,
+        });
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "Failed to sync project.";
+        showToast({
+          variant: "error",
+          title: "Sync failed — saved locally",
+          description: message,
+        });
       });
-      showToast({
-        variant: "success",
-        title: activeProjectId ? "Project updated" : "Project saved",
-        description: activeProjectId
-          ? `Updated ${input.projectName}`
-          : `Saved as ${result.projectId}`,
-      });
-      setIsModalOpen(false);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to save project.";
-      showToast({
-        variant: "error",
-        title: "Save failed",
-        description: message,
-      });
-      throw error;
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const handleOpenModal = () => {
-    if (!isLoaded) return;
+    if (!isLoaded || isBusy) return;
     if (!user?.id) {
       showToast({
         variant: "error",
         title: "Sign in required",
         description: "Please sign in to save projects to your account.",
       });
+      return;
+    }
+    if (saveStatus === "failed" && hasPendingSave()) {
+      void retryLastSave()?.catch(() => undefined);
       return;
     }
     setIsModalOpen(true);
@@ -108,20 +120,22 @@ export default function SaveProjectButton({
       <button
         type="button"
         onClick={handleOpenModal}
-        disabled={isSaving || !isLoaded}
+        disabled={isBusy || !isLoaded}
         className={className ?? studyToolbarSaveBtn}
       >
-        {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        {activeProjectId ? "Update Project" : label}
+        {saveStatus === "syncing" ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : null}
+        {projectSaveButtonLabel(saveStatus, idleLabel)}
       </button>
 
       <SaveProjectModal
         isOpen={isModalOpen}
         onClose={() => {
-          if (!isSaving) setIsModalOpen(false);
+          if (!isBusy) setIsModalOpen(false);
         }}
         onSave={handleSave}
-        isSaving={isSaving}
+        isSaving={false}
         defaultProjectName={defaultProjectName}
       />
     </>

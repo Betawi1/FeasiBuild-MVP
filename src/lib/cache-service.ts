@@ -1,5 +1,10 @@
+import {
+  getSecureKvUserId,
+  probePuterKvAccess,
+  secureKv,
+} from "@/lib/secure-puter-kv";
+
 const CACHE_PREFIX = "feasibuild_cache_";
-const AUTH_CHECK_KEY = "_auth_check";
 export const SALE_HASHES_STORAGE_KEY = "feasibuild_sale_hashes";
 export const OPERATIONAL_HASHES_STORAGE_KEY = "feasibuild_operational_hashes";
 
@@ -20,6 +25,15 @@ export type CacheEnvelope<T = unknown> = {
 function isPuterAvailable(): boolean {
   if (typeof window === "undefined") return false;
   return !!(window.puter && window.puter.kv);
+}
+
+function resolveCacheUserId(explicit?: string | null): string | null {
+  const id = explicit?.trim() || getSecureKvUserId();
+  return id || null;
+}
+
+function localStorageKey(userId: string | null, key: string): string {
+  return userId ? `${userId}:${key}` : key;
 }
 
 /** Check if Puter KV is loaded and whether the user is authenticated. */
@@ -45,15 +59,15 @@ export async function checkPuterStatus(): Promise<PuterKvStatus> {
     // Fall through to a one-shot KV probe
   }
 
-  try {
-    await puter.kv.get(AUTH_CHECK_KEY);
+  const ok = await probePuterKvAccess();
+  if (ok) {
     return { available: true, authenticated: true };
-  } catch {
-    console.debug(
-      "[Puter] Available but not authenticated - auth popup will appear on first KV use"
-    );
-    return { available: true, authenticated: false };
   }
+
+  console.debug(
+    "[Puter] Available but not authenticated - auth popup will appear on first KV use"
+  );
+  return { available: true, authenticated: false };
 }
 
 function readLocalStorageRaw(key: string): string | null {
@@ -110,13 +124,18 @@ function unwrapCachedValue<T>(raw: unknown, label: string): T | null {
   return parsed as T;
 }
 
-async function getWithFallback<T>(key: string, label: string): Promise<T | null> {
+async function getWithFallback<T>(
+  key: string,
+  label: string,
+  userId?: string | null
+): Promise<T | null> {
   console.log(`[Cache] Trying to retrieve: ${label}`);
+  const uid = resolveCacheUserId(userId);
 
-  if (typeof window !== "undefined" && isPuterAvailable()) {
+  if (uid && typeof window !== "undefined" && isPuterAvailable()) {
     try {
       console.log(`[Cache] Trying Puter KV read: ${label}`);
-      const cached = await window.puter!.kv.get(key);
+      const cached = await secureKv.get(uid, key);
       const unwrapped = unwrapCachedValue<T>(cached, label);
       if (unwrapped != null) {
         console.log(`[Cache] ✅ HIT (Puter KV): ${label}`);
@@ -127,14 +146,26 @@ async function getWithFallback<T>(key: string, label: string): Promise<T | null>
       console.log(`[Cache] Falling back to localStorage for: ${label}`);
     }
   } else if (typeof window !== "undefined") {
-    console.log(`[Cache] Puter not available, using localStorage for: ${label}`);
+    console.log(
+      `[Cache] Puter skipped (unavailable or no Clerk user), using localStorage for: ${label}`
+    );
   }
 
-  const localRaw = readLocalStorageRaw(key);
+  const localRaw = readLocalStorageRaw(localStorageKey(uid, key));
   const local = unwrapCachedValue<T>(localRaw, label);
   if (local != null) {
     console.log(`[Cache] ✅ HIT (localStorage): ${label}`);
     return local;
+  }
+
+  // Legacy un-namespaced localStorage fallback
+  if (uid) {
+    const legacyRaw = readLocalStorageRaw(key);
+    const legacy = unwrapCachedValue<T>(legacyRaw, label);
+    if (legacy != null) {
+      console.log(`[Cache] ✅ HIT (legacy localStorage): ${label}`);
+      return legacy;
+    }
   }
 
   console.log(`[Cache] ❌ MISS for: ${label}`);
@@ -145,7 +176,8 @@ async function setWithFallback(
   key: string,
   content: unknown,
   label: string,
-  ttlMs: number = FEASIBILITY_CACHE_TTL_MS
+  ttlMs: number = FEASIBILITY_CACHE_TTL_MS,
+  userId?: string | null
 ): Promise<void> {
   const envelope: CacheEnvelope = {
     data: content,
@@ -153,11 +185,12 @@ async function setWithFallback(
     timestamp: Date.now(),
   };
   const serializedContent = JSON.stringify(envelope);
+  const uid = resolveCacheUserId(userId);
 
-  if (typeof window !== "undefined" && isPuterAvailable()) {
+  if (uid && typeof window !== "undefined" && isPuterAvailable()) {
     try {
       console.log(`[Cache] Trying Puter KV write: ${label}`);
-      await window.puter!.kv.set(key, serializedContent);
+      await secureKv.set(uid, key, serializedContent);
       console.log(`[Cache] ✓ Saved to Puter KV: ${label}`);
       return;
     } catch (error) {
@@ -165,10 +198,12 @@ async function setWithFallback(
       console.log(`[Cache] Falling back to localStorage for: ${label}`);
     }
   } else if (typeof window !== "undefined") {
-    console.log(`[Cache] Puter not available, using localStorage for: ${label}`);
+    console.log(
+      `[Cache] Puter skipped (unavailable or no Clerk user), using localStorage for: ${label}`
+    );
   }
 
-  writeLocalStorage(key, serializedContent);
+  writeLocalStorage(localStorageKey(uid, key), serializedContent);
   console.log(`[Cache] ✓ Saved to cache: ${label}`);
 }
 
@@ -244,71 +279,85 @@ export function generateDataHash(data: unknown, debugLabel?: string): string {
 }
 
 export async function getCachedContent<T = unknown>(
-  cacheKey: string
+  cacheKey: string,
+  userId?: string | null
 ): Promise<T | null> {
   const storageKey = `${CACHE_PREFIX}${cacheKey}`;
-  return getWithFallback<T>(storageKey, cacheKey);
+  return getWithFallback<T>(storageKey, cacheKey, userId);
 }
 
 export async function setCachedContent(
   cacheKey: string,
   content: unknown,
-  ttlMs: number = FEASIBILITY_CACHE_TTL_MS
+  ttlMs: number = FEASIBILITY_CACHE_TTL_MS,
+  userId?: string | null
 ): Promise<void> {
-  await setWithFallback(`${CACHE_PREFIX}${cacheKey}`, content, cacheKey, ttlMs);
+  await setWithFallback(
+    `${CACHE_PREFIX}${cacheKey}`,
+    content,
+    cacheKey,
+    ttlMs,
+    userId
+  );
 }
 
 export async function getStoredHashes(
-  key: string
+  key: string,
+  userId?: string | null
 ): Promise<Record<string, string>> {
-  return (await getWithFallback<Record<string, string>>(key, key)) ?? {};
+  return (await getWithFallback<Record<string, string>>(key, key, userId)) ?? {};
 }
 
 export async function setStoredHashes(
   key: string,
-  hashes: Record<string, string>
+  hashes: Record<string, string>,
+  userId?: string | null
 ): Promise<void> {
   // Hash maps should outlive commentary TTL; keep for 30 days.
-  await setWithFallback(key, hashes, key, 30 * FEASIBILITY_CACHE_TTL_MS);
+  await setWithFallback(key, hashes, key, 30 * FEASIBILITY_CACHE_TTL_MS, userId);
 }
 
-export async function clearStoredHashes(key: string): Promise<void> {
-  if (typeof window !== "undefined") {
-    const puter = window.puter;
+export async function clearStoredHashes(
+  key: string,
+  userId?: string | null
+): Promise<void> {
+  if (typeof window === "undefined") return;
 
-    if (puter?.kv) {
-      try {
-        await puter.kv.del(key);
-      } catch (error) {
-        console.warn(
-          `[Cache] Failed to clear Puter KV hash key ${key} (may need auth):`,
-          error
-        );
-      }
-    }
+  const uid = resolveCacheUserId(userId);
 
+  if (uid && isPuterAvailable()) {
     try {
-      localStorage.removeItem(key);
+      await secureKv.delete(uid, key);
     } catch (error) {
-      console.error(`[Cache] Failed to clear localStorage hash key ${key}:`, error);
+      console.warn(
+        `[Cache] Failed to clear Puter KV hash key ${key} (may need auth):`,
+        error
+      );
     }
+  }
+
+  try {
+    localStorage.removeItem(localStorageKey(uid, key));
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.error(`[Cache] Failed to clear localStorage hash key ${key}:`, error);
   }
 }
 
-/** Clear all AI content caches (Puter KV + localStorage). */
-export async function clearAllCaches(): Promise<void> {
+/** Clear all AI content caches (Puter KV + localStorage) for the current user. */
+export async function clearAllCaches(userId?: string | null): Promise<void> {
   let puterCleared = 0;
+  const uid = resolveCacheUserId(userId);
 
   if (typeof window !== "undefined") {
-    const puter = window.puter;
-
-    if (puter?.kv) {
+    if (uid && isPuterAvailable()) {
       try {
-        const keys = await puter.kv.list();
-        const cacheKeys = keys.filter((k) => k.startsWith(CACHE_PREFIX));
+        const logicalKeys = await secureKv.list(uid, {
+          logicalPrefix: CACHE_PREFIX,
+        });
 
-        for (const key of cacheKeys) {
-          await puter.kv.del(key);
+        for (const key of logicalKeys) {
+          await secureKv.delete(uid, key);
           puterCleared += 1;
         }
         console.log(`[Cache] ✓ Cleared ${puterCleared} items from Puter KV`);
@@ -318,8 +367,11 @@ export async function clearAllCaches(): Promise<void> {
     }
 
     try {
+      const prefixes = uid
+        ? [`${uid}:${CACHE_PREFIX}`, CACHE_PREFIX]
+        : [CACHE_PREFIX];
       const localStorageKeys = Object.keys(localStorage).filter((k) =>
-        k.startsWith(CACHE_PREFIX)
+        prefixes.some((p) => k.startsWith(p))
       );
       localStorageKeys.forEach((key) => localStorage.removeItem(key));
       console.log(

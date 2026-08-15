@@ -14,7 +14,12 @@ export type ShockDriverType =
   | "salesVelocity"
   | "preSales"
   | "softCosts"
-  | "ltcReduction";
+  | "ltcReduction"
+  | "leaseUpPeriod"
+  | "powerLeaseRate"
+  | "whiteSpaceRent"
+  | "utilization"
+  | "pue";
 
 // Shock driver configuration
 export interface ShockDriverConfig {

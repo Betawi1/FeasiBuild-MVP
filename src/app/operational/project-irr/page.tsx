@@ -6,9 +6,11 @@ import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import useFinModelStore from "@/store/useFinModelStore";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 
 export default function OperationalProjectIRRPage() {
   const streamPrefix = useStreamPrefix();
+  useReportWizardStep(1);
 
   const exitCapRate = useFinModelStore((s) => s.projectIRR.exitCapRate ?? 7);
   const updateExitCapRate = useFinModelStore((s) => s.updateExitCapRate);

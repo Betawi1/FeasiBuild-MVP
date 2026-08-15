@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import {
   Area,
   AreaChart,
@@ -497,6 +498,7 @@ function FinancingPageContent() {
   }, []);
 
   const [currentStep, setCurrentStep] = useState(0);
+  useReportWizardStep(currentStep + 1);
   const [formData, setFormData] = useState<FormData>(() => ({
     debtType: (financing.debtType as any) ?? "conventional",
 

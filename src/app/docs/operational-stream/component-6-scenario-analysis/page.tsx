@@ -193,6 +193,10 @@ export default function Component6Docs() {
           These shock factors change based on the asset type selected in Component 1. Each asset type has unique
           revenue drivers that are critical to its financial performance.
         </p>
+        <p className="text-slate-300 leading-relaxed mb-4">
+          Each asset type shows its own factor set; assets without a dedicated set display only the Common Factors
+          (no fallback to another asset&apos;s factors).
+        </p>
 
         <div className="space-y-6">
           {/* Hotel */}
@@ -322,6 +326,75 @@ export default function Component6Docs() {
                 <h5 className="text-white text-sm font-medium">Lease-up Period (±6 months)</h5>
                 <p className="text-xs text-slate-400">
                   Adjusts the time required to reach stabilized occupancy (typically 12-36 months for office).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Warehouse */}
+          <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-4">
+            <h4 className="text-cyan-400 font-medium mb-3">📦 Warehouse / Industrial</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <h5 className="text-white text-sm font-medium">Base Rent psf (±15%)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a percentage multiplier to the warehouse rent per sqft / year from Component 2. This is the
+                  primary revenue driver for warehouses.
+                </p>
+              </div>
+              <div>
+                <h5 className="text-white text-sm font-medium">Occupancy Rate (±10pp)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a percentage point adjustment to the stabilized occupancy rate. Note: This is in
+                  percentage points (pp), not percentage (%). A +5pp shock means occupancy increases from 85% to 90%.
+                </p>
+              </div>
+              <div>
+                <h5 className="text-white text-sm font-medium">Rent Escalation (±50%)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a relative multiplier to the annual rent escalation rate. A +50% shock on a 4% escalation
+                  means escalation increases to 6%.
+                </p>
+              </div>
+              <div>
+                <h5 className="text-white text-sm font-medium">Lease-up Period (±6 months)</h5>
+                <p className="text-xs text-slate-400">
+                  Adjusts the months required to reach stabilized occupancy. Longer lease-up means more vacant months
+                  in early years.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Centre */}
+          <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4">
+            <h4 className="text-indigo-400 font-medium mb-3">🖥️ Data Centre</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <h5 className="text-white text-sm font-medium">Power Lease Rate per kW / month (±15%)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a percentage multiplier to the wholesale colo lease rate driving power capacity revenue from
+                  Component 2.
+                </p>
+              </div>
+              <div>
+                <h5 className="text-white text-sm font-medium">White Space Rent psf / month (±15%)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a percentage multiplier to the white-space rental rate driving space revenue from Component 2.
+                </p>
+              </div>
+              <div>
+                <h5 className="text-white text-sm font-medium">Utilization / Occupancy (±10pp)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a percentage point adjustment to stabilized white-space occupancy and metered-power
+                  utilization.
+                </p>
+              </div>
+              <div>
+                <h5 className="text-white text-sm font-medium">PUE (±10%)</h5>
+                <p className="text-xs text-slate-400">
+                  Applies a relative multiplier to Power Usage Effectiveness. Flows into power OpEx
+                  (kW × PUE × 8,760 × electricity price) — the data centre&apos;s largest operating cost.
                 </p>
               </div>
             </div>

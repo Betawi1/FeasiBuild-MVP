@@ -60,3 +60,6 @@ export function getPuterModel(id: string): PuterModel | undefined {
 export function isClaudeModel(id: string): boolean {
   return /claude/i.test(id);
 }
+
+/** Preferred-model lookup lives in `puter-kv-preferences`; re-exported for catalog callers. */
+export { getPreferredModel } from "./puter-kv-preferences";

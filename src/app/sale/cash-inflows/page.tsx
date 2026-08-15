@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import useSaleModelStore, {
   type CashInflows,
   type ProjectInfo,
@@ -31,6 +32,7 @@ function CashInflowsPageContent() {
   const streamPrefix = useStreamPrefix();
   const searchParams = useSearchParams();
   const [currentStep, setCurrentStep] = useState(0);
+  useReportWizardStep(currentStep + 1);
 
   const projectInfo = useSaleModelStore((s) => s.projectInfo);
   const cashOutflows = useSaleModelStore((s) => s.cashOutflows);

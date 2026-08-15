@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { BenchmarkBanner } from "@/components/BenchmarkBanner";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import Step4PreferenceShares from "./steps/Step4-PreferenceShares";
 import Step8CommercialFinancing from "./steps/Step8-CommercialFinancing";
 import type {
@@ -484,6 +485,7 @@ function CommercialFinancingWizardContent() {
   const [currentStep, setCurrentStep] = useState(() =>
     parseWizardStepFromUrl(searchParams.get("step"), maxStepIndex)
   );
+  useReportWizardStep(currentStep + 1);
 
   useEffect(() => {
     const step = searchParams.get("step");

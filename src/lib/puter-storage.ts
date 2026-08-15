@@ -1,6 +1,10 @@
 "use client";
 
 import type { ProjectIndexEntry } from "@/types/project";
+import {
+  getSecureKvUserId,
+  secureKv,
+} from "@/lib/secure-puter-kv";
 
 /** Legacy key shape — still read for backward compatibility. */
 const LEGACY_PROJECT_KEY_PREFIX = "feasibuild_project_";
@@ -23,11 +27,31 @@ export function isPuterKvAvailable(): boolean {
   return typeof window !== "undefined" && !!window.puter?.kv;
 }
 
-export async function readKvValue(key: string): Promise<unknown> {
-  if (isPuterKvAvailable()) {
+function resolveUserId(explicit?: string): string | null {
+  const id = explicit?.trim() || getSecureKvUserId();
+  return id || null;
+}
+
+function toStorageString(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") return raw;
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function readKvValue(
+  key: string,
+  userId?: string
+): Promise<unknown> {
+  const uid = resolveUserId(userId);
+
+  if (uid && isPuterKvAvailable()) {
     try {
-      const raw = await window.puter!.kv.get(key);
-      if (raw != null) return raw;
+      const raw = await secureKv.get(uid, key);
+      if (raw != null) return typeof raw === "string" ? raw : toStorageString(raw);
     } catch (error) {
       console.warn(`[PuterStorage] Puter KV read failed for ${key}:`, error);
     }
@@ -35,7 +59,8 @@ export async function readKvValue(key: string): Promise<unknown> {
 
   if (typeof window !== "undefined") {
     try {
-      return localStorage.getItem(key);
+      const localKey = uid ? `${uid}:${key}` : key;
+      return localStorage.getItem(localKey);
     } catch (error) {
       console.warn(`[PuterStorage] localStorage read failed for ${key}:`, error);
     }
@@ -44,27 +69,57 @@ export async function readKvValue(key: string): Promise<unknown> {
   return null;
 }
 
+export function writeLocalKvValue(
+  key: string,
+  value: string,
+  userId?: string
+): void {
+  const uid = resolveUserId(userId);
+  if (!uid || typeof window === "undefined") return;
+  try {
+    localStorage.setItem(`${uid}:${key}`, value);
+  } catch (error) {
+    console.warn(`[PuterStorage] localStorage write failed for ${key}:`, error);
+  }
+}
+
 export async function writeKvValue(
   key: string,
-  value: string
+  value: string,
+  userId?: string
 ): Promise<"puter" | "localStorage"> {
+  const uid = resolveUserId(userId);
+  if (!uid) {
+    throw new Error("SecureKV: User ID is required to write project data");
+  }
+
+  if (typeof window === "undefined") {
+    throw new Error("Storage is not available in this environment.");
+  }
+
+  // Optimistic: persist locally first so the UI never waits on Puter.
+  writeLocalKvValue(key, value, uid);
+  console.log(`[PuterStorage] ✓ localStorage write ${uid}:${key}`);
+
   if (isPuterKvAvailable()) {
-    await window.puter!.kv.set(key, value);
+    console.log(`[PuterStorage] Syncing via SecureKV → ${key}`);
+    await secureKv.set(uid, key, value);
     return "puter";
   }
 
-  if (typeof window !== "undefined") {
-    localStorage.setItem(key, value);
-    return "localStorage";
-  }
-
-  throw new Error("Storage is not available in this environment.");
+  console.warn(`[PuterStorage] Puter unavailable — local only for ${key}`);
+  return "localStorage";
 }
 
-export async function deleteKvValue(key: string): Promise<void> {
-  if (isPuterKvAvailable()) {
+export async function deleteKvValue(
+  key: string,
+  userId?: string
+): Promise<void> {
+  const uid = resolveUserId(userId);
+
+  if (uid && isPuterKvAvailable()) {
     try {
-      await window.puter!.kv.del(key);
+      await secureKv.delete(uid, key);
     } catch (error) {
       console.warn(`[PuterStorage] Puter KV delete failed for ${key}:`, error);
     }
@@ -72,6 +127,9 @@ export async function deleteKvValue(key: string): Promise<void> {
 
   if (typeof window !== "undefined") {
     try {
+      const localKey = uid ? `${uid}:${key}` : key;
+      localStorage.removeItem(localKey);
+      // Also clear legacy un-namespaced local key if present
       localStorage.removeItem(key);
     } catch (error) {
       console.warn(`[PuterStorage] localStorage delete failed for ${key}:`, error);
@@ -95,12 +153,12 @@ function parseStoredIndex(raw: unknown): ProjectIndexEntry[] {
 
 export async function loadProjectIndex(userId: string): Promise<ProjectIndexEntry[]> {
   const userKey = userProjectListKey(userId);
-  const userIndex = parseStoredIndex(await readKvValue(userKey));
+  const userIndex = parseStoredIndex(await readKvValue(userKey, userId));
   if (userIndex.length > 0) {
     return userIndex;
   }
 
-  return parseStoredIndex(await readKvValue(LEGACY_PROJECT_INDEX_KEY));
+  return parseStoredIndex(await readKvValue(LEGACY_PROJECT_INDEX_KEY, userId));
 }
 
 export async function writeProjectIndex(
@@ -108,7 +166,7 @@ export async function writeProjectIndex(
   index: ProjectIndexEntry[]
 ): Promise<void> {
   const serialized = JSON.stringify(index);
-  await writeKvValue(userProjectListKey(userId), serialized);
+  await writeKvValue(userProjectListKey(userId), serialized, userId);
 }
 
 export async function upsertProjectIndexEntry(
@@ -161,7 +219,7 @@ export async function readProjectRaw(
   projectId: string
 ): Promise<{ raw: unknown; key: string } | null> {
   for (const key of projectDataKeysForLookup(userId, projectId)) {
-    const raw = await readKvValue(key);
+    const raw = await readKvValue(key, userId);
     if (raw != null && raw !== "") {
       return { raw, key };
     }
@@ -175,6 +233,6 @@ export async function writeProjectRaw(
   serialized: string
 ): Promise<{ storageKey: string; destination: "puter" | "localStorage" }> {
   const storageKey = userProjectDataKey(userId, projectId);
-  const destination = await writeKvValue(storageKey, serialized);
+  const destination = await writeKvValue(storageKey, serialized, userId);
   return { storageKey, destination };
 }

@@ -97,11 +97,18 @@ export type AiGuardrailRange = {
   recommended: number;
 };
 
+/** Field-name → one-sentence rationale stored with C1/C2 research JSON. */
+export type AiReasoningNotes = Record<string, string>;
+
+type AiPhasePayload = Record<string, unknown> & {
+  reasoning_notes?: AiReasoningNotes;
+};
+
 export type AiResearchResult = {
   fx_rate_to_usd?: number;
-  c1_development: Record<string, unknown>;
-  c2_operational?: Record<string, unknown>;
-  c2_sales?: Record<string, unknown>;
+  c1_development: AiPhasePayload;
+  c2_operational?: AiPhasePayload;
+  c2_sales?: AiPhasePayload;
   market_benchmarks?: Record<string, unknown>;
   hints?: {
     contingency_text?: string;
@@ -146,6 +153,34 @@ function getLandCategory(assetType: AiAssetType): LandUseCategory {
 const HYPER_LOCAL_INSTRUCTIONS = `
 CRITICAL: If the user provides a specific sub-market, neighborhood, or exact coordinates, you MUST provide benchmarks specific to that micro-location, not just the general city averages. Micro-location data takes precedence over city-wide data.
 `;
+
+const REASONING_NOTES_INSTRUCTIONS = `
+REASONING NOTES (required on each phase object you return):
+- Include a "reasoning_notes" object inside c1_development, and inside c2_operational or c2_sales when those phases are present.
+- Map the 4–6 most material assumption field names (e.g. building_rate_psf, land_rate_psf, adr_year_1, avg_sales_price_psf) to a one-sentence rationale (max 25 words each).
+- Notes must be factual, market-specific rationale (location, grade, segment, macro conditions). Never generic filler. Never chain-of-thought narration.
+`.trim();
+
+const C1_REASONING_NOTES_JSON = `"reasoning_notes": {
+      "building_rate_psf": "one-sentence market-specific rationale (max 25 words)",
+      "land_rate_psf": "one-sentence market-specific rationale (max 25 words)",
+      "sc_percentage": "one-sentence market-specific rationale (max 25 words)",
+      "construction_period_months": "one-sentence market-specific rationale (max 25 words)"
+    }`;
+
+const C2_OPERATIONAL_REASONING_NOTES_JSON = `"reasoning_notes": {
+      "base_rent_year_1_psf": "one-sentence market-specific rationale (max 25 words)",
+      "stabilized_occupancy_pct": "one-sentence market-specific rationale (max 25 words)",
+      "rent_escalation_pct": "one-sentence market-specific rationale (max 25 words)",
+      "adr_year_1": "one-sentence market-specific rationale (max 25 words)"
+    }`;
+
+const C2_SALES_REASONING_NOTES_JSON = `"reasoning_notes": {
+      "avg_sales_price_psf": "one-sentence market-specific rationale (max 25 words)",
+      "agent_commission_pct": "one-sentence market-specific rationale (max 25 words)",
+      "vat_pct": "one-sentence market-specific rationale (max 25 words)",
+      "avg_sales_discount_pct": "one-sentence market-specific rationale (max 25 words)"
+    }`;
 
 const JSON_OUTPUT_INSTRUCTIONS = `
 CRITICAL OUTPUT FORMAT:
@@ -200,10 +235,11 @@ Use this exact top-level structure (nested keys required — do not flatten C1 r
       "engineering_pct": number,
       "geotech_pct": number,
       "other_pct": number
-    }
+    },
+    ${C1_REASONING_NOTES_JSON}
   },
-  "c2_operational": { ... },   // operational stream only — omit for sale-only assets
-  "c2_sales": { ... },         // sale stream only — omit for operational-only assets
+  "c2_operational": { ... , "reasoning_notes": { "field_name": "one-sentence market-specific rationale (max 25 words)" } },   // operational stream only — omit for sale-only assets
+  "c2_sales": { ... , "reasoning_notes": { "field_name": "one-sentence market-specific rationale (max 25 words)" } },         // sale stream only — omit for operational-only assets
   "hints": {
     "contingency_text": "1-2 sentence rationale for contingency %",
     "construction_period_text": "1-2 sentence rationale for construction period",
@@ -218,6 +254,8 @@ Use this exact top-level structure (nested keys required — do not flatten C1 r
 All monetary rates must be in the project's local currency per sqft unless noted otherwise.
 All percentages must be numeric values (e.g. 7.5 for 7.5%, not 0.075).
 Base estimates on current market data for the specified city and country.
+
+${REASONING_NOTES_INSTRUCTIONS}
 `.trim();
 
 const C1_DEVELOPMENT_FIELDS = `
@@ -229,6 +267,7 @@ Required numeric fields:
 - construction_period.months (+ range string)
 - s_curve.stage_1_pct through stage_4_pct (must sum to ~100)
 - powc_breakdown and sc_breakdown percentage shares (must sum to ~100 each)
+- reasoning_notes: 4–6 field→sentence map (max 25 words each; market-specific, not filler)
 `.trim();
 
 const OPERATIONAL_C2_FIELDS = `
@@ -245,6 +284,7 @@ For hotels include:
 - direct_costs: { rooms_payroll, rooms_other, food_cos, beverage_cos, fnb_payroll, fnb_other, telecom, spa, rental }
 - undistributed_expenses: { g_and_a, marketing, prop_ops, utilities, base_mgmt_fee_room_rev, incentive_fee_ebitda, renovation_y1, renovation_y2, renovation_y3_10 }
 - depreciation_wc: { construction_useful_life_years, ffe_useful_life_years, ffe_renovation_pct_year_6, accounts_receivable_months_revenue, accounts_payable_months_opex }
+- reasoning_notes: 4–6 field→sentence map (max 25 words each; market-specific, not filler)
 `.trim();
 
 const TWO_PHASE_INSTRUCTIONS = `
@@ -253,6 +293,7 @@ TWO-PHASE RESEARCH (retail, office, residential BTR — not hotel):
 - Phase 2 (buildingConfig includes glaSqft): Return ONLY c2_operational using the nested step structure below. Omit c1_development entirely.
 Use snake_case keys only — do not flatten step objects.
 CRITICAL: When returning c2_operational rent fields (base_rent_year_1_psf), values MUST be ANNUAL psf rates. Convert monthly × 12 if research sources quote monthly rents.
+Include reasoning_notes on whichever phase object you return.
 `.trim();
 
 const RETAIL_TWO_PHASE_OUTPUT = `
@@ -292,7 +333,8 @@ const RETAIL_TWO_PHASE_OUTPUT = `
       "engineering_pct": 00,
       "geotech_pct": 00,
       "other_pct": 00
-    }
+    },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_operational": {
     "step1_base_rent": {
@@ -334,7 +376,8 @@ const RETAIL_TWO_PHASE_OUTPUT = `
       "leasing_commissions_life_years": 0,
       "accounts_receivable_months_revenue": 0.0,
       "accounts_payable_months_opex": 0.0
-    }
+    },
+    ${C2_OPERATIONAL_REASONING_NOTES_JSON}
   }
 }
 `.trim();
@@ -357,7 +400,8 @@ const OFFICE_TWO_PHASE_OUTPUT = `
     "construction_period": { "months": 00 },
     "s_curve": { "stage_1_pct": 00, "stage_2_pct": 00, "stage_3_pct": 00, "stage_4_pct": 00 },
     "powc_breakdown": { "site_establishment_pct": 00, "overhead_pct": 00, "authority_fees_pct": 00 },
-    "sc_breakdown": { "architect_pct": 00, "pm_pct": 00, "engineering_pct": 00, "geotech_pct": 00, "other_pct": 00 }
+    "sc_breakdown": { "architect_pct": 00, "pm_pct": 00, "engineering_pct": 00, "geotech_pct": 00, "other_pct": 00 },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_operational": {
     "step1_base_rent": {
@@ -409,7 +453,8 @@ const OFFICE_TWO_PHASE_OUTPUT = `
       "leasing_commissions_life_years": 0,
       "accounts_receivable_months_revenue": 0.0,
       "accounts_payable_months_opex": 0.0
-    }
+    },
+    ${C2_OPERATIONAL_REASONING_NOTES_JSON}
   }
 }
 `.trim();
@@ -432,7 +477,8 @@ const RESIDENTIAL_TWO_PHASE_OUTPUT = `
     "construction_period": { "months": 00 },
     "s_curve": { "stage_1_pct": 00, "stage_2_pct": 00, "stage_3_pct": 00, "stage_4_pct": 00 },
     "powc_breakdown": { "site_establishment_pct": 00, "overhead_pct": 00, "authority_fees_pct": 00 },
-    "sc_breakdown": { "architect_pct": 00, "pm_pct": 00, "engineering_pct": 00, "geotech_pct": 00, "other_pct": 00 }
+    "sc_breakdown": { "architect_pct": 00, "pm_pct": 00, "engineering_pct": 00, "geotech_pct": 00, "other_pct": 00 },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_operational": {
     "step1_base_rent": {
@@ -466,7 +512,8 @@ const RESIDENTIAL_TWO_PHASE_OUTPUT = `
       "ffe_renovation_pct_year_6": 0.00,
       "accounts_receivable_months_revenue": 0.0,
       "accounts_payable_months_opex": 0.0
-    }
+    },
+    ${C2_OPERATIONAL_REASONING_NOTES_JSON}
   }
 }
 `.trim();
@@ -478,6 +525,7 @@ c2_sales must include:
 - deductions.vat_pct (% of Gross Sales Value) — current VAT/GST for property sales in the country (0 if none)
 - deductions.escrow_fees_pct (% of Gross Sales Value) — escrow / registration / collection fees (e.g. Oqood)
 - deductions.avg_sales_discount_pct (% of list price) — typical early-bird / marketing discount
+- reasoning_notes: 4–6 field→sentence map (max 25 words each; market-specific, not filler)
 `.trim();
 
 const GUARDRAIL_INSTRUCTIONS = `
@@ -657,7 +705,8 @@ const WAREHOUSE_OPERATIONAL_OUTPUT = `
       "engineering_pct": number,
       "geotech_pct": number,
       "other_pct": number
-    }
+    },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_operational": {
     "step1_primary_revenue": {
@@ -693,7 +742,8 @@ const WAREHOUSE_OPERATIONAL_OUTPUT = `
       "ffe_reserve_pct_revenue": number,
       "accounts_receivable_days": number,
       "accounts_payable_days": number
-    }
+    },
+    ${C2_OPERATIONAL_REASONING_NOTES_JSON}
   },
   "market_benchmarks": {
     "all_in_cost_per_sqft": {
@@ -738,7 +788,8 @@ const DATA_CENTRE_OPERATIONAL_OUTPUT = `
       "powc_percentage": number,
       "ffe_percentage": { "recommended": number, "min_range": number, "max_range": number }
     },
-    "construction_period": { "months": number, "range": "string", "justification": "string" }
+    "construction_period": { "months": number, "range": "string", "justification": "string" },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_operational": {
     "step1_primary_revenue": {
@@ -773,7 +824,8 @@ const DATA_CENTRE_OPERATIONAL_OUTPUT = `
       "ffe_reserve_pct_revenue": number,
       "accounts_receivable_days": number,
       "accounts_payable_days": number
-    }
+    },
+    ${C2_OPERATIONAL_REASONING_NOTES_JSON}
   },
   "hints": {
     "contingency_text": "string",
@@ -960,6 +1012,7 @@ const CLAUDE_JSON_STRICT_INSTRUCTIONS = `
 4. Do NOT use <reasoning> tags or STEP / ## headers
 5. Your response must start with { and end with }
 6. If you cannot provide a value, use null or 0 — DO NOT explain why
+7. Inside each phase object you return (c1_development, c2_operational, c2_sales), include a "reasoning_notes" object mapping 4–6 material field names to one-sentence market-specific rationales (max 25 words). This is structured JSON — not free-form reasoning text.
 
 **OUTPUT FORMAT:**
 Return ONLY the requested JSON structure with no additional text.
@@ -1078,7 +1131,8 @@ After </reasoning>, output ONLY this JSON:
     "hints": { "contingency_text": "...", "construction_period_text": "...", "sales_launch_text": "..." },
     "s_curve": { "stage_1_pct": 0.00, "stage_2_pct": 0.00, "stage_3_pct": 0.00, "stage_4_pct": 0.00 },
     "powc_breakdown": { "site_establishment_pct": 0.00, "overhead_pct": 0.00, "authority_fees_pct": 0.00 },
-    "sc_breakdown": { "architect_pct": 0.00, "pm_pct": 0.00, "engineering_pct": 0.00, "geotech_pct": 0.00, "other_pct": 0.00 }
+    "sc_breakdown": { "architect_pct": 0.00, "pm_pct": 0.00, "engineering_pct": 0.00, "geotech_pct": 0.00, "other_pct": 0.00 },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_sales": {
     "avg_sales_price_psf": 000,
@@ -1087,7 +1141,8 @@ After </reasoning>, output ONLY this JSON:
       "vat_pct": 0.00,
       "escrow_fees_pct": 0.00,
       "avg_sales_discount_pct": 0.00
-    }
+    },
+    ${C2_SALES_REASONING_NOTES_JSON}
   },
   "market_benchmarks": {
     "all_in_cost_per_sqft": { "min": 0.00, "max": 0.00, "recommended": 0.00 }
@@ -1105,7 +1160,8 @@ CRITICAL CONSTRAINTS:
 - Land Rate MUST be for ${landCategory} only.
 - S-Curve, POWC, and SC breakdown percentages MUST each sum to exactly 100%.
 - market_benchmarks.all_in_cost_per_sqft is REQUIRED.
-- After </reasoning>, return ONLY the JSON object (no markdown fences).`;
+- After </reasoning>, return ONLY the JSON object (no markdown fences).
+- Include reasoning_notes on c1_development and c2_sales (4–6 field→sentence map, max 25 words, market-specific).`;
 }
 
 function buildSaleStreamUserPrompt(options: AiResearchOptions): string {
@@ -1209,7 +1265,8 @@ After the <reasoning> block, output the JSON strictly in the following format:
     "hints": { "contingency_text": "...", "construction_period_text": "...", "sales_launch_text": "..." },
     "s_curve": { "stage_1_pct": 0.00, "stage_2_pct": 0.00, "stage_3_pct": 0.00, "stage_4_pct": 0.00 },
     "powc_breakdown": { "site_establishment_pct": 0.00, "overhead_pct": 0.00, "authority_fees_pct": 0.00 },
-    "sc_breakdown": { "architect_pct": 0.00, "pm_pct": 0.00, "engineering_pct": 0.00, "geotech_pct": 0.00, "other_pct": 0.00 }
+    "sc_breakdown": { "architect_pct": 0.00, "pm_pct": 0.00, "engineering_pct": 0.00, "geotech_pct": 0.00, "other_pct": 0.00 },
+    ${C1_REASONING_NOTES_JSON}
   },
   "c2_sales": {
     "avg_sales_price_psf": 000,
@@ -1218,7 +1275,8 @@ After the <reasoning> block, output the JSON strictly in the following format:
       "vat_pct": 0.00,
       "escrow_fees_pct": 0.00,
       "avg_sales_discount_pct": 0.00
-    }
+    },
+    ${C2_SALES_REASONING_NOTES_JSON}
   },
   "hints": { "contingency_text": "...", "construction_period_text": "...", "sales_launch_text": "..." },
   "guardrails": {
@@ -1235,7 +1293,8 @@ CRITICAL CONSTRAINTS:
 - Guardrail ranges must reflect actual institutional lending criteria in ${location.country}.
 - VAT and Escrow fees must reflect CURRENT statutory / market practice for ${location.country} and ${location.city} — never invent global defaults.
 - If Currency is USD, fx_rate_to_usd MUST be 1.0. Otherwise fx_rate_to_usd must be mid-market local currency units per 1 USD (e.g. ~3.67 for AED, ~4.70 for MYR).
-- After </reasoning>, return ONLY the JSON object (no markdown fences).`;
+- After </reasoning>, return ONLY the JSON object (no markdown fences).
+- Include reasoning_notes on c1_development and c2_sales (4–6 field→sentence map, max 25 words, market-specific).`;
 }
 
 export function buildUserPrompt(options: AiResearchOptions): string {
@@ -1501,6 +1560,19 @@ function num(...candidates: unknown[]): number | undefined {
   return undefined;
 }
 
+/** Copy valid field→sentence notes; omit entirely when absent or empty (legacy caches). */
+function pickReasoningNotes(
+  source?: Record<string, unknown>
+): AiReasoningNotes | undefined {
+  const raw = asRecord(source?.reasoning_notes);
+  if (!raw) return undefined;
+  const notes: AiReasoningNotes = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string" && value.trim()) notes[key] = value.trim();
+  }
+  return Object.keys(notes).length ? notes : undefined;
+}
+
 /**
  * Normalize flat or partially-nested AI JSON into the store's AiResearchData shape.
  * Accepts both the nested schema and legacy flat keys (buildingRate, softCostsPercent, etc.).
@@ -1605,6 +1677,8 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
   const stage2 = num(sCurveRaw.stage_2_pct, sCurveRaw.stage2Percent, c1Raw.stage2Percent) ?? 20;
   const stage3 = num(sCurveRaw.stage_3_pct, sCurveRaw.stage3Percent, c1Raw.stage3Percent) ?? 40;
   const stage4 = num(sCurveRaw.stage_4_pct, sCurveRaw.stage4Percent, c1Raw.stage4Percent) ?? 30;
+
+  const c1Notes = pickReasoningNotes(c1Raw);
 
   const c2Raw = asRecord(root.c2_operational);
   let c2_operational: Record<string, unknown> | undefined = c2Raw;
@@ -1802,6 +1876,15 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
         },
       };
     }
+
+    const c2Notes = pickReasoningNotes(c2Raw);
+    if (c2_operational) {
+      const c2Rest = { ...c2_operational };
+      delete c2Rest.reasoning_notes;
+      c2_operational = c2Notes
+        ? { ...c2Rest, reasoning_notes: c2Notes }
+        : c2Rest;
+    }
   }
 
   const hintsRaw = asRecord(root.hints);
@@ -1895,6 +1978,7 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
         geotech_pct: num(scRaw.geotech_pct, scRaw.geotechnical) ?? 10,
         other_pct: num(scRaw.other_pct, scRaw.otherFees) ?? 10,
       },
+      ...(c1Notes ? { reasoning_notes: c1Notes } : {}),
     },
     ...(c2_operational ? { c2_operational } : {}),
     ...(() => {
@@ -1913,6 +1997,7 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
               c2Raw.avgSalesPrice,
               c2Raw.salesPrice
             ) ?? 0;
+          const salesNotes = pickReasoningNotes(c2Raw);
           return {
             c2_sales: {
               avg_sales_price_psf: avgPrice,
@@ -1947,6 +2032,7 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
                     c2Raw.avg_sales_discount_pct
                   ) ?? 0,
               },
+              ...(salesNotes ? { reasoning_notes: salesNotes } : {}),
             },
           };
         })()

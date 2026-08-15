@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import {
   Bar,
   BarChart,
@@ -2318,6 +2319,7 @@ function OperationalCashInflowsPageContent() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
+  useReportWizardStep(currentStep + 1);
   const hotelBenchmarkStepsLogged = useRef<Set<number>>(new Set());
   const step0PersistRef = useRef<(() => void) | null>(null);
   const step1PersistRef = useRef<(() => void) | null>(null);

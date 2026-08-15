@@ -8,6 +8,7 @@ import AdjustShockValues from "./steps/AdjustShockValues";
 import {
   FACTOR_ID_TO_STORE_KEY,
   getAllFactorsForAsset,
+  getAssetDisplayLabel,
   initialShocksForAsset,
   presetShocksForAsset,
   shocksToOperationalInput,
@@ -642,7 +643,7 @@ export default function ScenarioAnalysisPage() {
           </div>
           <p className="text-[11px] text-slate-500 mt-2">
             Base Case = current assumptions. Downside/Upside = one-touch shocks for{" "}
-            {buildingType} (common + asset-specific drivers).
+            {getAssetDisplayLabel(buildingType)} (common + asset-specific drivers).
           </p>
         </div>
 

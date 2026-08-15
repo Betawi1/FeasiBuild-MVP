@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import { getCurrencyForCountry } from "@/lib/constants/countryCurrencies";
 import useFinModelStore from "@/store/useFinModelStore";
 import useSaleModelStore, {
@@ -241,6 +242,7 @@ function CashOutflowsPageContent() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
+  useReportWizardStep(currentStep + 1);
   const cashOutflowStepVisitLogged = useRef<Set<number>>(new Set());
   const hasResearchedForSalesRef = useRef<string | null>(null);
   const [isAiResearching, setIsAiResearching] = useState(false);

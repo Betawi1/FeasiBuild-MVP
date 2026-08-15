@@ -22,6 +22,7 @@ import {
   upsertProjectIndexEntry,
   userProjectDataKey,
   writeProjectRaw,
+  writeLocalKvValue,
   deleteKvValue,
   projectDataKeysForLookup,
 } from "@/lib/puter-storage";
@@ -38,8 +39,6 @@ import { PROJECT_SAVE_VERSION } from "@/types/project";
 const PROJECT_KEY_PREFIX = "feasibuild_project_";
 /** @deprecated Legacy global index — reads still supported for migration. */
 export const PROJECT_INDEX_KEY = "feasibuild_projects_index";
-const MAX_SAVE_RETRIES = 3;
-const RETRY_BASE_DELAY_MS = 500;
 
 export function projectStorageKey(
   projectId: string,
@@ -90,7 +89,7 @@ export async function loadProjectFromKV(
     return null;
   }
 
-  console.log(`[ProjectSave] ✓ Loaded project from KV: ${stored.key}`);
+  console.debug(`[ProjectSave] ✓ Loaded project from KV: ${stored.key}`);
   return project;
 }
 
@@ -406,7 +405,7 @@ async function updateProjectIndex(
     const slideCount = useFeasibilityStore.getState().slides.length;
     const projectMetadata = buildProjectIndexEntry(projectData, { slideCount });
     await upsertProjectIndexEntry(userId, projectMetadata);
-    console.log("[ProjectSave] Project index updated successfully");
+    console.debug("[ProjectSave] Project index updated successfully");
   } catch (error) {
     console.error("[ProjectSave] Failed to update project index:", error);
   }
@@ -428,10 +427,6 @@ function validateProjectSaveData(data: ProjectSaveData): void {
   if (!data.projectInfo || !data.cashOutflows || !data.cashInflows) {
     throw new Error("Project state is incomplete.");
   }
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function fetchProjectIndex(
@@ -470,66 +465,63 @@ export async function deleteProjectFromKV(
   await removeProjectIndexEntry(userId, projectId);
 
   const keysToDelete = new Set(projectDataKeysForLookup(userId, projectId));
-  await Promise.all([...keysToDelete].map((key) => deleteKvValue(key)));
+  await Promise.all(
+    [...keysToDelete].map((key) => deleteKvValue(key, userId))
+  );
 
-  console.log(`[ProjectSave] ✓ Deleted project ${projectId}`);
+  console.debug(`[ProjectSave] ✓ Deleted project ${projectId}`);
 }
 
 export async function saveProjectToKV(
   projectData: ProjectSaveData
 ): Promise<SaveProjectResult> {
+  console.debug("[ProjectSave] Starting save to Puter KV...");
   const sanitized = sanitizeForStorage<ProjectSaveData>(projectData);
   validateProjectSaveData(sanitized);
 
   try {
     const payloadSize = JSON.stringify(sanitized).length;
-    console.log("[ProjectSave] Sanitized payload size:", payloadSize, "bytes");
+    console.debug("[ProjectSave] Sanitized payload size:", payloadSize, "bytes");
   } catch (error) {
     console.warn("[ProjectSave] Could not measure payload size:", error);
   }
 
   const userId = sanitized.userId!;
   const serialized = JSON.stringify(sanitized);
-  let lastError: unknown;
+  const logicalKey = userProjectDataKey(userId, sanitized.projectId);
 
-  for (let attempt = 1; attempt <= MAX_SAVE_RETRIES; attempt++) {
-    try {
-      const status = await checkPuterStatus();
-      if (!status.available && typeof window === "undefined") {
-        throw new Error("Puter KV is not available.");
-      }
+  // Optimistic: mirror into localStorage before vault sync.
+  writeLocalKvValue(logicalKey, serialized, userId);
+  console.debug("[ProjectSave] ✓ Saved locally to localStorage", {
+    projectId: sanitized.projectId,
+    key: logicalKey,
+  });
 
-      const { storageKey, destination } = await writeProjectRaw(
-        userId,
-        sanitized.projectId,
-        serialized
-      );
-      await updateProjectIndex(userId, sanitized);
-      console.log(
-        `[ProjectSave] ✓ Saved project ${sanitized.projectId} to ${destination}`
-      );
-
-      return {
-        projectId: sanitized.projectId,
-        storageKey,
-      };
-    } catch (error) {
-      lastError = error;
-      console.warn(
-        `[ProjectSave] Save attempt ${attempt}/${MAX_SAVE_RETRIES} failed:`,
-        error
-      );
-      if (attempt < MAX_SAVE_RETRIES) {
-        await sleep(RETRY_BASE_DELAY_MS * attempt);
-      }
-    }
+  const status = await checkPuterStatus();
+  if (!status.available && typeof window === "undefined") {
+    throw new Error("Puter KV is not available.");
   }
 
-  const message =
-    lastError instanceof Error
-      ? lastError.message
-      : "Failed to save project after multiple attempts.";
-  throw new Error(message);
+  try {
+    const { storageKey, destination } = await writeProjectRaw(
+      userId,
+      sanitized.projectId,
+      serialized
+    );
+    await updateProjectIndex(userId, sanitized);
+    console.debug(
+      `[ProjectSave] ✓ Synced to Puter KV vault (${destination})`,
+      sanitized.projectId
+    );
+
+    return {
+      projectId: sanitized.projectId,
+      storageKey,
+    };
+  } catch (error) {
+    console.error("[ProjectSave] ✗ Failed to sync to Puter KV:", error);
+    throw error;
+  }
 }
 
 export interface BuildProjectSaveInput {
@@ -556,14 +548,13 @@ export async function buildAndSaveProject(
     ? await loadProjectFromKV(projectId, input.userId)
     : null;
 
-  const aiCommentary = await fetchAICommentary(projectId, collected.stream);
   const feasibilityState = useFeasibilityStore.getState();
   const slideCount = feasibilityState.slides.length;
   const studyGeneratedAt =
     feasibilityState.report?.generatedAt ??
     existingProject?.feasibilityStudyGeneratedAt;
 
-  const projectData: ProjectSaveData = {
+  const draft: ProjectSaveData = {
     projectId,
     userId: input.userId,
     savedAt: existingProject?.savedAt ?? now,
@@ -576,7 +567,13 @@ export async function buildAndSaveProject(
     cashInflows: collected.cashInflows,
     financing: collected.financing,
     projectIRR: collected.projectIRR,
-    aiCommentary,
+    aiCommentary: existingProject?.aiCommentary ?? {
+      executiveSummary: "",
+      component1Analysis: "",
+      component2Analysis: "",
+      component4Analysis: "",
+      component6Analysis: "",
+    },
     feasibilityStudyGeneratedAt:
       existingProject?.feasibilityStudyGeneratedAt ??
       (slideCount > 0 ? studyGeneratedAt ?? now : undefined),
@@ -587,7 +584,19 @@ export async function buildAndSaveProject(
     },
   };
 
-  const result = await saveProjectToKV(projectData);
-  useFinModelStore.getState().setActiveProject(projectId, projectData.projectName);
-  return result;
+  useFinModelStore.getState().setActiveProject(projectId, draft.projectName);
+  writeLocalKvValue(
+    userProjectDataKey(input.userId, projectId),
+    JSON.stringify(sanitizeForStorage(draft)),
+    input.userId
+  );
+  console.debug("[ProjectSave] ✓ Draft saved locally (pre-commentary)", projectId);
+
+  const aiCommentary = await fetchAICommentary(projectId, collected.stream);
+  const projectData: ProjectSaveData = {
+    ...draft,
+    aiCommentary,
+  };
+
+  return saveProjectToKV(projectData);
 }

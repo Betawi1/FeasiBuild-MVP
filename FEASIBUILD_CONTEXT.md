@@ -93,7 +93,7 @@ Warehouse CapEx lives in store `cashOutflows.warehouseCosts` / `warehousePhasing
 - **Data Centre C2 UI:** `c2s1`–`c2s4` under `operational/cash-inflows/components/` (`*-data-centre.tsx`); P&L series `src/lib/data-centre-pnl-series.ts`; table `DataCentrePnlTable.tsx`; AI helpers `src/lib/data-centre-ai.ts`
 
 **C3–C5** mostly configure or review engines already fed by C1/C2 (+ financing inputs in C4).  
-**C6** applies base / downside / upside shocks and re-runs C1–C5 engines.
+**C6** applies base / downside / upside shocks and re-runs C1–C5 engines. Operational C6 uses `ASSET_SPECIFIC_FACTORS` in `src/app/operational/scenario-analysis/config/shockFactors.ts` keyed by `buildingType` (hotel, retail, office, BTR, **warehouse**, **data_centre**). Unmapped assets show **Common Factors only** — they must not silently fall back to Hotel. Warehouse shocks: base rent psf, occupancy, rent escalation, lease-up. Data Centre shocks: power lease rate, white-space rent, utilization/occupancy, PUE.
 
 ### 2.3 Four core cash-flow tables
 
@@ -144,12 +144,24 @@ Scenario engines:
 | **Sale financing UI** | `src/app/sale/preview/financing/` (bridge, MY/UAE/AU tables, export) |
 | **Sale feasibility stream config** | `src/lib/feasibility/sale/sale-stream-config.ts` — `SALE_CONFIG` + `SUBTYPE_TO_CONFIG_KEY` (includes **`Commercial-Strata-Warehouse`** ↔ `commercial_strata_warehouse`); drives title, market slide titles, commentary asset label via `getSaleStreamConfig` |
 | **Sale feasibility generators** | `src/lib/feasibility/sale/generate-sale-report.ts`, `enrich-sale-slides-puter.ts`, `create-sale-puter-prompts.ts`, `build-sale-financial-data.ts`, `sale-context.ts` |
-| **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts` |
+| **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts`, `useAnalystStore.ts` (AI Analyst UI/chat — not financial data) |
 | **Calculation engine** | `src/lib/irr-calculations.ts`, `equity-irr.ts`, `operational-pnl.ts`, `operational-project-irr-pnl.ts`, `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, `src/app/operational/engine/c4.levered.engine.ts`, `c5.equity.engine.ts` |
 | **Report generator** | `src/lib/feasibility/**`, `src/types/feasibility.ts`, `src/components/feasibility/**`, `src/app/api/feasibility/**`, `src/lib/pdf-export.ts` |
-| **User AI preference (Puter KV)** | `src/lib/puter-models.ts` (curated catalog), `src/lib/puter-kv-preferences.ts` (`feasi_build_user_preferences`), `src/components/settings/AIModelSelector.tsx`, `src/app/dashboard/settings/page.tsx`; compact selector also in `src/components/dashboard/Header.tsx` |
+| **User AI preference (Puter KV)** | `src/lib/puter-models.ts` (curated catalog), `src/lib/puter-kv-preferences.ts` (logical key `user_preferences` via Secure KV), `src/components/settings/AIModelSelector.tsx`, `src/app/dashboard/settings/page.tsx`; compact selector also in `src/components/dashboard/Header.tsx` |
+| **AI Analyst (advisory drawer)** | `src/store/useAnalystStore.ts` (UI/chat only — never writes `useFinModelStore`), `src/lib/constants/aiAnalystPrompts.ts`, `src/lib/analyst-doc-routes.ts`, `src/lib/analyst-research-snapshot.ts` (component-scoped snapshot + stored `reasoning_notes`), `src/lib/doc-text-extractor.ts`, `src/hooks/useAnalystContext.ts`, `src/components/ai-analyst/AIAnalystDrawer.tsx`, `GET /api/analyst-context?stepId=` (live `fs` read of `src/app/docs/**/page.tsx`); mounted in operational/sale layouts; hidden on Dashboard, Settings, and Feasibility Study |
+| **Secure Puter KV (Clerk isolation)** | `src/lib/secure-puter-kv.ts` — **only** module that calls `puter.kv.*`. Keys: `feasi_build_{clerkUserId}_{logicalKey}`. Strips legacy `feasibuild_{userId}_` / double prefixes via `toLogicalKvKey`. Retries get/set/del (3×, 1s→2s backoff). `SecureKvUserBinder` + `getSecureKvUserId()` for lib callers. Auth probe: `probePuterKvAccess`. |
+| **KV migration** | `src/lib/migrate-puter-kv.ts` — `migrateOldPuterKeys` + `PuterKvMigrationTrigger` (once per signed-in session). Copies legacy / double-prefixed keys → namespaced, then deletes old. Mounted in `src/app/layout.tsx`. |
+| **Project storage** | `src/lib/puter-storage.ts` (local-first write via `writeLocalKvValue`, then Secure KV), `src/lib/project-save.ts` (`buildAndSaveProject`, `saveProjectToKV`) |
+| **Optimistic save UI** | `src/hooks/useOptimisticProjectSave.ts`, `src/hooks/useNetworkStatus.ts`, `src/components/header/SaveProjectButton.tsx` (nav-bar only — no duplicate C1 page button). States: Saved Locally (≥500ms) → Syncing → Synced / Retry; auto-retry on reconnect. |
 | **JSON sanitizer (Claude / verbose LLMs)** | `src/lib/extract-json-from-claude.ts` — used by `useAiResearch.ts` and chart parsing in `ai-service.ts` |
 | **Shared UI helpers** | `src/components/ui/AiInput.tsx` (override / reset baseline; avoid `string === number` comparisons under TS strict narrowing) |
+
+### 2.6 BYO Puter storage & save UX
+
+- **Isolation:** Every Puter KV read/write for projects, AI caches, hashes, and preferences goes through `secureKv` with the Clerk `userId`. Do **not** call `window.puter.kv` outside `secure-puter-kv.ts` (except migration raw helpers exported from that same module).
+- **Key shape:** Logical keys from `puter-storage` / cache / preferences are cleaned then stored as `feasi_build_{userId}_{cleanKey}` (e.g. `proj_…`, `user_preferences`, `feasibuild_cache_…`).
+- **Optimistic save:** Persist to `localStorage` first (`{userId}:{key}`), show **Saved Locally**, then background sync to Puter with Secure KV retries. Failed syncs show **Retry Save** and retry when `navigator.onLine` returns.
+- **Single Save control (Operational):** Only `SaveProjectButton` in `operational/layout.tsx` / `sale/layout.tsx`. In-page save on `cash-outflows` was removed to prevent duplicate project IDs.
 
 **Sale feasibility deck rules (presentation, not engine math)**
 
@@ -169,11 +181,11 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 |------|--------|
 | **Hook** | `src/hooks/useAiResearch.ts` → `performResearch()` |
 | **API** | Client `puter.ai.chat` (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`) |
-| **Model** | User-selectable via Puter KV (`getPreferredModel()`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`, `deepseek/deepseek-v3.2`. Unknown / failed KV → default. |
+| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`, `deepseek/deepseek-v3.2`. Unknown / failed KV → default. |
 | **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` (Claude **12000**). Claude also sends `response_format: { type: "json_object" }` when Puter forwards it. |
 | **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt(assetType, model?)` appends **Claude-strict JSON rules** when the id contains `claude`; plus `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
 | **JSON parse** | `extractJsonFromClaudeResponse` — strips `<reasoning>`, fenced ```json```, brace-balanced objects. Research **skips `type:"reasoning"` stream chunks** so markdown CoT is not parsed as JSON. Unparseable stream → retry `stream: false`. |
-| **Auth / status** | `src/lib/puter-auth.ts`, `src/lib/cache-service.ts` (`checkPuterStatus`) |
+| **Auth / status** | `src/lib/puter-auth.ts`, `src/lib/cache-service.ts` (`checkPuterStatus` → `probePuterKvAccess`). AI caches / slide hashes also go through Secure KV when a Clerk user is bound. |
 | **UI** | `BenchmarkProfile.tsx`, `BenchmarkHeader.tsx`; fills C1/C2 fields from structured JSON |
 
 **Sale asset → AI type map (`SALE_SUBTYPE_TO_AI_ASSET` in `sale/cash-outflows/page.tsx`)**
@@ -194,6 +206,7 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 
 - Required: `fx_rate_to_usd`, `c1_development` (rates, soft costs, land, construction period, breakdowns)
 - Optional: `c2_operational` / `c2_sales`, `hints`, `guardrails`
+- Optional per phase: `reasoning_notes?: Record<string, string>` on `c1_development`, `c2_operational`, and `c2_sales` (4–6 field→sentence rationales, max 25 words, market-specific). Travels inside the existing research JSON — **no new Puter KV keys**. `normalizeAiResearchData` preserves notes when present and must not drop other fields when they are absent (legacy caches/projects).
 - Retail / office / BTR often **two-phase** (C1 first; C2 after GLA / config is set)
 - Warehouse C2 schema + helpers: `src/lib/warehouse-ai-c2.ts`; UI `c2s1`–`c2s4` under `operational/cash-inflows/components/`
 
@@ -231,6 +244,19 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 **Enrichment order (Operational Puter):** macro → (hotel hospitality charts when `assetType === "hotel"`) → market metrics → supply pipeline → tenant profile.
 
 **Prompt patterns:** institutional tone, anti-placeholder rules, length caps (e.g. 5–6 bullets / ≤150 words for commentary), deterministic **fallback paragraphs** when Puter fails, slide cache keys via component hashes.
+
+### 3.3 AI Analyst (advisory co-modeler)
+
+Slide-out right drawer on C1–C6 wizard (and preview) pages. **Advisory only in V1** — it must not write into `useFinModelStore` / `useSaleModelStore`.
+
+| Item | Detail |
+|------|--------|
+| **UI** | `AIAnalystDrawer` — bottom-right “Analyst” pill; ~400px right drawer. Hidden on Dashboard, Settings, and Feasibility Study. |
+| **State** | `useAnalystStore` — `isOpen`, `messages`, `isLoading`, `contextKey`, `generation`. Isolated from the financial model store. Conversation is scoped to the live context: thread resets automatically on step / stream / asset-type change (`contextKey = stepId::stepNumber::assetType`); in-flight replies discarded via a generation guard; Tier-2 doc-text cache retained. |
+| **Tier 1** | `getAnalystSystemPrompt(...)` — persona, AI-expectation defense (benchmarks are directional baselines, not live valuations), floor-counting, sqft/unit-agnostic, gap-fill, 1-month offset. When `sectionFound`, the prompt must answer **this step only**. If the research snapshot contains `ORIGINAL RESEARCH REASONING (stored verbatim):`, quote those notes verbatim then restate the directional-baseline reminder; if absent (pre-feature projects), reconstruct from hints/guardrails. |
+| **Tier 2** | `useAnalystContext` builds `stepId` from pathname + live wizard step (`useReportWizardStep` / `?step=`) + asset type, fetches `GET /api/analyst-context?stepId=&stepNumber=`, caches per `stepId` + step number. API reads live `src/app/docs/**/page.tsx` via `fs`, strips with `extractDocText()`, then slices with `extractStepSection`. Inner C1–C6 steps map to the parent Component doc (no per-step MDX files exist). Full-doc fallback when `sectionFound` is false. |
+| **Tier 3** | `buildResearchSnapshot` in `src/lib/analyst-research-snapshot.ts` (~2,000 char cap). C1 = cost-side; C2 = revenue-side only (C1 cost notes injected only on explicit cost-guardrail questions). Stored `reasoning_notes` are listed ahead of generic hints when truncating. |
+| **Model** | `getPreferredModel()` (Secure KV). `puter.ai.chat` with `stream: true`; skip `type:"reasoning"` chunks; empty stream retries `stream: false`. |
 
 ---
 
@@ -326,45 +352,60 @@ Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx` (`JURISDICTION
    - `malaysia` → CP+24  
    - `australia` → CP+12  
    - `none` → CP+6  
-   - **Unset model currently falls back to CP+12** in horizon code while the monthly router may call **non-escrow** — treat this mismatch as a known footgun; always set an explicit withdrawal mode for non–UAE/KSA/MY/AU countries.
+   - **Unset / empty / null mode on OTHER is treated as `"none"` (CP+6)** in `resolveSaleHorizonLastMonth`, matching the monthly non-escrow router. UAE_SA / MALAYSIA / AUSTRALIA and any explicitly-set mode are unchanged.
 4. Never assume Thailand “defaults to UAE escrow”; UI defaults should prefer `"none"` / user-selected model for TH/VN/OTHER.
 
 ---
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **11 Aug 2026**. **MVP coding session is closed.** Next work is the **production version**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **15 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
 
-### Completed this session (MVP close-out — user-selectable LLM + Claude JSON)
+### Just finished (15 Aug 2026)
 
-- **Curated model picker:** Users choose Qwen 3.7 Plus (default), Claude Sonnet 4.6, GPT-4o (2024-08-06), or DeepSeek V3.2. Catalog: `src/lib/puter-models.ts`. Preference persisted in the user’s Puter KV (`feasi_build_user_preferences`) via `src/lib/puter-kv-preferences.ts`; cached in-memory so AI calls do not hit KV every request. Fallback: `qwen/qwen3.7-plus`.
-- **Settings UI:** Full selector on `/dashboard/settings`; compact dropdown next to Clerk `UserButton` in the dashboard header.
-- **Dynamic model wiring:** `useAiResearch.ts` and `ai-service.ts` both call `getPreferredModel()` — C1/C2 research and feasibility commentary/charts use the same preference.
-- **Claude JSON reliability:** `extractJsonFromClaudeResponse` recovers JSON from markdown / `<reasoning>` / fences. Research stream **no longer concatenates reasoning chunks** into the parse buffer. Claude gets stricter system prompts, higher `max_tokens` (12000), optional `response_format: json_object`, and a non-stream retry if parse still fails.
+- **Operational C6 warehouse / data centre shocks:** Explicit `ASSET_SPECIFIC_FACTORS` for warehouse and `data_centre` (no Hotel fallback). Engine wires C2 fields + P&L; store driver ids include `leaseUpPeriod`, `powerLeaseRate`, `whiteSpaceRent`, `utilization`, `pue`. Docs updated on operational C6 page.
+- **AI Analyst reasoning persistence:** Optional `reasoning_notes` on each research phase; prompts require 4–6 market-specific sentences; snapshot lists them under `ORIGINAL RESEARCH REASONING (stored verbatim):`; Analyst quotes verbatim when present. Persists inside existing `cashOutflows.aiResearchData` (cache fingerprint `_researchKey` + project save payload). No new KV keys. `extractJsonFromClaudeResponse` / stream skip invariant untouched.
+- **Production hygiene (log sweep):** Downgraded verbose `console.log` → `console.debug` in `generate-cash-flow.ts` (8), `secure-puter-kv.ts` (6), `project-save.ts` (8). All `console.error` / `console.warn` kept.
+- **OTHER horizon safety net:** Unset escrow mode on OTHER now defaults to `"none"` (CP+6) in `resolveSaleHorizonLastMonth` only. Monthly router, CP offsets, and UAE_SA / MY / AU / explicit modes unchanged.
 
-### Prior completed (MVP — still in the product)
+### AI Analyst (complete 15 Aug 2026)
 
+- Non-obtrusive drawer in operational + sale layouts; strictly advisory (never writes financial stores).
+- Knowledge: Tier 1 master prompt; Tier 2 live docs via `/api/analyst-context` + `doc-text-extractor.ts`; Tier 3 research snapshot (`analyst-research-snapshot.ts`, component-scoped; C1 cost notes only on explicit request).
+- INVARIANT: doc step headings must keep the `"Step N: <Title>"` heading convention — the extractor regex slices by it. Reformatting headings breaks step-level answers.
+- Extractor: heading regex requires `"Step N:"` / `"Tab N:"` (colon mandatory); a slice ends at the next different step/tab number.
+
+### Prior completed this cycle (Secure KV isolation + optimistic save)
+
+- **Secure Puter KV wrapper:** `src/lib/secure-puter-kv.ts` namespaces all keys with Clerk `userId` (`feasi_build_{userId}_…`), strips legacy/double prefixes, retries get/set/del with exponential backoff, and is the sole `puter.kv` call site (plus migration raw helpers).
+- **Call-site migration:** `puter-storage.ts`, `cache-service.ts`, and `puter-kv-preferences.ts` use `secureKv` / bound Clerk id. Layout mounts `SecureKvUserBinder` + `PuterKvMigrationTrigger`.
+- **Legacy key migration:** `migrate-puter-kv.ts` copies `feasibuild_{userId}_*` and double-prefixed keys into the new namespace, then deletes old keys (once per session).
+- **Optimistic project save:** Local-first write → visible **Saved Locally** (≥500ms) → **Syncing** → **Synced** / **Retry Save**; reconnect auto-retry via `useNetworkStatus` + `useOptimisticProjectSave`.
+- **Duplicate Save fix (Operational):** Removed in-page Save button from `operational/cash-outflows/page.tsx`; only nav-bar `SaveProjectButton` remains (avoids duplicate project IDs).
+
+### Prior completed (still in the product)
+
+- **User-selectable LLM + Claude JSON:** Curated Puter models, `/dashboard/settings` + header picker, `getPreferredModel()`, `extractJsonFromClaudeResponse`, research skips reasoning stream chunks.
 - **Operational Data Centre:** C2 persist fix; full Feasibility Study deck; `datacentre` resolved before BTR; DC-only prompts; slide layout polish; `AiInput` TS hygiene.
 - **Sale Warehouse / Path A:** `"Commercial-Strata-Warehouse"` stream config, Dev Assumptions CapEx, escrow slide residential-only, Puter stream resilience, C1–C4 + FF&E in NCF/financing.
 - **Warehouse + Data Centre asset types** on Operational; warehouse on Sale.
 
-### Next Steps — Production version
+### Next steps for tomorrow
 
-- **Production hardening:** Auth, billing, env, error reporting, and remove leftover debug `console.log` noise (especially `generate-cash-flow.ts`).
-- **E2E QA across all 4 LLMs:** C1 research + Feasibility Study on Hotel / Warehouse / Data Centre / Sale warehouse — confirm JSON parse, no wrong-asset wording, deck builds with fallback if Puter fails.
-- **End-to-end QA (Ops Data Centre):** C1 → C6 + Feasibility; **Clear AI Cache & Regenerate** after model changes.
-- **Sale warehouse E2E:** Full C1→C6 + Feasibility (title, no escrow slide, Puter/fallback).
-- **C5 / C6:** Smoke-test warehouse FF&E and data-centre series; harden scenario pages so C6 always re-runs full engines into Feasibility.
+1. **Manual isolation QA:** Sign in as User A, save a project (including a run of C1 AI research so `reasoning_notes` exist); sign out → User B must not see A’s projects/preferences/caches. Confirm migration restored any pre-namespace projects for A. Reload A’s project and confirm Analyst still quotes stored reasoning notes.
+2. **E2E QA — Operational Data Centre:** C1 → C6 + Feasibility; confirm C6 shows Data Centre-specific shocks (not Hotel); **Clear AI Cache & Regenerate** after model changes.
+3. **E2E QA — Sale warehouse:** Full C1→C6 + Feasibility (title, no escrow slide, Puter/fallback). Confirm OTHER / non-escrow sale horizon is CP+6 when withdrawal mode is unset.
+4. **LLM smoke (one asset each):** C1 research + Analyst “why this rate?” on Hotel and Warehouse — confirm `reasoning_notes` in JSON, snapshot header present, verbatim quote in the drawer.
 
-### Still open / carry into production
+### Still open / later (not tomorrow’s first jobs)
 
 - **Warehouse (Operational) polish:** Verify all AI schema fields (e.g. `free_rent_months`) are fully wired in UI consumers.
 - **Data Centre polish:** Confirm all C1 AI research fields map cleanly into store / review; optional chart density tuning.
-- **Scenario Analysis:** Some metric paths are still placeholder / UI-first.
+- **Scenario Analysis:** Some metric paths are still placeholder / UI-first (Hotel / BTR / Retail / Office factor sets were not changed).
 - **Feasibility chrome:** Some preview chrome still shows Feasibility as “Coming Soon” when the study path is disabled.
-- **Jurisdiction / engine hygiene:** Fix **OTHER** horizon vs logic mismatch when `escrowWithdrawalMode` is unset; clarify dual levered IRR definitions in UI.
 - **Server AI:** Server Qwen routes no-op when `FEASIBILITY_AI_URL` / API key are missing — document env or fail loudly.
 - **Financing wizard polish:** Some milestone auto-calc / toggles still marked placeholder and do not yet change modeled outputs.
+- Clarify dual levered IRR definitions in UI.
 
 ---
 
@@ -374,13 +415,20 @@ Snapshot as of **11 Aug 2026**. **MVP coding session is closed.** Next work is t
 2. Escrow interest, UAE progress withdrawals, and construction loan interest use the **1-month offset**.  
 3. Levered equity IRR: **negatives = equity injections**; **positives = NCF post-financing after the funding gap closes** (see §4.3 for series variants).  
 4. Sale CF column count = **CP + jurisdiction offset** (MY +24, UAE/KSA/AU +12, commercial non-escrow +6).  
-5. **Thailand ≠ UAE** — `OTHER` must not inherit UAE escrow strategy by accident.  
+5. **Thailand ≠ UAE** — `OTHER` must not inherit UAE escrow strategy by accident. Unset OTHER withdrawal mode defaults to `"none"` (CP+6).  
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
 8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show HDA/Schedule H escrow.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
-10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.
+10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.  
+11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
+12. **Project save UX:** One Save control per stream layout; optimistic local write before vault sync.  
+13. **AI Analyst:** Advisory only — never auto-write into `useFinModelStore`. Live docs are read server-side via `fs` (`/api/analyst-context`); skip Puter `reasoning` chunks; resolve the LLM via `getPreferredModel()`. Quote stored `reasoning_notes` verbatim when the snapshot header is present.  
+14. **AI Analyst doc headings:** Keep the "Step N: <Title>" (or C5 "Tab N:") heading convention in `src/app/docs/**`. `extractStepSection` slices by that pattern (colon mandatory; slice ends at the next different number). Doc body prose must never begin a line with "Step N" / "Tab N" — colon-less mimicry previously truncated a slice and the model filled the gap with wrong-component content.  
+15. **AI Analyst docs coupling:** docs keep the "Step N: <Title>" heading convention and mirror the live UI step structure per asset (C2: Hotel = 5 steps, others = 4). Update docs in the same release as any wizard change — Analyst quality = doc quality.  
+16. **Reasoning-notes schema:** research prompts require `reasoning_notes`; `normalizeAiResearchData` must tolerate its absence (old caches/projects). No new Puter KV keys for notes.  
+17. **Operational C6 shocks:** Use the asset’s own factor set from `ASSET_SPECIFIC_FACTORS`. Unmapped types show Common Factors only — never fall back to Hotel.
 
 ---
 
-*Last updated 11 Aug 2026 (MVP close: user-selectable Puter LLMs, Claude JSON sanitizer, `/dashboard/settings`). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 15 Aug 2026 (reasoning-notes persistence; C6 warehouse/DC shocks; OTHER unset escrow → `"none"`; debug log hygiene). Prefer editing this file over scattering architecture notes across chats.*

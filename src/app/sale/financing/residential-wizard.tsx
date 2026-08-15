@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { BenchmarkBanner } from "@/components/BenchmarkBanner";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import useFinModelStore from "@/store/useFinModelStore";
 import { FundingGapAreaChart } from "@/app/development-finance/FundingGapAreaChart";
 import { buildCashFlowArray } from "@/lib/irr-calculations";
@@ -512,6 +513,7 @@ function ResidentialFinancingWizardContent() {
   const [currentStep, setCurrentStep] = useState(() =>
     parseWizardStepFromUrl(searchParams.get("step"), maxStepIndex)
   );
+  useReportWizardStep(currentStep + 1);
 
   useEffect(() => {
     const step = searchParams.get("step");
@@ -2079,7 +2081,7 @@ function ResidentialFinancingWizardContent() {
                     type="button"
                     className="cursor-default border-b-2 border-emerald-400 px-4 py-2 text-sm font-medium text-emerald-400"
                   >
-                    Australia (10/90 Rule)
+                    10/90 Rule
                     <span className="ml-2 text-xs text-slate-500">(Locked)</span>
                   </button>
                 )}
@@ -2093,7 +2095,7 @@ function ResidentialFinancingWizardContent() {
                         : "text-slate-400 hover:text-slate-200"
                     }`}
                   >
-                    Australia (10/90 Rule)
+                    10/90 Rule
                   </button>
                 )}
                 {(showMalaysiaTab || showAllTabs) && (
@@ -2109,7 +2111,7 @@ function ResidentialFinancingWizardContent() {
                         : "text-slate-400"
                     } ${!showAllTabs ? "cursor-default" : "hover:text-slate-200"}`}
                   >
-                    Malaysia HDA Progress Withdrawals
+                    HDA Progress Withdrawals
                     {escrowCountry === "MY" && (
                       <span className="ml-2 text-xs text-slate-500">(Locked)</span>
                     )}
@@ -2128,7 +2130,7 @@ function ResidentialFinancingWizardContent() {
                         : "text-slate-400"
                     } ${!showAllTabs ? "cursor-default" : "hover:text-slate-200"}`}
                   >
-                    UAE/SA Certification Intervals
+                    Certification Intervals
                     {(escrowCountry === "UAE" || escrowCountry === "SA") && (
                       <span className="ml-2 text-xs text-slate-500">(Locked)</span>
                     )}
@@ -2172,17 +2174,26 @@ function ResidentialFinancingWizardContent() {
                       Select Your Escrow Withdrawal Method
                     </h4>
                     <p className="mt-1 text-sm text-slate-300">
-                      For {escrowCountryLabel(escrowCountry)} projects, you can choose either
-                      approach:
+                      For {escrowCountryLabel(escrowCountry)} projects, you can choose any of the
+                      following approaches:
                     </p>
                     <ul className="mt-2 space-y-1 text-sm text-slate-400">
                       <li>
-                        • <strong className="text-slate-300">Malaysia HDA:</strong> Progress-based
-                        withdrawals tied to construction milestones
+                        • <strong className="text-slate-300">10/90 Rule:</strong> deposit held in
+                        trust during construction, balance settled on completion
                       </li>
                       <li>
-                        • <strong className="text-slate-300">UAE/SA Certification:</strong>{" "}
-                        Time-based withdrawals at certification intervals
+                        • <strong className="text-slate-300">HDA Progress Withdrawals:</strong>{" "}
+                        progress-based withdrawals tied to construction milestones
+                      </li>
+                      <li>
+                        • <strong className="text-slate-300">Certification Intervals:</strong>{" "}
+                        time-based withdrawals at certification intervals
+                      </li>
+                      <li>
+                        • <strong className="text-slate-300">No Escrow Rules:</strong> sales
+                        proceeds sweep directly to debt service and equity distribution (standard
+                        commercial waterfall)
                       </li>
                     </ul>
                     <p className="mt-2 text-xs text-slate-500">
@@ -2278,49 +2289,51 @@ function ResidentialFinancingWizardContent() {
               </div>
             </div>
 
-            <div className="space-y-4 rounded-lg border border-slate-700 bg-slate-800/50 p-6">
-              <h3 className="text-lg font-semibold text-white">Escrow account fees</h3>
+            {formData.escrowWithdrawalMode !== "none" && (
+              <div className="space-y-4 rounded-lg border border-slate-700 bg-slate-800/50 p-6">
+                <h3 className="text-lg font-semibold text-white">Escrow account fees</h3>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-300">
-                    Setup fee (flat amount, {currency})
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={100}
-                    value={formData.escrowSetupFee}
-                    onChange={(e) =>
-                      updateField("escrowSetupFee", Math.max(0, parseFloat(e.target.value) || 0))
-                    }
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">{feeSuggestions.escrowSetup}</p>
-                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-300">
+                      Setup fee (flat amount, {currency})
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      value={formData.escrowSetupFee}
+                      onChange={(e) =>
+                        updateField("escrowSetupFee", Math.max(0, parseFloat(e.target.value) || 0))
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">{feeSuggestions.escrowSetup}</p>
+                  </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-300">
-                    Management fee (% p.a.)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={formData.escrowManagementFeePercent}
-                    onChange={(e) =>
-                      updateField(
-                        "escrowManagementFeePercent",
-                        Math.max(0, Math.min(1, parseFloat(e.target.value) || 0))
-                      )
-                    }
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">{feeSuggestions.escrowMgmt}</p>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-300">
+                      Management fee (% p.a.)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={formData.escrowManagementFeePercent}
+                      onChange={(e) =>
+                        updateField(
+                          "escrowManagementFeePercent",
+                          Math.max(0, Math.min(1, parseFloat(e.target.value) || 0))
+                        )
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">{feeSuggestions.escrowMgmt}</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 

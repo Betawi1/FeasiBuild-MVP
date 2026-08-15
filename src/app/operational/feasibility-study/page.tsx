@@ -200,7 +200,10 @@ export default function FeasibilityStudyPage() {
       const projectHash = buildStableProjectHash(projectData);
       console.log("[Cache Debug] Project hash:", projectHash);
 
-      const oldHashes = await getStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY);
+      const oldHashes = await getStoredHashes(
+        OPERATIONAL_HASHES_STORAGE_KEY,
+        user?.id
+      );
       console.log("[Cache Debug] Stored hashes:", oldHashes);
 
       let slidesResult: FeasibilitySlide[];
@@ -213,7 +216,11 @@ export default function FeasibilityStudyPage() {
           { forceRegenerate, oldHashes }
         );
         slidesResult = result.slides;
-        await setStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY, result.hashes);
+        await setStoredHashes(
+          OPERATIONAL_HASHES_STORAGE_KEY,
+          result.hashes,
+          user?.id
+        );
         console.log("[Feasibility Study] generated slide IDs", {
           count: slidesResult.length,
           ids: slidesResult.slice(0, 12).map((s) => s.id),
@@ -476,8 +483,8 @@ export default function FeasibilityStudyPage() {
                 );
               }
 
-              await clearAllCaches();
-              await clearStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY);
+              await clearAllCaches(user?.id);
+              await clearStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY, user?.id);
               await generateReport({ force: true });
             }}
             className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700"

@@ -7,7 +7,8 @@ import {
   COMMON_FACTOR_IDS,
   formatShockValue,
   getAllFactorsForAsset,
-  initialShocksForAsset,
+  getAssetDisplayLabel,
+  getAssetSectionLabel,
   normalizeAssetType,
   presetShocksForAsset,
   shockFactorSliderUnit,
@@ -38,6 +39,15 @@ function irrImpactFactorForFactor(factor: ShockFactor): number {
     case "rent_escalation":
     case "absorption_speed":
       return 0.15;
+    case "power_lease_rate":
+    case "white_space_rent":
+      return 0.25;
+    case "utilization":
+      return 0.2;
+    case "lease_up_period":
+      return -0.12;
+    case "pue":
+      return -0.1;
     case "construction_cost":
     case "ti_allowance":
       return -0.18;
@@ -157,8 +167,8 @@ export default function AdjustShockValues({
   const commonFactors = factors.filter((f) => COMMON_FACTOR_IDS.has(f.id));
   const assetFactors = factors.filter((f) => !COMMON_FACTOR_IDS.has(f.id));
 
-  const assetLabel =
-    normalizedAsset.charAt(0).toUpperCase() + normalizedAsset.slice(1);
+  const displayLabel = getAssetDisplayLabel(normalizedAsset);
+  const sectionLabel = getAssetSectionLabel(normalizedAsset);
 
   return (
     <div className="animate-in fade-in space-y-8 duration-500">
@@ -167,7 +177,7 @@ export default function AdjustShockValues({
           <h2 className="text-2xl font-bold text-white">Adjust Shock Values</h2>
           <p className="mt-1 text-sm text-slate-400">
             Base Case = current assumptions. Adjust sliders to simulate
-            upside/downside scenarios for {assetLabel}.
+            upside/downside scenarios for {displayLabel}.
           </p>
         </div>
         <button
@@ -198,24 +208,26 @@ export default function AdjustShockValues({
         </div>
       </div>
 
-      <div>
-        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
-          {assetLabel}-Specific Factors
-        </h3>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {assetFactors.map((factor) => (
-            <ShockCard
-              key={factor.id}
-              factor={factor}
-              value={shocks[factor.id] ?? factor.defaultValue}
-              onChange={handleShockChange}
-              formatValue={formatShockValue}
-              baseUnleveredIrr={baseUnleveredIrr}
-              baseLeveredIrr={baseLeveredIrr}
-            />
-          ))}
+      {assetFactors.length > 0 ? (
+        <div>
+          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-500">
+            {sectionLabel}-Specific Factors
+          </h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {assetFactors.map((factor) => (
+              <ShockCard
+                key={factor.id}
+                factor={factor}
+                value={shocks[factor.id] ?? factor.defaultValue}
+                onChange={handleShockChange}
+                formatValue={formatShockValue}
+                baseUnleveredIrr={baseUnleveredIrr}
+                baseLeveredIrr={baseLeveredIrr}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {children}
     </div>

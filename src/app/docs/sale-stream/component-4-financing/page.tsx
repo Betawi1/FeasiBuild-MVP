@@ -141,36 +141,102 @@ export default function SaleComponent4Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 3: Land Ownership &amp; Equity</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Configure land as equity contribution to the development financing. This step is critical because land ownership rules vary by jurisdiction and significantly impact your cash equity requirement.
+            The screen is titled <strong className="text-white">Land as Equity</strong>. Use it to configure land as an equity contribution to the development financing. A <strong className="text-white">BENCHMARK</strong> chip at the top of the wizard shows asset • city • country, and a read-only <strong className="text-white">Land Cost (Component 1)</strong> value is shown so you can see the land figure this step is using.
           </p>
           <div className="space-y-4">
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-              <h4 className="text-amber-300 font-medium mb-2">⚠️ Jurisdiction-Specific Rules</h4>
-              <p className="text-sm text-slate-400">
-                <strong className="text-white">UAE:</strong> Developer must own 100% of land equity. Land value is credited at 70% (30% haircut) for equity calculation purposes.
-              </p>
-              <p className="text-sm text-slate-400 mt-2">
-                <strong className="text-white">Malaysia / Australia:</strong> Different rules apply based on local HDA or state regulations.
-              </p>
+            <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">BENCHMARK</span>
+              <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
+                Asset • City • Country
+              </span>
             </div>
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-              <h4 className="text-white font-medium mb-2">Equity Sources Breakdown</h4>
-              <p className="text-sm text-slate-400 mb-3">
-                The system calculates how much of your total equity requirement can be met with land value (after haircut) and how much must come from cash.
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">Land Cost (Component 1)</span>
+                <span className="font-medium text-white">Read-only from Component 1</span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+              <h4 className="text-amber-300 font-medium mb-2">⚠️ Jurisdiction rule — Land Equity Contribution slider</h4>
+              <p className="text-sm text-slate-400">
+                <strong className="text-white">UAE &amp; Saudi Arabia:</strong> the Land Equity Contribution slider is <strong className="text-white">locked at 100%</strong> (developer must own 100% of the land as equity).
               </p>
+              <p className="text-sm text-slate-400 mt-2">
+                <strong className="text-white">All other countries</strong> (including Malaysia &amp; Australia): the slider is <strong className="text-white">unlocked</strong>, range <strong className="text-white">30% (Min)</strong> to <strong className="text-white">100% (Full Equity)</strong>.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h4 className="text-white font-medium mb-2">Equity sources breakdown</h4>
+              <p className="text-sm text-slate-400 mb-3">
+                Always shown. Total equity requirement = TDC − senior debt. Land value only counts toward equity if you own 100% of the land as equity; 70% of land value is credited after the bank haircut.
+              </p>
+              <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <p className="text-xs text-emerald-300">
+                  At 100% land equity: <strong className="text-white">100% land ownership</strong> — 70% of land value counts toward the equity requirement; remaining land value is not credited and must be funded via cash or other sources.
+                </p>
+              </div>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between py-2 border-b border-slate-800">
                   <span className="text-slate-400">Total equity requirement</span>
-                  <span className="text-white font-mono">AED 62,977,044</span>
+                  <span className="text-white font-mono">TDC − senior debt</span>
                 </div>
                 <div className="flex justify-between py-2 border-b border-slate-800">
                   <span className="text-slate-400">Land (counted as equity, 70% haircut)</span>
-                  <span className="text-emerald-400 font-mono">AED 34,004,355</span>
+                  <span className="text-emerald-400 font-mono">70% of land value at 100% land equity; otherwise 0</span>
                 </div>
                 <div className="flex justify-between py-2 bg-amber-500/10 rounded px-2">
                   <span className="text-white font-medium">Cash equity (required)</span>
-                  <span className="text-amber-400 font-mono font-bold">AED 28,972,689</span>
+                  <span className="text-amber-400 font-mono font-bold">Residual after land credit</span>
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <h4 className="text-amber-400 font-semibold mb-2">Land Term Loan Required</h4>
+              <p className="text-sm text-slate-400 mb-3">
+                Appears automatically whenever land equity is set below 100%. The portion of the land not owned through equity must be financed.
+              </p>
+              <ul className="text-sm text-slate-400 space-y-2 ml-4 list-disc">
+                <li>
+                  <strong className="text-white">Principal (drawn at M0)</strong> = the unowned portion of the land cost. Bullet repayment of full principal at maturity.
+                </li>
+                <li>
+                  <strong className="text-white">Land loan rate % (annual)</strong> — numeric input for the land facility rate.
+                </li>
+              </ul>
+              <h5 className="text-white font-medium mt-4 mb-2">Interest payment on land loan</h5>
+              <ul className="text-sm text-slate-400 space-y-2 ml-4 list-disc">
+                <li>
+                  <strong className="text-white">Capitalize:</strong> interest accrues to the loan balance — no cash interest during the tenor; bullet repayment of principal plus capitalized interest at maturity (e.g. M33).
+                </li>
+                <li>
+                  <strong className="text-white">Paid current (quarterly):</strong> interest paid every 3 months from developer cash (increases peak equity requirement vs capitalize).
+                </li>
+                <li>
+                  <strong className="text-white">Paid current (semi-annual):</strong> interest paid every 6 months from developer cash (increases peak equity requirement vs capitalize).
+                </li>
+              </ul>
+              <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3">
+                <p className="text-sm text-white font-medium">Loan tenor (bullet repayment)</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Construction period + 6 months post-completion; full principal repayment at maturity.
+                </p>
+              </div>
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-medium text-slate-300">Land term loan fees</p>
+                <p className="text-sm text-slate-400">
+                  <strong className="text-white">Arrangement / processing fee (%)</strong> with benchmark hint (0.75% arrangement fee).
+                </p>
+                <p className="text-sm text-slate-400">
+                  <strong className="text-white">Legal &amp; valuation fee (%)</strong> with benchmark hint (0.15% legal/valuation bundle).
+                </p>
+              </div>
+              <div className="mt-4 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
+                <p className="text-xs text-blue-300">
+                  <strong className="text-white">Capitalized interest (illustrative):</strong> shows the amount that accrues to the loan and is repaid at maturity (principal + accrued interest).
+                </p>
               </div>
             </div>
           </div>
@@ -192,7 +258,7 @@ export default function SaleComponent4Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Escrow Withdrawal Configuration</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Configure escrow withdrawal rules based on your project&apos;s jurisdiction. The system provides pre-configured templates for major markets. Users selecting different jurisdictions can choose between these three primary withdrawal configurations:
+            Configure escrow withdrawal rules based on your project&apos;s jurisdiction. The system provides pre-configured templates for major markets. The configuration is presented as four tabs with rule-based titles (no country association) — 10/90 Rule, HDA Progress Withdrawals, Certification Intervals, and No Escrow Rules. Users in jurisdictions outside the three template markets may select any method, including No Escrow Rules.
           </p>
 
           <div className="space-y-4">
@@ -234,10 +300,29 @@ export default function SaleComponent4Docs() {
                 <li><strong>Retention:</strong> 5% GDV retention held for 12 months post-completion.</li>
               </ul>
             </div>
+
+            {/* No Escrow */}
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h4 className="text-white font-medium mb-2">No Escrow Rules</h4>
+              <p className="text-sm text-slate-400 mb-3">
+                Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply — standard commercial waterfall rules apply.
+              </p>
+              <p className="text-sm text-slate-400">
+                Optional toggle: <strong className="text-white">Sales reduce equity need (optional)</strong>.
+              </p>
+            </div>
           </div>
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Escrow Account Fees</h4>
-            <p className="text-sm text-slate-400">Configure the one-time setup fee (e.g., AED 5,000) and the annual management fee (e.g., 0.05% p.a. on average balance) for the escrow account.</p>
+            <p className="text-sm text-slate-400 mb-2">
+              This panel is shown only on the three escrow tabs (10/90 Rule, HDA Progress Withdrawals, and Certification Intervals). It is hidden when No Escrow Rules is selected.
+            </p>
+            <p className="text-sm text-slate-400 mb-2">
+              <strong className="text-white">Setup fee (flat amount)</strong> — one-time setup fee, e.g. 5,000.
+            </p>
+            <p className="text-sm text-slate-400">
+              <strong className="text-white">Management fee (% p.a.)</strong> — annual management fee, e.g. 0.03–0.08% p.a. on average balance.
+            </p>
           </div>
         </div>
 
@@ -400,34 +485,57 @@ export default function SaleComponent4Docs() {
         {/* Key Metrics Grid */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Key Financing Metrics</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-slate-400">Total Equity Amount</p>
-              <p className="text-emerald-400 font-mono font-bold">AED 62,977,043.71</p>
-              <p className="text-xs text-slate-500">Land + Cash Injection</p>
-            </div>
-            <div>
-              <p className="text-slate-400">Total Cash Injection</p>
-              <p className="text-white font-mono">AED 28,972,688.71</p>
-            </div>
-            <div>
-              <p className="text-slate-400">Total Construction Loan Amount</p>
-              <p className="text-blue-400 font-mono">AED 8,692,155.47</p>
-            </div>
-            <div>
-              <p className="text-slate-400">Equity Multiple</p>
-              <p className="text-emerald-400 font-mono font-bold">1.36x</p>
-            </div>
-            <div>
-              <p className="text-slate-400">Equity Payback</p>
-              <p className="text-emerald-400 font-mono font-bold">M35</p>
-              <p className="text-xs text-slate-500">Month of full recovery</p>
-            </div>
-            <div>
-              <p className="text-slate-400">Equity IRR</p>
-              <p className="text-emerald-400 font-mono font-bold">11.52%</p>
-              <p className="text-xs text-slate-500">Annualized</p>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs text-slate-400 uppercase bg-slate-900">
+                <tr>
+                  <th className="px-4 py-3">Metric</th>
+                  <th className="px-4 py-3">Definition</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Total Equity Amount</td>
+                  <td className="px-4 py-3">Land + cash injection deployed in the project.</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Total Cash Injection</td>
+                  <td className="px-4 py-3">Cash equity injected by the gap-fill engine (excludes land equity).</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Preference Shares</td>
+                  <td className="px-4 py-3">Pref. drawdown when the mezzanine tranche is enabled (zero otherwise).</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Total Land Loan Amount</td>
+                  <td className="px-4 py-3">Land facility drawdown (appears when land equity is below 100%).</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Total Construction Loan Amount</td>
+                  <td className="px-4 py-3">Construction facility (RCF) drawdown.</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Total Loan Interest</td>
+                  <td className="px-4 py-3">Total interest across land and construction facilities.</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Equity Multiple</td>
+                  <td className="px-4 py-3">Total distributions divided by total equity injected.</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Equity Payback</td>
+                  <td className="px-4 py-3">Month of full equity recovery.</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">Equity IRR</td>
+                  <td className="px-4 py-3">Annualized levered internal rate of return on the equity cash-flow series.</td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="px-4 py-3 font-medium text-white">DSCR Metrics</td>
+                  <td className="px-4 py-3">Skipped during the construction/sales phase — DSCR requires an operational CFADS definition and is not applicable during construction/sales.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>

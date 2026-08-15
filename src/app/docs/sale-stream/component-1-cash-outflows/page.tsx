@@ -131,56 +131,223 @@ export default function SaleComponent1Docs() {
 
         {/* Step 4 */}
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
-          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 4: Building Configuration</h3>
-          <p className="text-slate-300 leading-relaxed mb-3">
-            The configuration form auto-selects based on your Building Type from Step 3. There are two distinct
-            configuration modes:
+          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 4: Market Segmentation & Positioning</h3>
+          <p className="text-slate-300 leading-relaxed mb-4">
+            Step 4 now captures <strong className="text-white">market segmentation &amp; positioning</strong>.
+            The panel adapts to the Building Type chosen in Step 3. These selections calibrate the construction
+            cost benchmarks and revenue assumptions used in later steps.
           </p>
 
-          <div className="space-y-4">
+          <h4 className="text-white font-semibold mb-2 mt-4">Market Segmentation &amp; Positioning</h4>
+          <p className="text-slate-300 text-sm mb-3">
+            For non-warehouse assets (Residential Landed / High-Rise, Commercial Landed / Strata Office):
+          </p>
+          <h5 className="text-white font-medium mb-2">Market positioning</h5>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-              <h4 className="text-white font-medium mb-2">High-Rise Config</h4>
-              <p className="text-sm text-slate-400 mb-3">For Residential High-Rise and Commercial Strata Office</p>
-              <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
-                <li><strong className="text-white">Basements (No. of levels):</strong> Underground levels for parking, MEP, or storage</li>
-                <li><strong className="text-white">Podium / Parking Floors:</strong> Above-grade parking or retail podium levels</li>
-                <li><strong className="text-white">Tower Floors:</strong> Above-grade occupied floors (residential units or office space)</li>
-              </ul>
+              <h5 className="text-white font-medium mb-1">Affordable</h5>
+              <p className="text-sm text-slate-400">Bottom 25% market prices</p>
             </div>
-
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-              <h4 className="text-white font-medium mb-2">Landed Config</h4>
-              <p className="text-sm text-slate-400 mb-3">For Residential Landed and Commercial Landed</p>
-              <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
-                <li><strong className="text-white">Number of Units:</strong> Total number of individual units/plots</li>
-                <li><strong className="text-white">Land Area per Unit (sqft):</strong> Plot size for each unit</li>
-                <li><strong className="text-white">BUA per Unit (sqft):</strong> Built-up area for each unit</li>
-              </ul>
-              <div className="mt-3 p-3 rounded bg-slate-950 border border-slate-800">
-                <p className="text-xs text-slate-400 font-medium mb-1">Auto-Calculated Summary:</p>
-                <ul className="text-xs text-slate-500 space-y-1">
-                  <li>Total BUA = Units × BUA per Unit</li>
-                  <li>Total Saleable Land Area = Units × Land Area per Unit</li>
-                  <li>Total Land Area = Saleable Land ÷ 70% (assumes 30% for roads/infrastructure)</li>
-                </ul>
-              </div>
+              <h5 className="text-white font-medium mb-1">Mid-Market</h5>
+              <p className="text-sm text-slate-400">Market average ±10%</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Upper-Mid</h5>
+              <p className="text-sm text-slate-400">Top 25% market prices</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Luxury</h5>
+              <p className="text-sm text-slate-400">Top 10% market prices</p>
+            </div>
+          </div>
+          <h5 className="text-white font-medium mb-2">Finishing standard</h5>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Core &amp; Shell</h5>
+              <p className="text-sm text-slate-400">Shell + basic finishes, M&amp;E rough-ins</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Standard</h5>
+              <p className="text-sm text-slate-400">Standard finishes, basic appliances &amp; fixtures</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Premium</h5>
+              <p className="text-sm text-slate-400">High-end finishes, premium appliances &amp; smart home</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Fully Furnished</h5>
+              <p className="text-sm text-slate-400">Premium finish + furniture, decor, linens</p>
+            </div>
+          </div>
+
+          <h4 className="text-white font-semibold mb-2 mt-4">📦 Warehouse Segment &amp; Positioning</h4>
+          <p className="text-slate-300 text-sm mb-3">
+            For Commercial - Strata Warehouse: choose the warehouse sub-type and quality grade. These selections
+            determine the technical specifications in Step 5.
+          </p>
+          <h5 className="text-white font-medium mb-2">Warehouse Sub-Type</h5>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Bulk / Distribution</h5>
+              <p className="text-sm text-slate-400">Large-scale, high-bay storage &amp; distribution</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Last-Mile / Urban</h5>
+              <p className="text-sm text-slate-400">Smaller facilities closer to population centres</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Multi-Storey</h5>
+              <p className="text-sm text-slate-400">Land-scarce urban locations, multiple levels</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Cold Storage</h5>
+              <p className="text-sm text-slate-400">Temperature-controlled facilities, higher cost</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Light Manufacturing / Workshop</h5>
+              <p className="text-sm text-slate-400">Combined warehouse + light industrial</p>
+            </div>
+          </div>
+          <h5 className="text-white font-medium mb-2">Quality Grade</h5>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Grade A</h5>
+              <p className="text-sm text-slate-400">Modern, high-spec, prime location</p>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-1">Grade B</h5>
+              <p className="text-sm text-slate-400">Functional, secondary location</p>
             </div>
           </div>
         </div>
 
         {/* Step 5 */}
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
-          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Mixed-Use (Retail on Ground/Podium)</h3>
+          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Building Configuration</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            <strong className="text-white">High-Rise Residential Only:</strong> Toggle this option if your high-rise residential
-            project includes retail or F&amp;B components on the ground floor or podium levels.
+            The configuration form auto-selects from the Building Type chosen in Step 3 (to change it, go back to
+            Step 3 and select a different product type). There are three configuration variants.
           </p>
+
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 mb-4">
+            <h4 className="text-white font-medium mb-2">High-Rise Configuration</h4>
+            <p className="text-sm text-slate-400 mb-3">Residential High-Rise &amp; Commercial Strata Office</p>
+            <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc mb-3">
+              <li>
+                <strong className="text-white">Floor counts:</strong> Basements (B), Podium / Parking (P),
+                Ground Floor (G), Upper Floors (Storeys). <strong className="text-white">Total Floors (Auto)</strong> sums them.
+              </li>
+              <li>
+                <strong className="text-white">Areas:</strong> Total Building BUA (sqft), Basement BUA (sqft),
+                Podium / Parking BUA (sqft).
+              </li>
+              <li>
+                <strong className="text-white">Saleable BUA Ratio (%)</strong> →{" "}
+                <strong className="text-white">Saleable BUA (sqft) (Auto)</strong>.
+              </li>
+              <li><strong className="text-white">Land Area (sqft)</strong>.</li>
+            </ul>
+          </div>
+
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 mb-4">
+            <h4 className="text-white font-medium mb-2">Landed Configuration</h4>
+            <p className="text-sm text-slate-400 mb-3">Residential Landed &amp; Commercial Landed</p>
+            <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc mb-3">
+              <li>
+                <strong className="text-white">Ground Floor (G)</strong> is fixed at 1;{" "}
+                <strong className="text-white">Upper Floors (Storeys)</strong>;{" "}
+                <strong className="text-white">Total Floors (Auto)</strong>.
+              </li>
+              <li>
+                <strong className="text-white">Number of Units</strong>;{" "}
+                <strong className="text-white">BUA per Unit (sqft)</strong>;{" "}
+                <strong className="text-white">Total BUA (sqft) (Auto)</strong>.
+              </li>
+              <li>
+                <strong className="text-white">Saleable BUA Ratio (%)</strong> →{" "}
+                <strong className="text-white">Total Saleable BUA (sqft) (Auto)</strong>.
+              </li>
+              <li>
+                <strong className="text-white">Land Area per Unit (sqft)</strong> →{" "}
+                <strong className="text-white">Total Saleable Land Area (sqft) (Auto)</strong>.
+              </li>
+              <li>
+                <strong className="text-white">Common Area (%)</strong> →{" "}
+                <strong className="text-white">Total Land Area (sqft) (Auto)</strong>.
+              </li>
+            </ul>
+          </div>
+
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-            <h4 className="text-white font-medium mb-2">Retail BUA as % of Ground/Podium BUA</h4>
-            <p className="text-sm text-slate-400">
-              Enter the percentage of ground/podium area allocated to retail. This affects construction cost allocation
-              and will be modeled separately in the revenue component.
+            <h4 className="text-white font-medium mb-2">📦 Building Configuration (Commercial - Strata Warehouse)</h4>
+            <p className="text-sm text-slate-400 mb-3">
+              Define warehouse specifications. FeasiBuild auto-calculates technical details from the selected
+              sub-type &amp; grade. A <strong className="text-white">Summary of Your Selections (from Step 4)</strong> panel
+              shows Sub-Type and Quality Grade.
             </p>
+            <p className="text-sm text-slate-400 mb-4">
+              Two tabs. The user sees the <strong className="text-white">Single Warehouse</strong> tab first; that tab
+              must be completed before the <strong className="text-white">Industrial Park</strong> tab can be filled.
+            </p>
+
+            <h5 className="text-white font-medium mb-2">Single Warehouse</h5>
+            <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc mb-3">
+              <li>
+                <strong className="text-white">User Inputs:</strong> Total Warehouse BUA (sqft), Number of Floors,
+                Total Land Area (sqft).
+              </li>
+              <li>
+                <strong className="text-white">Auto-Calculated Specifications:</strong> calculated from industry
+                standards for the sub-type &amp; grade (rule engine). Every value can be edited to override
+                (defaults carry a <strong className="text-white">Default</strong> badge).
+              </li>
+            </ul>
+            <div className="mt-3 p-3 rounded bg-slate-950 border border-slate-800 mb-4">
+              <p className="text-xs text-slate-400 font-medium mb-2">Auto-Calculated groups</p>
+              <ul className="text-xs text-slate-500 space-y-2">
+                <li>
+                  <strong className="text-slate-300">Building Configuration:</strong> Column Spacing (ft) and
+                  Clear Height (ft), per grade/sub-type standard (e.g. Grade B Light Manufacturing std).
+                </li>
+                <li>
+                  <strong className="text-slate-300">Loading &amp; Access:</strong> Dock Doors / Truck Bays
+                  (1 per 10,000 sqft); Drive-In / Grade-Level Doors (20% of dock doors).
+                </li>
+                <li>
+                  <strong className="text-slate-300">Site &amp; Yard:</strong> Yard / Hardstand Area (sqft)
+                  (land − building footprint); Site Coverage (%) (building footprint ÷ land); Parking (cars)
+                  (1 per 5,000 sqft); Parking (trailers) (1 per 10,000 sqft); Building Footprint (sqft).
+                </li>
+              </ul>
+            </div>
+
+            <h5 className="text-white font-medium mb-2">Industrial Park</h5>
+            <div className="mt-1 p-3 rounded bg-slate-950 border border-slate-800 mb-3">
+              <p className="text-xs text-slate-400 font-medium mb-1">Single Warehouse Template</p>
+              <p className="text-xs text-slate-500">
+                Inherited from the single warehouse configuration (BUA, Floors, Clear Height, Column Spacing,
+                Dock Doors, Land Area). Edited via{" "}
+                <strong className="text-slate-300">Edit Template → Single Warehouse</strong>.
+              </p>
+            </div>
+            <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
+              <li>
+                <strong className="text-white">Number of Units:</strong> min 4 / max 50, validated when you leave the field.
+              </li>
+              <li>
+                <strong className="text-white">Warehouse Land Area (sqft)</strong> = units × single warehouse land.
+              </li>
+              <li>
+                <strong className="text-white">Common Infrastructure Area (% of Land)</strong>, auto-suggested 20–30%.
+              </li>
+              <li>
+                <strong className="text-white">Total Land Area (sqft)</strong> = warehouse land + common infrastructure area.
+              </li>
+              <li>
+                <strong className="text-white">Total BUA (sqft)</strong> = units × template BUA.
+              </li>
+            </ul>
           </div>
         </div>
 
@@ -227,6 +394,69 @@ export default function SaleComponent1Docs() {
             benchmarks. These values are dynamically researched in real-time by the AI based on your exact pin-drop
             location and building type.
           </div>
+
+          <h4 className="text-white font-medium mb-2 mt-6">📦 Commercial - Strata Warehouse: Construction Costs</h4>
+          <p className="text-slate-300 text-sm mb-3">
+            For Commercial - Strata Warehouse, this step becomes{" "}
+            <strong className="text-white">Construction Costs — Industrial Park</strong> (or the single-warehouse
+            equivalent). A benchmark chip identifies the benchmark set (e.g.{" "}
+            <strong className="text-white">Warehouse / Industrial · Malaysia · Bulk Distribution · Grade A</strong>).
+            Quantities are locked from Step 5; rates use AI research when available (AI badge); totals calculate
+            automatically and — in Industrial Park mode — scale by the number of units, shown as{" "}
+            <strong className="text-white">× Number of Units [N]</strong> badges on the per-unit cards.
+          </p>
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-4">
+            <div>
+              <h5 className="text-white font-medium mb-1">Building &amp; shell (× units)</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Building BUA (sqft)</strong> [Auto]</li>
+                <li><strong className="text-white">Building Rate (/sqft)</strong> (AI)</li>
+                <li><strong className="text-white">Building Cost</strong> [Auto]</li>
+              </ul>
+            </div>
+            <div>
+              <h5 className="text-white font-medium mb-1">Site &amp; yard works (× units)</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Yard Area (sqft)</strong> [Auto] + <strong className="text-white">Yard Rate (/sqft)</strong> (AI) + <strong className="text-white">Yard Cost</strong> [Auto]</li>
+                <li><strong className="text-white">Car Parking Stalls</strong> [Auto] + <strong className="text-white">Car Parking Rate (/stall)</strong> (AI) + <strong className="text-white">Car Parking Cost</strong> [Auto]</li>
+                <li><strong className="text-white">Trailer Parking Stalls</strong> [Auto] + <strong className="text-white">Trailer Parking Rate (/stall)</strong> (AI) + <strong className="text-white">Trailer Parking Cost</strong> [Auto]</li>
+              </ul>
+            </div>
+            <div>
+              <h5 className="text-white font-medium mb-1">Loading &amp; access (× units)</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Dock Doors</strong> [Auto] + <strong className="text-white">Cost per Dock Door</strong> (AI)</li>
+                <li><strong className="text-white">Drive-In Doors</strong> [Auto] + <strong className="text-white">Cost per Drive-In Door</strong> (AI)</li>
+                <li><strong className="text-white">Loading Cost</strong> [Auto]</li>
+              </ul>
+            </div>
+            <div>
+              <h5 className="text-white font-medium mb-1">Specialised systems (× units, per-unit inputs)</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li>Racking / Shelving</li>
+                <li>Refrigeration / Cold Storage</li>
+                <li>Automation / Conveyors</li>
+                <li><strong className="text-white">Total Specialised Systems</strong> [Auto]</li>
+              </ul>
+            </div>
+            <div>
+              <h5 className="text-white font-medium mb-1">Common Infrastructure (park-level, not scaled per unit)</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Common Infrastructure Area (sqft)</strong> [Auto] + <strong className="text-white">Infrastructure Rate (/sqft)</strong> (AI) + <strong className="text-white">Common Infrastructure Cost</strong> [Auto]</li>
+              </ul>
+            </div>
+            <div>
+              <h5 className="text-white font-medium mb-1">Professional fees (not scaled per unit)</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Professional Fees (%)</strong> (AI) + <strong className="text-white">Professional Fees</strong> [Auto]</li>
+              </ul>
+            </div>
+            <div className="mt-1 p-3 rounded bg-slate-950 border border-slate-800">
+              <p className="text-sm text-slate-400">
+                Footer total: <strong className="text-white">Estimated hard costs + fees</strong>.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Step 7 */}
@@ -264,6 +494,116 @@ export default function SaleComponent1Docs() {
             <strong>💡 AI-Researched Benchmarks:</strong> SC and POWC percentages are pre-populated with AI-researched
             benchmarks. These values are dynamically researched in real-time by the AI based on your exact pin-drop
             location and building type.
+          </div>
+
+          <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">BENCHMARK</span>
+                <span className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-sm text-slate-200">
+                  Residential - High-Rise • Ras Al Khaimah • United Arab Emirates
+                </span>
+                <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+                  Manual overrides
+                </span>
+              </div>
+              <span className="text-sm font-medium text-emerald-400">Reset to benchmark</span>
+            </div>
+            <ul className="space-y-2 text-sm text-slate-400">
+              <li>
+                <strong className="text-white">SC % of CC incl. contingency (SC%)</strong> carries an{" "}
+                <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span> badge.
+                Formula: SC amount = CC incl. contingency × SC% ÷ 100.
+              </li>
+              <li>
+                <strong className="text-white">POWC % of CC incl. contingency (POWC%)</strong> shows an{" "}
+                <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">Override</span>{" "}
+                badge when manually changed (&quot;Manually overridden — edit to change&quot; plus a per-field{" "}
+                <span className="text-emerald-400">Reset to benchmark</span>).
+              </li>
+            </ul>
+            <div className="mt-4 p-3 rounded bg-slate-950 border border-slate-800 space-y-1 text-sm text-slate-400">
+              <p>Live computed outputs:</p>
+              <p><strong className="text-white">Soft Costs (SC)</strong></p>
+              <p><strong className="text-white">POWC</strong></p>
+              <p><strong className="text-white">Development Cost (DC = CC + SC + POWC)</strong></p>
+            </div>
+          </div>
+
+          <h4 className="text-white font-semibold mb-3 mt-6">Detailed Allocation</h4>
+          <p className="text-slate-400 text-sm mb-3">
+            Each % field carries an{" "}
+            <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span> badge.
+            Totals must read <span className="text-emerald-400 font-mono">100.0% ✓</span>.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-3">POWC Allocation</h5>
+              <ul className="space-y-2 text-sm text-slate-400 mb-3">
+                <li>
+                  <strong className="text-white">Site Establishment</strong> 30%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Mobilization, temporary facilities, site prep</span>
+                </li>
+                <li>
+                  <strong className="text-white">Overhead Costs</strong> 50%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Admin, HSE, Management, site staff</span>
+                </li>
+                <li>
+                  <strong className="text-white">Authority Fees</strong> 20%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Telco, power, water, drainage, permits</span>
+                </li>
+              </ul>
+              <p className="text-sm text-emerald-400 font-mono mb-3">Total 100.0% ✓</p>
+              <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                <p className="text-xs text-slate-500">
+                  <strong className="text-blue-400">ℹ️ POWC timing:</strong> Site: 40% M1, 30% M2, 30% M3 (M0 and M4+ zero);
+                  if fewer than 3 construction months, those shares are normalized over M1..Mn. Overhead: even across M1–Mn.
+                  Authority: 50% in first 2 months, 50% over last 3 months.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-3">Soft Costs Allocation</h5>
+              <ul className="space-y-2 text-sm text-slate-400 mb-3">
+                <li>
+                  <strong className="text-white">Main Architect</strong> 30%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Design, drawings, site supervision</span>
+                </li>
+                <li>
+                  <strong className="text-white">Project Management</strong> 25%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Owner&apos;s rep, coordination, reporting</span>
+                </li>
+                <li>
+                  <strong className="text-white">Engineering Consultant</strong> 25%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Structural, MEP, civil engineering</span>
+                </li>
+                <li>
+                  <strong className="text-white">Geotechnical Consultant</strong> 10%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Soil investigation, foundation recommendations</span>
+                </li>
+                <li>
+                  <strong className="text-white">Other Fees</strong> 10%{" "}
+                  <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">AI</span>
+                  <span className="block text-xs text-slate-500">Legal, insurance, marketing, miscellaneous</span>
+                </li>
+              </ul>
+              <p className="text-sm text-emerald-400 font-mono mb-3">Total 100.0% ✓</p>
+              <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                <p className="text-xs text-slate-500">
+                  <strong className="text-blue-400">ℹ️ Percentages below are shares of total soft costs.</strong>{" "}
+                  Aggregate cash timing: Soft costs (total): 50% at M0, 30% at M1, 20% at M2 (pre-construction + early design).
+                  Sub-lines show % of total soft for reference only.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -416,154 +756,122 @@ export default function SaleComponent1Docs() {
               <p className="text-sm text-emerald-400 font-medium">Total Allocation: 100.0%</p>
             </div>
           </div>
+
+          <h4 className="text-white font-medium mb-2 mt-6">📦 Commercial - Strata Warehouse: Construction Phasing (S-Curve)</h4>
+          <p className="text-slate-300 text-sm leading-relaxed mb-3">
+            For warehouses, this step becomes <strong className="text-white">Construction Phasing (S-Curve)</strong> with
+            a benchmark chip identifying the benchmark set (e.g.{" "}
+            <strong className="text-white">Warehouse / Industrial · Malaysia · Bulk Distribution · Grade A</strong>).
+          </p>
+          <p className="text-slate-300 text-sm leading-relaxed mb-3">
+            Instead of manually allocated construction stages, <strong className="text-white">four</strong> cost-category
+            curves are auto-generated from the construction period and warehouse sub-type. Each category distributes{" "}
+            <strong className="text-white">100.0%</strong> of its cost across M0 through the end of the construction
+            period (e.g. M0–M16 for a 16-month period), shown as monthly bar charts.
+          </p>
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-3">
+            <div>
+              <h5 className="text-white font-medium">Building &amp; Shell</h5>
+              <p className="text-sm text-slate-400">Standard S-Curve (15% Early / 35% Mid / 35% Late / 15% Final).</p>
+            </div>
+            <div>
+              <h5 className="text-white font-medium">Site &amp; Yard Works</h5>
+              <p className="text-sm text-slate-400">Front-loaded (40% Early / 30% Mid / 20% Late / 10% Final).</p>
+            </div>
+            <div>
+              <h5 className="text-white font-medium">Loading &amp; Access</h5>
+              <p className="text-sm text-slate-400">Mid-Late (10% Early / 20% Mid / 40% Late / 30% Final).</p>
+            </div>
+            <div>
+              <h5 className="text-white font-medium">Specialised Systems</h5>
+              <p className="text-sm text-slate-400">Back-loaded (10% Early / 20% Mid / 40% Late / 30% Final).</p>
+            </div>
+          </div>
         </div>
 
         {/* Step 13 */}
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
-          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 13: Detailed Allocation &amp; Summary</h3>
+          <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 13: Review & Summary</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Define how POWC and Soft Costs are distributed over the programme, review standard allocations, then
-            confirm all inputs before generating the model.
+            Confirm cash outflow inputs before generating the model. This step is{" "}
+            <strong className="text-white">read-only</strong> — go back to edit values.
+          </p>
+          <p className="text-slate-300 leading-relaxed mb-3">
+            A context-chip row at the top shows location, currency, building type, configuration shorthand
+            (e.g. <strong className="text-white">0B / 0P / 10T</strong> = basements / podium / tower floors),
+            and construction duration in months.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-2 uppercase tracking-wide text-xs text-slate-500">Land &amp; Building</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Total Land Area (sqft)</strong></li>
+                <li><strong className="text-white">Land Cost</strong></li>
+                <li><strong className="text-white">Total Building GFA (sqft)</strong></li>
+                <li><strong className="text-white">Building / Construction Cost</strong></li>
+              </ul>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
+              <h5 className="text-white font-medium mb-2 uppercase tracking-wide text-xs text-slate-500">Soft Costs &amp; Allowances</h5>
+              <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+                <li><strong className="text-white">Soft Costs (SC)</strong> — amount with percentage</li>
+                <li><strong className="text-white">POWC</strong> — amount with percentage</li>
+                <li><strong className="text-white">Contingency</strong> — amount with percentage</li>
+              </ul>
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 mb-4">
+            <h5 className="text-white font-medium mb-2">Headline Total Project Cost (TPC)</h5>
+            <p className="text-sm text-slate-400 mb-2">
+              The TPC figure is shown with three key ratios:
+            </p>
+            <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+              <li><strong className="text-white">Cost / sqft</strong></li>
+              <li><strong className="text-white">Land % of TPC</strong></li>
+              <li><strong className="text-white">Building % of TPC</strong></li>
+            </ul>
+          </div>
+          <p className="text-slate-300 leading-relaxed mb-6">
+            <strong className="text-white">Generate Model →</strong> is the final action button on this step
+            (next to <strong className="text-white">← Previous</strong>).
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {/* POWC Allocation */}
-            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-2xl">🤖</span>
-                <h4 className="text-white font-semibold">AI RECOMMENDATION</h4>
-              </div>
-              <p className="text-xs text-slate-400 mb-1">POWC Allocation</p>
-              <p className="text-xs text-slate-500 mb-3">Based on 2024 Dubai residential data<br />Source: ADCB Project Database</p>
-              <p className="text-sm text-slate-400 mb-3">These are suggested benchmarks. You can override any value if you have project-specific data.</p>
-
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Site Establishment</p>
-                    <p className="text-xs text-slate-500">Mobilization, temporary facilities, site prep</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="40" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Overhead Costs</p>
-                    <p className="text-xs text-slate-500">Admin, HSE, Management, site staff</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="12" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Authority Fees</p>
-                    <p className="text-xs text-slate-500">Telco, power, water, drainage, permits</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="48" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-slate-800 flex justify-between">
-                  <span className="text-white font-medium">Total</span>
-                  <span className="text-emerald-400 font-mono">100.0% ✓</span>
-                </div>
-              </div>
-              <div className="mt-3 p-2 rounded bg-slate-950 border border-slate-800">
-                <p className="text-xs text-slate-500">
-                  <strong className="text-blue-400">ℹ️ Step 13 timing:</strong> Site: 40% M1, 30% M2, 30% M3 (M0 and M4+ zero);
-                  if fewer than 3 construction months, those shares are normalized over M1..Mn. Overhead: even across M1–Mn.
-                  Authority: 50% in first 2 months, 50% over last 3 months.
-                </p>
-              </div>
-            </div>
-
-            {/* Soft Costs Allocation */}
-            <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-2xl">🤖</span>
-                <h4 className="text-white font-semibold">AI RECOMMENDATION</h4>
-              </div>
-              <p className="text-xs text-slate-400 mb-1">Soft Costs Allocation</p>
-              <p className="text-xs text-slate-500 mb-3">Based on 2024 Dubai residential data<br />Source: ADCB Project Database</p>
-              <p className="text-sm text-slate-400 mb-3">These are suggested benchmarks. You can override any value if you have project-specific data.</p>
-
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Main Architect</p>
-                    <p className="text-xs text-slate-500">Design, drawings, site supervision</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="30" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Project Management</p>
-                    <p className="text-xs text-slate-500">Owner&apos;s rep, coordination, reporting</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="20" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Engineering Consultant</p>
-                    <p className="text-xs text-slate-500">Structural, MEP, civil engineering</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="30" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Geotechnical Consultant</p>
-                    <p className="text-xs text-slate-500">Soil investigation, foundation recommendations</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="10" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-white">Other Fees</p>
-                    <p className="text-xs text-slate-500">Legal, insurance, marketing, miscellaneous</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value="10" readOnly className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-sm text-white text-right" />
-                    <span className="text-sm text-slate-400">%</span>
-                    <span className="text-amber-400">✏️</span>
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-slate-800 flex justify-between">
-                  <span className="text-white font-medium">Total</span>
-                  <span className="text-emerald-400 font-mono">100.0% ✓</span>
-                </div>
-              </div>
-              <div className="mt-3 p-2 rounded bg-slate-950 border border-slate-800">
-                <p className="text-xs text-slate-500">
-                  <strong className="text-blue-400">ℹ️ Percentages below are shares of total soft costs (Step 13).</strong>
-                  Aggregate cash timing: Soft costs (total): 50% at M0, 30% at M1, 20% at M2 (pre-construction + early design).
-                  Sub-lines show Step 13 % of total soft for reference only.
-                </p>
-              </div>
-            </div>
+          <h4 className="text-white font-semibold mb-2 mt-4">📦 Warehouse / Industrial — Review &amp; Summary</h4>
+          <p className="text-slate-300 text-sm leading-relaxed mb-3">
+            Shows the benchmark chip (e.g.{" "}
+            <strong className="text-white">Warehouse / Industrial · Malaysia · Bulk Distribution · Grade A</strong>)
+            and context chips for location, currency, Single Warehouse vs Industrial Park, and construction months.
+          </p>
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 mb-4">
+            <h5 className="text-white font-medium mb-2">Cost per sqft Breakdown</h5>
+            <p className="text-sm text-slate-400 mb-3">
+              Every CapEx line is shown with its total amount, its cost per sqft, and a share bar / % of total:
+            </p>
+            <ul className="space-y-1 text-sm text-slate-400 ml-4 list-disc">
+              <li>Building &amp; Shell</li>
+              <li>Site &amp; Yard Works</li>
+              <li>Common Infrastructure</li>
+              <li>Loading &amp; Access</li>
+              <li>Specialised Systems</li>
+              <li>Professional Fees</li>
+              <li>Soft Costs</li>
+              <li>POWC</li>
+              <li>FF&amp;E</li>
+              <li>Contingency</li>
+              <li>Land Cost</li>
+              <li>
+                <strong className="text-white">Total All-In Cost</strong> — total amount + total per-sqft = 100%
+              </li>
+            </ul>
+          </div>
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-sm text-blue-200">
+            <strong>AI Market Benchmark Recommendation:</strong> Compares{" "}
+            <strong className="text-white">Your All-In Cost</strong> (per sqft) against an AI-derived{" "}
+            <strong className="text-white">Market Benchmark</strong> range (per sqft). Shows a status (e.g.{" "}
+            <strong className="text-white">Slightly above market average</strong>) and a suggestion (e.g. consider
+            reviewing land cost, specialised systems, or contingency buffer to align with market benchmarks), plus
+            an AI commentary paragraph explaining the benchmark context for the specific location and product
+            (grade, sub-type, clear height/M&amp;E specs, data sources, and land-rate context).
           </div>
         </div>
       </section>

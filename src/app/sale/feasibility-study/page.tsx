@@ -69,7 +69,7 @@ export default function SaleFeasibilityStudyPage() {
     try {
       const projectData = getSaleFeasibilityBundle();
       setProjectBundle(projectData);
-      const oldHashes = await getStoredHashes(SALE_HASHES_STORAGE_KEY);
+      const oldHashes = await getStoredHashes(SALE_HASHES_STORAGE_KEY, user?.id);
 
       let slidesResult: FeasibilitySlide[];
       let marketResearch: Record<string, unknown> | undefined;
@@ -80,7 +80,7 @@ export default function SaleFeasibilityStudyPage() {
           forceRegenerate,
         });
         slidesResult = result.slides;
-        await setStoredHashes(SALE_HASHES_STORAGE_KEY, result.hashes);
+        await setStoredHashes(SALE_HASHES_STORAGE_KEY, result.hashes, user?.id);
       } catch (puterErr) {
         console.warn(
           "Puter.js generation failed, falling back to server API:",
@@ -316,8 +316,8 @@ export default function SaleFeasibilityStudyPage() {
               );
 
               if (isConfirmed) {
-                await clearAllCaches();
-                await clearStoredHashes(SALE_HASHES_STORAGE_KEY);
+                await clearAllCaches(user?.id);
+                await clearStoredHashes(SALE_HASHES_STORAGE_KEY, user?.id);
                 alert(
                   "Cloud Cache cleared! Next generation will call AI for all slides."
                 );

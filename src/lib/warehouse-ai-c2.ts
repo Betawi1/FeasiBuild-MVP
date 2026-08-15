@@ -23,6 +23,8 @@ export function getAiValue(
 /**
  * Resolve warehouse C2 operational payload from stored AI research.
  * Prefer warehouse schema keys (`step1_primary_revenue`, etc.).
+ * `reasoning_notes` on c2_operational pass through unchanged (nested path)
+ * or via `normalizeAiResearchData` (legacy flat keys).
  */
 export function getWarehouseAiC2(
   aiResearchData: AiResearchData | undefined | null

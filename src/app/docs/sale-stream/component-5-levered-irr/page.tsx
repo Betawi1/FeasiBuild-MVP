@@ -26,31 +26,6 @@ export default function SaleComponent5Docs() {
           page for equity investors — it answers the question: <span className="text-white font-medium">&quot;What 
           return does my equity capital generate after paying back the bank?&quot;</span>
         </p>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-          <h3 className="text-lg font-semibold text-white mb-3">Key Metrics at a Glance</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="rounded-lg bg-slate-950 p-4">
-              <p className="text-sm text-slate-400">Unlevered IRR</p>
-              <p className="text-2xl font-bold text-slate-300">4.63%</p>
-              <p className="text-xs text-slate-500">Before financing (Component 3)</p>
-            </div>
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-4">
-              <p className="text-sm text-emerald-400">Levered IRR</p>
-              <p className="text-2xl font-bold text-emerald-400">23.95%</p>
-              <p className="text-xs text-slate-500">After financing (Component 4)</p>
-            </div>
-            <div className="rounded-lg bg-slate-950 p-4">
-              <p className="text-sm text-slate-400">Equity Multiple</p>
-              <p className="text-2xl font-bold text-emerald-400">1.36x</p>
-              <p className="text-xs text-slate-500">Total returns ÷ Total invested</p>
-            </div>
-            <div className="rounded-lg bg-slate-950 p-4">
-              <p className="text-sm text-slate-400">Payback</p>
-              <p className="text-2xl font-bold text-emerald-400">M35</p>
-              <p className="text-xs text-slate-500">Month of full recovery</p>
-            </div>
-          </div>
-        </div>
       </section>
 
       {/* Leverage Effect */}
@@ -58,13 +33,15 @@ export default function SaleComponent5Docs() {
         <h2 className="text-2xl font-bold text-white mb-4">The Power of Leverage</h2>
         <p className="text-slate-300 leading-relaxed mb-6">
           The most striking feature of Component 5 is the dramatic difference between the Unlevered IRR 
-          <span className="text-slate-500"> (4.63%)</span> and the Levered IRR 
-          <span className="text-emerald-400 font-medium"> (23.95%)</span>. This is the <strong className="text-white">leverage effect</strong> — 
+          and the Levered IRR. This is the <strong className="text-white">leverage effect</strong> — 
           one of the most powerful concepts in real estate finance.
         </p>
 
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-6 mb-6">
           <h3 className="text-lg font-semibold text-emerald-400 mb-3">Why is Levered IRR So Much Higher?</h3>
+          <p className="text-xs italic text-slate-500 mb-3">
+            Illustrative example only — your project&apos;s actual figures will differ.
+          </p>
           <p className="text-slate-300 text-sm leading-relaxed mb-4">
             When the project earns a return <strong className="text-white">higher than the cost of debt</strong>, 
             every dollar borrowed amplifies the equity return. Here&apos;s the math in simple terms:
@@ -122,14 +99,17 @@ export default function SaleComponent5Docs() {
       {/* Metrics Explained */}
       <section>
         <h2 className="text-2xl font-bold text-white mb-4">Key Metrics Explained</h2>
-        <p className="text-slate-300 leading-relaxed mb-6">
+        <p className="text-slate-300 leading-relaxed mb-2">
           Component 5 displays four critical metrics, two from the unlevered analysis and two from the levered analysis:
+        </p>
+        <p className="text-sm text-slate-500 mb-6">
+          Any figures quoted below are illustrative examples only — Component 5 displays your project&apos;s actual values.
         </p>
 
         <div className="space-y-6">
           {/* Unlevered IRR */}
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-5">
-            <h3 className="text-lg font-semibold text-slate-300 mb-3">Unlevered IRR (4.63%)</h3>
+            <h3 className="text-lg font-semibold text-slate-300 mb-3">Unlevered IRR</h3>
             <p className="text-slate-400 text-sm mb-3">
               The Project IRR from Component 3 — the annualized return on the project&apos;s cash flows <em>before</em> 
               any debt or equity financing is applied. This is the &quot;raw&quot; project return.
@@ -142,7 +122,7 @@ export default function SaleComponent5Docs() {
 
           {/* Levered IRR */}
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5">
-            <h3 className="text-lg font-semibold text-emerald-400 mb-3">Levered IRR (23.95%)</h3>
+            <h3 className="text-lg font-semibold text-emerald-400 mb-3">Levered IRR</h3>
             <p className="text-slate-300 text-sm mb-3">
               The Equity IRR after financing — the annualized return on the equity investor&apos;s cash flows 
               <em> after</em> debt service. This is the metric that matters most to equity investors.
@@ -162,11 +142,11 @@ export default function SaleComponent5Docs() {
 
           {/* Equity Multiple */}
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-5">
-            <h3 className="text-lg font-semibold text-emerald-400 mb-3">Equity Multiple (1.36x)</h3>
+            <h3 className="text-lg font-semibold text-emerald-400 mb-3">Equity Multiple</h3>
             <p className="text-slate-400 text-sm mb-3">
               The Money-on-Money (MoM) multiple — total cash returned to equity investors divided by total 
-              equity invested. An equity multiple of 1.36x means for every AED 1.00 invested, the project 
-              returns AED 1.36 (a 36% total profit).
+              equity invested. For example (illustrative only): an equity multiple of 1.36x means for every 
+              1.00 invested, the project returns 1.36 (a 36% total profit).
             </p>
             <div className="bg-slate-950 rounded-lg p-4 font-mono text-sm">
               <div className="text-emerald-300">Equity Multiple = Total Distributions ÷ Total Equity Invested</div>
@@ -175,11 +155,12 @@ export default function SaleComponent5Docs() {
 
           {/* Payback */}
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-5">
-            <h3 className="text-lg font-semibold text-emerald-400 mb-3">Payback Month (M35)</h3>
+            <h3 className="text-lg font-semibold text-emerald-400 mb-3">Payback Month</h3>
             <p className="text-slate-400 text-sm mb-3">
               The month in which cumulative equity distributions equal or exceed cumulative equity invested. 
-              This is the &quot;break-even&quot; point for the equity investor. Payback at M35 means the investor 
-              recovers their full investment one month before the project ends (M36).
+              This is the &quot;break-even&quot; point for the equity investor. For example (illustrative only): 
+              payback at M35 in a 36-month project means the investor recovers the full investment one month 
+              before the project ends.
             </p>
             <p className="text-slate-400 text-sm">
               For sale developments, payback typically occurs in the final months when the bulk of sales 

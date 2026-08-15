@@ -7,12 +7,14 @@ import { BenchmarkBanner } from "@/components/BenchmarkBanner";
 import { solveAnnualIRR, type CashFlowPoint } from "@/lib/irr-calculations";
 import { buildSalePreFinancingCashFlows } from "@/lib/sale-cash-preview-profile";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 
 type SalePhase = "construction" | "sales" | "handover";
 type MonthlyPoint = { month: number; amount: number; phase: SalePhase };
 
 export default function SaleProjectIrrPage() {
   const streamPrefix = useStreamPrefix();
+  useReportWizardStep(1);
   const projectInfo = useFinModelStore((s) => s.sale.projectInfo);
   const cashOutflows = useFinModelStore((s) => s.sale.cashOutflows);
   const cashInflows = useFinModelStore((s) => s.sale.cashInflows);

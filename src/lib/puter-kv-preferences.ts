@@ -1,8 +1,9 @@
 import { DEFAULT_MODEL, isKnownPuterModel } from "./puter-models";
+import { getSecureKvUserId, secureKv } from "./secure-puter-kv";
 
 export { DEFAULT_MODEL };
 
-const PREFERENCES_KEY = "feasi_build_user_preferences";
+const PREFERENCES_KEY = "user_preferences";
 
 export interface UserPreferences {
   preferredModel: string;
@@ -42,13 +43,21 @@ export function setCachedPreferredModel(modelId: string): void {
   cachedModel = resolveModelId(modelId);
 }
 
-export async function loadUserPreferences(): Promise<UserPreferences> {
+function resolvePreferencesUserId(explicit?: string | null): string | null {
+  return explicit?.trim() || getSecureKvUserId() || null;
+}
+
+export async function loadUserPreferences(
+  userId?: string | null
+): Promise<UserPreferences> {
+  const uid = resolvePreferencesUserId(userId);
+
   try {
-    if (typeof window === "undefined" || !window.puter?.kv) {
+    if (!uid || typeof window === "undefined" || !window.puter?.kv) {
       return { preferredModel: cachedModel ?? DEFAULT_MODEL };
     }
 
-    const stored = await window.puter.kv.get(PREFERENCES_KEY);
+    const stored = await secureKv.get(uid, PREFERENCES_KEY);
     const parsed = parsePreferences(stored);
     if (parsed) {
       cachedModel = parsed.preferredModel;
@@ -64,17 +73,21 @@ export async function loadUserPreferences(): Promise<UserPreferences> {
 }
 
 export async function saveUserPreferences(
-  preferences: UserPreferences
+  preferences: UserPreferences,
+  userId?: string | null
 ): Promise<void> {
   const next: UserPreferences = {
     preferredModel: resolveModelId(preferences.preferredModel),
   };
+  const uid = resolvePreferencesUserId(userId);
 
   try {
-    if (typeof window === "undefined" || !window.puter?.kv) {
-      throw new Error("Puter is not available");
+    if (!uid || typeof window === "undefined" || !window.puter?.kv) {
+      throw new Error(
+        uid ? "Puter is not available" : "SecureKV: User ID is required"
+      );
     }
-    await window.puter.kv.set(PREFERENCES_KEY, JSON.stringify(next));
+    await secureKv.set(uid, PREFERENCES_KEY, next);
     cachedModel = next.preferredModel;
   } catch (error) {
     console.error("Failed to save preferences to Puter KV:", error);
@@ -85,11 +98,13 @@ export async function saveUserPreferences(
 }
 
 /** Cached Puter KV lookup so AI calls do not hit storage on every request. */
-export async function getPreferredModel(): Promise<string> {
+export async function getPreferredModel(
+  userId?: string | null
+): Promise<string> {
   if (cachedModel) return cachedModel;
 
   try {
-    const prefs = await loadUserPreferences();
+    const prefs = await loadUserPreferences(userId);
     cachedModel = prefs.preferredModel;
     return cachedModel;
   } catch (error) {

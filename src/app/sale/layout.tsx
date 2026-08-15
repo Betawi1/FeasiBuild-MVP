@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import useFinModelStore from "@/store/useFinModelStore";
 import { useAuditStore } from "@/store/useAuditStore";
 import AuditTrailDrawer from "@/components/AuditTrailDrawer";
+import AIAnalystDrawer from "@/components/ai-analyst/AIAnalystDrawer";
 import SaveProjectButton from "@/components/header/SaveProjectButton";
 import BackToDashboardButton from "@/components/ui/BackToDashboardButton";
 import { studyToolbarResetBtn, studyToolbarSecondaryBtn } from "@/components/ui/studyToolbarStyles";
@@ -53,6 +54,9 @@ export default function SaleLayout({ children }: { children: React.ReactNode }) 
         onClose={() => setIsAuditOpen(false)}
         stream="sale"
       />
+      <Suspense fallback={null}>
+        <AIAnalystDrawer />
+      </Suspense>
       {children}
     </>
   );

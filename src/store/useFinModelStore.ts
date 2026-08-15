@@ -1198,6 +1198,7 @@ export type AiResearchData = {
         other?: string;
       };
     };
+    reasoning_notes?: Record<string, string>;
   };
   c2_operational?: {
     room_revenues?: {
@@ -1423,6 +1424,7 @@ export type AiResearchData = {
       accounts_receivable_months_revenue: number;
       accounts_payable_months_opex: number;
     };
+    reasoning_notes?: Record<string, string>;
   };
   c2_sales?: {
     avg_sales_price_psf: number;
@@ -1432,6 +1434,7 @@ export type AiResearchData = {
       escrow_fees_pct: number;
       avg_sales_discount_pct: number;
     };
+    reasoning_notes?: Record<string, string>;
   };
   /** Warehouse/industrial all-in cost benchmarks (Review & Summary). */
   market_benchmarks?: {

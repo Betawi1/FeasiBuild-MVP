@@ -22,17 +22,17 @@ interface AIModelSelectorProps {
 export default function AIModelSelector({
   variant = "card",
 }: AIModelSelectorProps) {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn) return;
-    loadUserPreferences().then((prefs) => {
+    if (!isLoaded || !isSignedIn || !userId) return;
+    loadUserPreferences(userId).then((prefs) => {
       setSelectedModel(prefs.preferredModel);
     });
-  }, [isLoaded, isSignedIn]);
+  }, [isLoaded, isSignedIn, userId]);
 
   const handleModelChange = async (newModelId: string) => {
     setSelectedModel(newModelId);
@@ -40,10 +40,10 @@ export default function AIModelSelector({
     setError(null);
 
     try {
-      await saveUserPreferences({ preferredModel: newModelId });
+      await saveUserPreferences({ preferredModel: newModelId }, userId);
     } catch {
       setError("Failed to save preference. Please try again.");
-      loadUserPreferences().then((prefs) =>
+      loadUserPreferences(userId).then((prefs) =>
         setSelectedModel(prefs.preferredModel)
       );
     } finally {

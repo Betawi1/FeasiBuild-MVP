@@ -11,6 +11,7 @@ import {
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
+import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 
 const LocationMapPicker = dynamic(() => import("@/components/LocationMapPicker"), {
   ssr: false,
@@ -32,11 +33,6 @@ import useFinModelStore, {
   type ProjectInfo,
   type WarehouseCosts,
 } from "@/store/useFinModelStore";
-import {
-  buildAndSaveProject,
-  type BuildProjectSaveInput,
-} from "@/lib/project-save";
-import { useUser } from "@clerk/nextjs";
 import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
 import { AiHintBox } from "@/components/ui/AiHintBox";
 import { AiInput } from "@/components/ui/AiInput";
@@ -773,54 +769,6 @@ function CashOutflowsPageContent() {
     [patchUpdateCashInflows]
   );
 
-  const { user } = useUser();
-
-  const handleSaveProject = useCallback(async () => {
-    console.log("💾 [SAVE] Starting project save via project-save.ts...");
-    try {
-      if (!user?.id) {
-        alert("❌ You must be logged in to save a project.");
-        return;
-      }
-
-      const state = useFinModelStore.getState();
-      const currentProjectInfo = state.operational.projectInfo;
-
-      const urlParams = new URLSearchParams(window.location.search);
-      const projectId =
-        urlParams.get("projectId") ||
-        `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      const saveInput: BuildProjectSaveInput = {
-        projectName:
-          (currentProjectInfo as { projectName?: string }).projectName ||
-          state.activeProjectName ||
-          `${currentProjectInfo.buildingType || "Project"} - ${currentProjectInfo.city || "Unknown"}`,
-        stream: "operational",
-        userId: user.id,
-        projectId: projectId,
-      };
-
-      console.log("💾 [SAVE] Saving project with ID:", projectId);
-      const result = await buildAndSaveProject(saveInput);
-
-      // Update URL if it was a new project
-      if (!urlParams.get("projectId")) {
-        const newUrl = `${window.location.pathname}?projectId=${result.projectId}`;
-        window.history.replaceState({}, "", newUrl);
-      }
-
-      alert(
-        `✅ Project saved successfully!\n\nProject ID: ${result.projectId}`
-      );
-    } catch (error) {
-      console.error("❌ [SAVE] Failed to save project:", error);
-      alert(
-        `❌ Failed to save project.\n\nError: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }, [user]);
-
   const { performResearch, isLoading: isAiLoading, error: aiError } =
     useAiResearch();
 
@@ -1002,6 +950,7 @@ function CashOutflowsPageContent() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [errors, setErrors] = useState<Errors>({});
+  useReportWizardStep(currentStep + 1);
 
   // DEBUG: monitor landing on Visual Step 5
   useEffect(() => {
@@ -5086,35 +5035,11 @@ function CashOutflowsPageContent() {
     <div className="min-h-screen bg-slate-950 px-4 py-12 pb-32">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="mb-2 text-3xl font-bold text-white">
-              FinModel App — Component 1
-            </h1>
-            <p className="text-slate-400">Development Financials</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSaveProject}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-              />
-            </svg>
-            Save Project
-          </button>
+        <div className="mb-8">
+          <h1 className="mb-2 text-3xl font-bold text-white">
+            FinModel App — Component 1
+          </h1>
+          <p className="text-slate-400">Development Financials</p>
         </div>
 
         {/* Progress Bar */}
