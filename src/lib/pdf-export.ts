@@ -1,5 +1,6 @@
 import { domToPng } from "modern-screenshot";
 import { jsPDF } from "jspdf";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 
 const SLIDE_WIDTH = 1280;
@@ -148,6 +149,11 @@ export async function exportToPDF(options: ExportOptions): Promise<void> {
       capturedCount++;
     } catch (error) {
       console.error(`Failed to capture slide ${i + 1}:`, error);
+      void sendOpsAlert(error instanceof Error ? error : String(error), {
+        source: "PDF Export",
+        slideIndex: i + 1,
+        slideId: slides[i]?.id,
+      });
 
       if (i > 0) {
         pdf.addPage([SLIDE_WIDTH, SLIDE_HEIGHT], "landscape");
@@ -159,7 +165,9 @@ export async function exportToPDF(options: ExportOptions): Promise<void> {
   }
 
   if (capturedCount === 0) {
-    throw new Error("No slides could be captured");
+    const exportError = new Error("No slides could be captured");
+    void sendOpsAlert(exportError, { source: "PDF Export" });
+    throw exportError;
   }
 
   const city = projectInfo.location?.city || "Project";

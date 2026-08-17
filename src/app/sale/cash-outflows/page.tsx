@@ -50,8 +50,10 @@ import {
 } from "@/app/sale/data/recommendations";
 import type { StageAllocation, AiResearchData } from "@/store/useFinModelStore";
 import { useAiResearch } from "@/hooks/useAiResearch";
+import { useNeighborhoodLookupGate } from "@/hooks/useNeighborhoodLookupGate";
 import type { AiAssetType } from "@/lib/constants/aiPrompts";
 import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
+import { CITY_LEVEL_LOOKUP_NOTICE } from "@/lib/reverse-geocode";
 import { AiInput } from "@/components/ui/AiInput";
 import { AiHintBox } from "@/components/ui/AiHintBox";
 import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
@@ -235,6 +237,8 @@ function CashOutflowsPageContent() {
   const projectInfo = useSaleModelStore((s) => s.projectInfo);
   const cashOutflows = useSaleModelStore((s) => s.cashOutflows);
   const [isMapGeocoding, setIsMapGeocoding] = useState(false);
+  const { waitingForNeighborhood, showCityLevelNotice } =
+    useNeighborhoodLookupGate(projectInfo.coordinates, projectInfo.subMarket);
   const updateProjectInfoForStream = useSaleModelStore((s) => s.updateProjectInfo);
   const updateCashOutflowsForStream = useSaleModelStore((s) => s.updateCashOutflows);
   const updateCashInflowsForStream = useSaleModelStore((s) => s.updateCashInflows);
@@ -512,8 +516,8 @@ function CashOutflowsPageContent() {
     const saleAiAssetType = SALE_SUBTYPE_TO_AI_ASSET[projectInfo.buildingSubType];
     if (!saleAiAssetType) return;
 
-    // SAFEGUARD: Do not trigger AI if map is still geocoding
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    // SAFEGUARD: Do not trigger AI if map is still geocoding (8s cap — never stall).
+    if (waitingForNeighborhood) {
       console.log(
         "⏳ Sales AI Research paused: Waiting for map neighborhood lookup..."
       );
@@ -899,6 +903,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     projectInfo.buildingSubType,
     projectInfo.salesMarketPositioning,
@@ -2212,6 +2217,12 @@ function CashOutflowsPageContent() {
             />
           </div>
         </div>
+
+        {showCityLevelNotice && (
+          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm text-amber-400">{CITY_LEVEL_LOOKUP_NOTICE}</p>
+          </div>
+        )}
 
         {isAiResearching && (
           <div className="mb-6 flex items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">

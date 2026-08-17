@@ -44,6 +44,7 @@ import {
   type OperationalAssetType as OperationalMarketAssetType,
 } from "@/lib/feasibility/operational-market-charts";
 import { enrichHospitalityMarketCharts } from "@/lib/feasibility/hospitality-market-charts";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 
 export type OperationalAssetType =
   | "hotel"
@@ -423,6 +424,21 @@ async function enrichOperationalTenantProfile(
  * Delegates commentary to asset-specific generators that use localStorage caching.
  */
 export async function enrichOperationalSlidesWithPuter(
+  bundle: FeasibilityProjectBundle,
+  options: EnrichOperationalSlidesOptions
+): Promise<EnrichOperationalSlidesResult> {
+  try {
+    return await enrichOperationalSlidesWithPuterImpl(bundle, options);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Feasibility Enrichment",
+      assetType: options.assetType,
+    });
+    throw error;
+  }
+}
+
+async function enrichOperationalSlidesWithPuterImpl(
   bundle: FeasibilityProjectBundle,
   options: EnrichOperationalSlidesOptions
 ): Promise<EnrichOperationalSlidesResult> {

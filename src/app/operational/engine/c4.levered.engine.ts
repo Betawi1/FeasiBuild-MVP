@@ -4,6 +4,7 @@ import {
   equityMultipleFromSeries,
   paybackMonthCrossingFromNegative,
 } from "@/lib/equity-irr";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 
 export type OperationalLeveredModelInputs = {
   cashInflows: any;
@@ -118,6 +119,24 @@ function normalizeSeniorLoanType(
 }
 
 export function calculateOperationalLeveredModel(
+  inputs: OperationalLeveredModelInputs & OperationalLeveredModelRuntime
+): {
+  monthlyData: any[];
+  projectMetrics: any;
+  leveredEquityMonthlyCashFlows: number[];
+  equityPostFinancingSeries: number[];
+} {
+  try {
+    return runOperationalLeveredModel(inputs);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Financing Engine",
+    });
+    throw error;
+  }
+}
+
+function runOperationalLeveredModel(
   inputs: OperationalLeveredModelInputs & OperationalLeveredModelRuntime
 ): {
   monthlyData: any[];

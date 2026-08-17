@@ -27,6 +27,7 @@ import {
   shouldRegenerateSlide,
   type SlideDependencySection,
 } from "@/lib/slide-dependencies";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 
 /** Slides that use templated OLD content — skip Puter AI enrichment (slides 22–33) */
 const OLD_CONTENT_SLIDE_IDS = new Set([
@@ -213,6 +214,22 @@ async function loadCachedSlideContent(
  * Layer 2: skip slides whose component dependencies are unchanged.
  */
 export async function enrichSaleSlidesWithPuter(
+  slides: FeasibilitySlide[],
+  bundle: SaleFeasibilityBundle,
+  options: EnrichSaleSlidesOptions = {}
+): Promise<EnrichSaleSlidesResult> {
+  try {
+    return await enrichSaleSlidesWithPuterImpl(slides, bundle, options);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Feasibility Enrichment",
+      buildingSubType: bundle.buildingSubType,
+    });
+    throw error;
+  }
+}
+
+async function enrichSaleSlidesWithPuterImpl(
   slides: FeasibilitySlide[],
   bundle: SaleFeasibilityBundle,
   options: EnrichSaleSlidesOptions = {}

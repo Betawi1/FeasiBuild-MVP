@@ -26,6 +26,7 @@ import {
   deleteKvValue,
   projectDataKeysForLookup,
 } from "@/lib/puter-storage";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 import { sanitizeForStorage } from "@/lib/sanitize";
 import type {
   AICommentary,
@@ -520,6 +521,10 @@ export async function saveProjectToKV(
     };
   } catch (error) {
     console.error("[ProjectSave] ✗ Failed to sync to Puter KV:", error);
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Project Save/Sync",
+      projectId: sanitized.projectId,
+    });
     throw error;
   }
 }

@@ -9,6 +9,7 @@ import {
   type AiResearchResult,
 } from "@/lib/constants/aiPrompts";
 import { extractJsonFromClaudeResponse } from "@/lib/extract-json-from-claude";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 import { getPreferredModel } from "@/lib/puter-kv-preferences";
 import { isClaudeModel } from "@/lib/puter-models";
 
@@ -335,6 +336,11 @@ export const useAiResearch = () => {
         // Puter sometimes puts the error message in err.message or err.error
         const errorMessage = err?.message || err?.error || JSON.stringify(err);
         console.error("Extracted Error Message:", errorMessage);
+
+        void sendOpsAlert(err instanceof Error ? err : String(errorMessage), {
+          source: "AI Research C1/C2",
+          assetType: options.assetType,
+        });
 
         setError(
           typeof errorMessage === "string"

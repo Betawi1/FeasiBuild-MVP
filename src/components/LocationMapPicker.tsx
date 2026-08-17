@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMapEvents, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { sendOpsAlert } from "@/lib/ops-monitor";
+import {
+  CITY_LEVEL_LOOKUP_NOTICE,
+  reverseGeocodeLatLng,
+} from "@/lib/reverse-geocode";
 
 type LocationMapPickerProps = {
   country: string;
@@ -51,9 +56,11 @@ function MapController({ country, city }: { country: string; city: string }) {
 function MapClickHandler({
   onPinDrop,
   onGeocodingChange,
+  onLookupUnavailable,
 }: {
   onPinDrop: (lat: number, lng: number, subMarket?: string) => void;
   onGeocodingChange?: (isGeocoding: boolean) => void;
+  onLookupUnavailable?: () => void;
 }) {
   useMapEvents({
     async click(e) {
@@ -63,26 +70,26 @@ function MapClickHandler({
       onGeocodingChange?.(true);
 
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`
-        );
-        const data = await res.json();
-        const addr = data.address || {};
-        subMarket =
-          addr.neighbourhood ||
-          addr.suburb ||
-          addr.city_district ||
-          addr.quarter ||
-          addr.hamlet ||
-          addr.city ||
-          "";
-      } catch (error) {
-        console.error("Reverse geocoding failed:", error);
+        try {
+          const result = await reverseGeocodeLatLng(lat, lng);
+          subMarket = result.subMarket;
+        } catch (error) {
+          console.error("Reverse geocoding failed:", error);
+          void sendOpsAlert(
+            error instanceof Error ? error : String(error),
+            { source: "Map Neighborhood Lookup" }
+          );
+          onLookupUnavailable?.();
+        }
+
+        try {
+          await Promise.resolve(onPinDrop(lat, lng, subMarket || undefined));
+        } catch (error) {
+          console.error("Pin drop handler failed:", error);
+        }
+      } finally {
+        onGeocodingChange?.(false);
       }
-
-      onGeocodingChange?.(false);
-
-      onPinDrop(lat, lng, subMarket);
     },
   });
   return null;
@@ -97,6 +104,7 @@ export default function LocationMapPicker({
 }: LocationMapPickerProps) {
   const [mounted, setMounted] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [lookupUnavailable, setLookupUnavailable] = useState(false);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
   const mapRef = useRef<any>(null);
 
@@ -104,6 +112,7 @@ export default function LocationMapPicker({
 
   const handleGeocodingChange = (geocoding: boolean) => {
     setIsGeocoding(geocoding);
+    if (geocoding) setLookupUnavailable(false);
     onGeocodingChange?.(geocoding);
   };
 
@@ -143,6 +152,7 @@ export default function LocationMapPicker({
           <MapClickHandler
             onPinDrop={onPinDrop}
             onGeocodingChange={handleGeocodingChange}
+            onLookupUnavailable={() => setLookupUnavailable(true)}
           />
           {savedPin && (
             <CircleMarker
@@ -169,6 +179,11 @@ export default function LocationMapPicker({
           <p className="text-xs text-amber-400 animate-pulse flex items-center gap-2">
             <span className="h-3 w-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
             Locating neighborhood...
+          </p>
+        )}
+        {!isGeocoding && lookupUnavailable && (
+          <p className="text-xs text-amber-400">
+            {CITY_LEVEL_LOOKUP_NOTICE}
           </p>
         )}
       </div>

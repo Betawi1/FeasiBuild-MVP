@@ -11,6 +11,8 @@
  * - IRR/NPV Solver (Newton-Raphson)
  */
 
+import { sendOpsAlert } from "@/lib/ops-monitor";
+
 // --- TYPES ---
 
 export type Jurisdiction = 'UAE_SA' | 'MALAYSIA' | 'AUSTRALIA' | 'OTHER';
@@ -231,6 +233,19 @@ export type MonthlyRow = {
 
 /** Hard router — no silent fallback between sale and operational. */
 export function generateFinancingCashFlow(inputs: FinancingInputs): MonthlyRow[] {
+  try {
+    return routeFinancingCashFlow(inputs);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Financing Engine",
+      stream: inputs.stream,
+      businessModel: inputs.businessModel || inputs.projectType,
+    });
+    throw error;
+  }
+}
+
+function routeFinancingCashFlow(inputs: FinancingInputs): MonthlyRow[] {
   const stream = inputs.stream;
   const businessModel = inputs.businessModel || inputs.projectType;
 

@@ -2,6 +2,7 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect } from "react";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 
 /** Prefix to namespace all FeasiBuild Puter KV keys. */
 export const KV_PREFIX = "feasi_build_";
@@ -86,6 +87,10 @@ async function retryOperation<T>(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+  void sendOpsAlert(
+    lastError instanceof Error ? lastError : String(lastError),
+    { source: "Secure Puter KV" }
+  );
   throw lastError;
 }
 

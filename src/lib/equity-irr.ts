@@ -1,3 +1,5 @@
+import { sendOpsAlert } from "@/lib/ops-monitor";
+
 /**
  * IRR / multiple / payback on uniform month-end equity cash-flow series.
  */
@@ -24,6 +26,17 @@ function dNpvMonthly(rate: number, amounts: number[]): number {
  * multiple Newton starting points, and bisection fallback.
  */
 export function monthlyIrrFromSeries(amounts: number[]): number | null {
+  try {
+    return monthlyIrrFromSeriesUnmonitored(amounts);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "IRR Solver",
+    });
+    throw error;
+  }
+}
+
+function monthlyIrrFromSeriesUnmonitored(amounts: number[]): number | null {
   if (amounts.length < 2) return null;
   const hasNeg = amounts.some((cf) => cf < 0);
   const hasPos = amounts.some((cf) => cf > 0);

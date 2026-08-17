@@ -4,6 +4,7 @@ import {
   type CashOutflows,
   type MonthlyCashFlowPoint,
 } from "@/store/useFinModelStore";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 
 export type CashFlowPoint = {
   month: number;
@@ -24,6 +25,26 @@ function computeNPVAnnualRate(
 }
 
 export const solveAnnualIRR = (
+  cashFlows: CashFlowPoint[],
+  tolerance = 1e-7,
+  maxIterations = 100
+): {
+  annualIRR: number | null; // decimal (e.g. 0.1024 for 10.24%)
+  monthlyIRR: number | null; // decimal (e.g. 0.0085 per month)
+  iterations: number;
+  npvAtIRR: number;
+} => {
+  try {
+    return solveAnnualIRRUnmonitored(cashFlows, tolerance, maxIterations);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "IRR Solver",
+    });
+    throw error;
+  }
+};
+
+const solveAnnualIRRUnmonitored = (
   cashFlows: CashFlowPoint[],
   tolerance = 1e-7,
   maxIterations = 100
@@ -135,6 +156,39 @@ export const solveAnnualIRR = (
  * This helper scans for *all* brackets then chooses the root closest to `preferredAnnualIRR`.
  */
 export const solveAnnualIRRPreferred = (
+  cashFlows: CashFlowPoint[],
+  options?: {
+    /** Absolute NPV tolerance in currency units. */
+    tolerance?: number;
+    maxIterations?: number;
+    /** Root selection anchor; pick the root closest to this (default 0.12). */
+    preferredAnnualIRR?: number;
+    /** How to choose among multiple roots. */
+    selection?: "closest" | "max";
+    /** Search range for annual IRR roots. */
+    minRate?: number;
+    maxRate?: number;
+    scanSteps?: number;
+  }
+): {
+  annualIRR: number | null;
+  monthlyIRR: number | null;
+  iterations: number;
+  npvAtIRR: number;
+  /** All candidate roots found in scan range. */
+  candidates: Array<{ annualIRR: number; npvAtIRR: number }>;
+} => {
+  try {
+    return solveAnnualIRRPreferredUnmonitored(cashFlows, options);
+  } catch (error) {
+    void sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "IRR Solver",
+    });
+    throw error;
+  }
+};
+
+const solveAnnualIRRPreferredUnmonitored = (
   cashFlows: CashFlowPoint[],
   options?: {
     /** Absolute NPV tolerance in currency units. */

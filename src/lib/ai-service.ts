@@ -4,6 +4,7 @@ import {
   getCachedContent,
   setCachedContent,
 } from "@/lib/cache-service";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 import { extractJsonFromClaudeResponse } from "@/lib/extract-json-from-claude";
 import { DEFAULT_MODEL, getPreferredModel } from "@/lib/puter-kv-preferences";
 import { isClaudeModel } from "@/lib/puter-models";
@@ -584,6 +585,10 @@ class PuterAIProvider implements AIProvider {
           : typeof err?.message === "string"
             ? err.message
             : "Unknown error";
+      void sendOpsAlert(error instanceof Error ? error : message, {
+        source: "Feasibility AI Service",
+        cacheKey: logKey,
+      });
       return [`Content generation failed: ${message}`];
     }
   }
@@ -629,6 +634,10 @@ class PuterAIProvider implements AIProvider {
       return parsed;
     } catch (error) {
       console.error(`[AI Service] ERROR:`, error);
+      void sendOpsAlert(error instanceof Error ? error : String(error), {
+        source: "Feasibility AI Service",
+        cacheKey: logKey,
+      });
       return null;
     }
   }

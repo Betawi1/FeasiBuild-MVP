@@ -106,6 +106,8 @@ import WarehouseReviewSummaryStep from "./steps/WarehouseReviewSummaryStep";
 import WarehouseBenchmarkBar from "./steps/WarehouseBenchmarkBar";
 import { logAuditChange } from "@/lib/audit-utils";
 import { useAiResearch } from "@/hooks/useAiResearch";
+import { useNeighborhoodLookupGate } from "@/hooks/useNeighborhoodLookupGate";
+import { CITY_LEVEL_LOOKUP_NOTICE } from "@/lib/reverse-geocode";
 import { normalizeAiResearchData, type AiAssetType } from "@/lib/constants/aiPrompts";
 import {
   extractDataCentrePhase1Basics,
@@ -670,6 +672,8 @@ function CashOutflowsPageContent() {
   const hasResearchedForDataCentreFullRef = useRef<string | null>(null);
   const cashOutflows = useFinModelStore((s) => s.operational?.cashOutflows);
   const [isMapGeocoding, setIsMapGeocoding] = useState(false);
+  const { waitingForNeighborhood, showCityLevelNotice } =
+    useNeighborhoodLookupGate(projectInfo.coordinates, projectInfo.subMarket);
   const isOperationalHotel =
     isOperationalStream && projectInfo.buildingType === "hotel";
   const isOperationalRetail =
@@ -815,7 +819,7 @@ function CashOutflowsPageContent() {
         return;
       }
 
-      if (pi.coordinates && !pi.subMarket && !force) {
+      if (waitingForNeighborhood && !force) {
         console.log(
           "⏳ Phase 1 paused: Waiting for map neighborhood lookup..."
         );
@@ -916,6 +920,7 @@ function CashOutflowsPageContent() {
       performResearch,
       updateCashOutflowsForStream,
       updateProjectInfoForStream,
+      waitingForNeighborhood,
     ]
   );
 
@@ -1903,7 +1908,7 @@ function CashOutflowsPageContent() {
     if (!projectInfo.country || !projectInfo.city) return;
 
     // SAFEGUARD: Do not trigger AI if map is still geocoding
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    if (waitingForNeighborhood) {
       console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
       return;
     }
@@ -2088,6 +2093,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     projectInfo.hotelBasements,
     projectInfo.hotelPodiums,
@@ -2109,7 +2115,7 @@ function CashOutflowsPageContent() {
     if (!projectInfo.retailSegment || !projectInfo.retailPositioning) return;
     if (!projectInfo.country || !projectInfo.city) return;
 
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    if (waitingForNeighborhood) {
       console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
       return;
     }
@@ -2281,6 +2287,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     projectInfo.retailBasements,
     projectInfo.retailPodiums,
@@ -2301,7 +2308,7 @@ function CashOutflowsPageContent() {
     if (!projectInfo.officeSegment || !projectInfo.officePositioning) return;
     if (!projectInfo.country || !projectInfo.city) return;
 
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    if (waitingForNeighborhood) {
       console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
       return;
     }
@@ -2475,6 +2482,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     projectInfo.officeBasements,
     projectInfo.officePodiums,
@@ -2495,7 +2503,7 @@ function CashOutflowsPageContent() {
     if (!projectInfo.residentialSegment || !projectInfo.residentialPositioning) return;
     if (!projectInfo.country || !projectInfo.city) return;
 
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    if (waitingForNeighborhood) {
       console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
       return;
     }
@@ -2674,6 +2682,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     projectInfo.residentialBasements,
     projectInfo.residentialPodiums,
@@ -2707,7 +2716,7 @@ function CashOutflowsPageContent() {
 
     if (totalBua <= 0) return;
 
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    if (waitingForNeighborhood) {
       console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
       return;
     }
@@ -2907,6 +2916,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     performResearch,
     updateCashOutflowsForStream,
@@ -2981,6 +2991,7 @@ function CashOutflowsPageContent() {
     projectInfo.country,
     projectInfo.city,
     projectInfo.dataCentreITLoadDensity,
+    waitingForNeighborhood,
     cashOutflows?.aiResearchData?._researchKey,
     runDataCentrePhase1Research,
   ]);
@@ -3010,7 +3021,7 @@ function CashOutflowsPageContent() {
     const whiteSpace = projectInfo.dataCentreWhiteSpaceArea || 0;
     if (itLoadMw <= 0 || totalGfa <= 0 || whiteSpace <= 0) return;
 
-    if (projectInfo.coordinates && !projectInfo.subMarket) {
+    if (waitingForNeighborhood) {
       console.log("⏳ AI Research paused: Waiting for map neighborhood lookup...");
       return;
     }
@@ -3120,6 +3131,7 @@ function CashOutflowsPageContent() {
     projectInfo.city,
     projectInfo.subMarket,
     projectInfo.coordinates,
+    waitingForNeighborhood,
     projectInfo.currency,
     cashOutflows?.aiResearchData?._researchKey,
     performResearch,
@@ -5059,6 +5071,12 @@ function CashOutflowsPageContent() {
             />
           </div>
         </div>
+
+        {showCityLevelNotice && (
+          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm text-amber-400">{CITY_LEVEL_LOOKUP_NOTICE}</p>
+          </div>
+        )}
 
         {isAiLoading && (
           <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">

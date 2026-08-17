@@ -9,6 +9,7 @@ import {
 } from "@/lib/project-save";
 import useFinModelStore from "@/store/useFinModelStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { sendOpsAlert } from "@/lib/ops-monitor";
 import type { SaveProjectResult } from "@/types/project";
 
 export type ProjectSaveUiStatus =
@@ -82,6 +83,10 @@ export function useOptimisticProjectSave() {
         return result;
       } catch (error) {
         console.error("[ProjectSave] UI → failed:", error);
+        void sendOpsAlert(error instanceof Error ? error : String(error), {
+          source: "Project Save/Sync",
+          projectId: input.projectId,
+        });
         setSaveStatus("failed");
         throw error;
       } finally {
