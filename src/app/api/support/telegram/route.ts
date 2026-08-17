@@ -41,9 +41,12 @@ type TelegramUserContext = {
   username: string | null;
   first_name: string;
   id: ChatId;
-  link: string;
+  link: string | null;
   markdown: string;
 };
+
+const REPLY_USAGE = "/reply <chat_id> <message>";
+const REPLY_UNAUTHORIZED = "Not authorized.";
 
 const seenUpdateIds = new Set<number>();
 const seenUpdateOrder: number[] = [];
@@ -90,6 +93,27 @@ function isStartCommand(text: string): boolean {
   return text === "/start" || /^\/start(?:@[\w_]+)?$/.test(text);
 }
 
+function isReplyCommand(text: string): boolean {
+  return text === "/reply" || text.startsWith("/reply ");
+}
+
+function isFounder(fromId: unknown): boolean {
+  const founderId = process.env.FOUNDER_TELEGRAM_ID;
+  if (!founderId) return false;
+  return String(fromId) === founderId;
+}
+
+function parseReplyCommand(
+  text: string
+): { chatId: string; message: string } | null {
+  const match = text.match(/^\/reply\s+(-?\d+)\s+(.+)$/s);
+  if (!match) return null;
+  const chatId = match[1];
+  const message = match[2]?.trim() ?? "";
+  if (!chatId || !message) return null;
+  return { chatId, message };
+}
+
 function asId(value: unknown): ChatId | null {
   if (typeof value === "number" || typeof value === "string") return value;
   return null;
@@ -109,10 +133,10 @@ function extractTelegramUser(
       ? from.first_name.trim()
       : "Telegram user";
 
-  const link = username ? `https://t.me/${username}` : `tg://user?id=${id}`;
+  const link = username ? `https://t.me/${username}` : null;
   const markdown = username
-    ? `User: [@${username}](https://t.me/${username})`
-    : `User: ${first_name} (ID: ${id})`;
+    ? `User: ${first_name} (ID: ${id})\n[Open @${username}](https://t.me/${username})`
+    : `User: ${first_name} (ID: ${id})\nNo public username — reply via bot: /reply ${id} <your message>`;
 
   return { username, first_name, id, link, markdown };
 }
@@ -386,6 +410,22 @@ export async function POST(request: Request): Promise<NextResponse> {
     const text = message.text;
     if (isStartCommand(text)) {
       await sendTelegram(chatId, START_REPLY);
+      return ok();
+    }
+
+    if (isReplyCommand(text)) {
+      const from = isRecord(message.from) ? message.from : undefined;
+      if (!isFounder(from?.id)) {
+        await sendTelegram(chatId, REPLY_UNAUTHORIZED);
+        return ok();
+      }
+      const parsed = parseReplyCommand(text);
+      if (!parsed) {
+        await sendTelegram(chatId, REPLY_USAGE);
+        return ok();
+      }
+      await sendTelegram(parsed.chatId, parsed.message);
+      await sendTelegram(chatId, `Sent ✅ to chat ${parsed.chatId}`);
       return ok();
     }
 

@@ -11,6 +11,10 @@ const DISCORD_FETCH_TIMEOUT_MS = 3000;
 const PUTER_WAIT_MS = 3000;
 const DEDUPE_WINDOW_MS = 60_000;
 const SERVER_AI_SUMMARY = "AI summary unavailable (server context)";
+const SKIP_AI_SUMMARY_SOURCES = new Set([
+  "Support Bot Escalation",
+  "Support Bot Feature Request",
+]);
 
 const LOG_PREFIX = "[Ops Monitor]";
 
@@ -40,22 +44,33 @@ export async function sendOpsAlert(
     }
 
     const rawSnippet = truncate(stack || message, RAW_ERROR_MAX);
-
-    let aiSummary: string;
-    if (typeof window === "undefined" || !window.puter) {
-      aiSummary = SERVER_AI_SUMMARY;
-    } else {
-      try {
-        aiSummary = await summarizeWithPuter(message, stack, context);
-      } catch (aiError) {
-        console.error(`${LOG_PREFIX} Puter AI summarization failed:`, aiError);
-        aiSummary = fallbackSummary(message);
-      }
-    }
+    const aiSummary = await resolveAiSummary(message, stack, context);
 
     await postDiscordAlert(webhookUrl, aiSummary, context, rawSnippet);
   } catch (monitorError) {
     console.error(`${LOG_PREFIX} Failed to send ops alert:`, monitorError);
+  }
+}
+
+function isSupportBotAlert(context?: Record<string, unknown>): boolean {
+  return (
+    typeof context?.source === "string" && SKIP_AI_SUMMARY_SOURCES.has(context.source)
+  );
+}
+
+async function resolveAiSummary(
+  message: string,
+  stack: string,
+  context?: Record<string, unknown>
+): Promise<string | null> {
+  if (isSupportBotAlert(context)) return null;
+  if (typeof window === "undefined" || !window.puter) return SERVER_AI_SUMMARY;
+
+  try {
+    return await summarizeWithPuter(message, stack, context);
+  } catch (aiError) {
+    console.error(`${LOG_PREFIX} Puter AI summarization failed:`, aiError);
+    return fallbackSummary(message);
   }
 }
 
@@ -209,25 +224,33 @@ function formatUserContext(userContext: unknown): string[] {
 
   if (typeof userContext.markdown === "string" && userContext.markdown.trim()) {
     lines.push(userContext.markdown.trim());
-  } else if (typeof userContext.username === "string" && userContext.username.trim()) {
-    const username = userContext.username.trim().replace(/^@/, "");
-    lines.push(`User: [@${username}](https://t.me/${username})`);
-  } else if (
-    typeof userContext.first_name === "string" ||
-    userContext.id != null
-  ) {
-    const name =
-      typeof userContext.first_name === "string" && userContext.first_name.trim()
-        ? userContext.first_name.trim()
-        : "Telegram user";
-    lines.push(`User: ${name} (ID: ${userContext.id ?? "unknown"})`);
+    return lines.filter((line) => !line.includes("tg://"));
   }
 
-  if (typeof userContext.link === "string" && userContext.link.startsWith("tg://")) {
-    const link = userContext.link;
-    if (!lines.some((line) => line.includes(link))) {
-      lines.push(`[Open in Telegram](${link})`);
-    }
+  const name =
+    typeof userContext.first_name === "string" && userContext.first_name.trim()
+      ? userContext.first_name.trim()
+      : "Telegram user";
+  const id = userContext.id ?? "unknown";
+  lines.push(`User: ${name} (ID: ${id})`);
+
+  const username =
+    typeof userContext.username === "string"
+      ? userContext.username.trim().replace(/^@/, "")
+      : "";
+  const httpsLink =
+    typeof userContext.link === "string" && userContext.link.startsWith("https://t.me/")
+      ? userContext.link
+      : username
+        ? `https://t.me/${username}`
+        : null;
+
+  if (username && httpsLink) {
+    lines.push(`[Open @${username}](${httpsLink})`);
+  } else {
+    lines.push(
+      `No public username — reply via bot: /reply ${id} <your message>`
+    );
   }
 
   return lines;
@@ -248,7 +271,7 @@ function formatContextForDiscord(context?: Record<string, unknown>): string {
 
 async function postDiscordAlert(
   webhookUrl: string,
-  aiSummary: string,
+  aiSummary: string | null,
   context: Record<string, unknown> | undefined,
   rawSnippet: string
 ): Promise<void> {
@@ -257,8 +280,7 @@ async function postDiscordAlert(
   const description = truncate(
     [
       ...(userLines.length > 0 ? [userLines.join("\n"), ""] : []),
-      `**AI Summary:**\n${aiSummary}`,
-      "",
+      ...(aiSummary ? [`**AI Summary:**\n${aiSummary}`, ""] : []),
       `**Context:**\n${contextBlock}`,
     ].join("\n"),
     DISCORD_DESCRIPTION_MAX
