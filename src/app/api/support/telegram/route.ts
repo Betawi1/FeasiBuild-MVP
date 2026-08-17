@@ -106,7 +106,7 @@ function isFounder(fromId: unknown): boolean {
 function parseReplyCommand(
   text: string
 ): { chatId: string; message: string } | null {
-  const match = text.match(/^\/reply\s+(-?\d+)\s+(.+)$/s);
+  const match = text.match(/^\/reply\s+(-?\d+)\s+([\s\S]+)$/);
   if (!match) return null;
   const chatId = match[1];
   const message = match[2]?.trim() ?? "";
