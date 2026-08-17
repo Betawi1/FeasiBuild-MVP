@@ -5,6 +5,7 @@ import useFinModelStore from "@/store/useFinModelStore";
 import { useAuditStore } from "@/store/useAuditStore";
 import AuditTrailDrawer from "@/components/AuditTrailDrawer";
 import AIAnalystDrawer from "@/components/ai-analyst/AIAnalystDrawer";
+import WizardSupportButton from "@/components/support/WizardSupportButton";
 import SaveProjectButton from "@/components/header/SaveProjectButton";
 import BackToDashboardButton from "@/components/ui/BackToDashboardButton";
 import { studyToolbarResetBtn, studyToolbarSecondaryBtn } from "@/components/ui/studyToolbarStyles";
@@ -30,6 +31,9 @@ export default function SaleLayout({ children }: { children: React.ReactNode }) 
       </Suspense>
       <div className="fixed right-4 top-4 z-[200] flex items-center gap-2">
         <BackToDashboardButton />
+        <Suspense fallback={null}>
+          <WizardSupportButton />
+        </Suspense>
         <button
           type="button"
           onClick={() => setIsAuditOpen(true)}

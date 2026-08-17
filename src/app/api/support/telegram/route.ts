@@ -2,6 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import { DEFAULT_MODEL } from "@/lib/puter-models";
+import {
+  describeSupportStartPayload,
+  isValidStartPayload,
+} from "@/lib/constants/support";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +54,7 @@ const REPLY_UNAUTHORIZED = "Not authorized.";
 
 const seenUpdateIds = new Set<number>();
 const seenUpdateOrder: number[] = [];
+const cameFromByChatId = new Map<string, string>();
 
 function ok(): NextResponse {
   return new NextResponse("OK", { status: 200 });
@@ -89,8 +94,24 @@ function rememberUpdate(updateId: number): boolean {
   return false;
 }
 
-function isStartCommand(text: string): boolean {
-  return text === "/start" || /^\/start(?:@[\w_]+)?$/.test(text);
+function parseStartCommand(
+  text: string
+): { isStart: true; payload: string | null } | null {
+  const match = text.match(
+    /^\/start(?:@[\w_]+)?(?:\s+([A-Za-z0-9_-]+))?\s*$/
+  );
+  if (!match) return null;
+  const raw = match[1] ?? "";
+  const payload = raw && isValidStartPayload(raw) ? raw : null;
+  return { isStart: true, payload };
+}
+
+function rememberCameFrom(chatId: ChatId, readable: string): void {
+  cameFromByChatId.set(String(chatId), readable);
+}
+
+function getCameFrom(chatId: ChatId): string | undefined {
+  return cameFromByChatId.get(String(chatId));
 }
 
 function isReplyCommand(text: string): boolean {
@@ -357,6 +378,7 @@ async function routeTriage(
     return;
   }
 
+  const cameFrom = getCameFrom(chatId);
   switch (triage.intent) {
     case "FAQ":
       await sendTelegram(chatId, triage.reply.trim() || PARSE_FAIL_REPLY);
@@ -369,6 +391,7 @@ async function routeTriage(
         intent: triage.intent,
         chatId,
         user_context: userContext,
+        ...(cameFrom ? { came_from: cameFrom } : {}),
       });
       return;
     case "FEATURE":
@@ -378,6 +401,7 @@ async function routeTriage(
         intent: triage.intent,
         chatId,
         user_context: userContext,
+        ...(cameFrom ? { came_from: cameFrom } : {}),
       });
       return;
   }
@@ -408,8 +432,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     const userContext = extractTelegramUser(message, chatId);
 
     const text = message.text;
-    if (isStartCommand(text)) {
-      await sendTelegram(chatId, START_REPLY);
+    const start = parseStartCommand(text);
+    if (start) {
+      let reply = START_REPLY;
+      if (start.payload) {
+        const readable = describeSupportStartPayload(start.payload);
+        rememberCameFrom(chatId, readable);
+        reply = `${START_REPLY}\n\nI see you're coming from ${readable} — how can I help?`;
+      }
+      await sendTelegram(chatId, reply);
       return ok();
     }
 

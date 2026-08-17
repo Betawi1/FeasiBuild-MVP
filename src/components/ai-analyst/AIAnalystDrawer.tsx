@@ -10,6 +10,10 @@ import {
 } from "react";
 import { Loader2, Send, Sparkles, Trash2, X } from "lucide-react";
 import { getAnalystSystemPrompt } from "@/lib/constants/aiAnalystPrompts";
+import {
+  buildSupportLink,
+  buildWizardSupportContext,
+} from "@/lib/constants/support";
 import { useAnalystContext } from "@/hooks/useAnalystContext";
 import { getPreferredModel } from "@/lib/puter-models";
 import { useAnalystStore } from "@/store/useAnalystStore";
@@ -476,6 +480,16 @@ export default function AIAnalystDrawer() {
               <p className="mt-1.5 text-[10px] text-slate-500">
                 Enter to send · Shift+Enter for a new line
               </p>
+              <a
+                href={buildSupportLink(
+                  buildWizardSupportContext(streamType, component, innerStep)
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 block text-center text-[11px] text-slate-500 transition hover:text-emerald-400"
+              >
+                Still stuck? Talk to a human on Telegram
+              </a>
             </form>
           </aside>
         </>

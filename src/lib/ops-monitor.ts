@@ -210,6 +210,7 @@ function contextLabel(key: string): string {
   if (key === "source") return "Source";
   if (key === "intent") return "Intent";
   if (key === "chatId") return "Chat ID";
+  if (key === "came_from") return "Came from";
   return key;
 }
 

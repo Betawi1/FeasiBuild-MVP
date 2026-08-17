@@ -1,4 +1,5 @@
 import AIModelSelector from "@/components/settings/AIModelSelector";
+import { SUPPORT_TELEGRAM_URL } from "@/lib/constants/support";
 
 export default function SettingsPage() {
   return (
@@ -11,6 +12,21 @@ export default function SettingsPage() {
         </p>
       </div>
       <AIModelSelector />
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+        <h3 className="text-sm font-semibold text-white">Get help</h3>
+        <p className="mt-2 text-sm text-slate-400">
+          Talk to a human on Telegram if you need a hand with the app.
+        </p>
+        <a
+          href={SUPPORT_TELEGRAM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex text-sm font-medium text-emerald-400 transition hover:text-emerald-300"
+        >
+          Support on Telegram
+        </a>
+      </div>
     </div>
   );
 }

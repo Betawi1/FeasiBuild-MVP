@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SUPPORT_TELEGRAM_URL } from "@/lib/constants/support";
 
 export default function Footer() {
   return (
@@ -77,6 +78,16 @@ export default function Footer() {
                   className="text-slate-400 hover:text-emerald-400 transition"
                 >
                   Join Telegram Group
+                </a>
+              </li>
+              <li>
+                <a
+                  href={SUPPORT_TELEGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-emerald-400 transition"
+                >
+                  Support on Telegram
                 </a>
               </li>
             </ul>
