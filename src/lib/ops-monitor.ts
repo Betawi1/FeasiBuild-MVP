@@ -181,15 +181,86 @@ async function resolveChatText(response: unknown): Promise<string> {
   return extractChatText(response);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatContextValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return safeStringify(value);
+}
+
+function contextLabel(key: string): string {
+  if (key === "source") return "Source";
+  if (key === "intent") return "Intent";
+  if (key === "chatId") return "Chat ID";
+  return key;
+}
+
+function formatUserContext(userContext: unknown): string[] {
+  const lines: string[] = [];
+
+  if (typeof userContext === "string" && userContext.trim()) {
+    lines.push(userContext.trim());
+    return lines;
+  }
+  if (!isRecord(userContext)) return lines;
+
+  if (typeof userContext.markdown === "string" && userContext.markdown.trim()) {
+    lines.push(userContext.markdown.trim());
+  } else if (typeof userContext.username === "string" && userContext.username.trim()) {
+    const username = userContext.username.trim().replace(/^@/, "");
+    lines.push(`User: [@${username}](https://t.me/${username})`);
+  } else if (
+    typeof userContext.first_name === "string" ||
+    userContext.id != null
+  ) {
+    const name =
+      typeof userContext.first_name === "string" && userContext.first_name.trim()
+        ? userContext.first_name.trim()
+        : "Telegram user";
+    lines.push(`User: ${name} (ID: ${userContext.id ?? "unknown"})`);
+  }
+
+  if (typeof userContext.link === "string" && userContext.link.startsWith("tg://")) {
+    const link = userContext.link;
+    if (!lines.some((line) => line.includes(link))) {
+      lines.push(`[Open in Telegram](${link})`);
+    }
+  }
+
+  return lines;
+}
+
+function formatContextForDiscord(context?: Record<string, unknown>): string {
+  if (!context || Object.keys(context).length === 0) return "{}";
+
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(context)) {
+    if (key === "user_context") continue;
+    if (value == null || value === "") continue;
+    lines.push(`**${contextLabel(key)}:** ${formatContextValue(value)}`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") : "{}";
+}
+
 async function postDiscordAlert(
   webhookUrl: string,
   aiSummary: string,
   context: Record<string, unknown> | undefined,
   rawSnippet: string
 ): Promise<void> {
-  const contextJson = safeStringify(context ?? {});
+  const userLines = formatUserContext(context?.user_context);
+  const contextBlock = formatContextForDiscord(context);
   const description = truncate(
-    `**AI Summary:**\n${aiSummary}\n\n**Context:**\n${contextJson}`,
+    [
+      ...(userLines.length > 0 ? [userLines.join("\n"), ""] : []),
+      `**AI Summary:**\n${aiSummary}`,
+      "",
+      `**Context:**\n${contextBlock}`,
+    ].join("\n"),
     DISCORD_DESCRIPTION_MAX
   );
 

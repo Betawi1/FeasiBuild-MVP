@@ -37,6 +37,14 @@ type TriageResult = {
 
 type ChatId = number | string;
 
+type TelegramUserContext = {
+  username: string | null;
+  first_name: string;
+  id: ChatId;
+  link: string;
+  markdown: string;
+};
+
 const seenUpdateIds = new Set<number>();
 const seenUpdateOrder: number[] = [];
 
@@ -80,6 +88,33 @@ function rememberUpdate(updateId: number): boolean {
 
 function isStartCommand(text: string): boolean {
   return text === "/start" || /^\/start(?:@[\w_]+)?$/.test(text);
+}
+
+function asId(value: unknown): ChatId | null {
+  if (typeof value === "number" || typeof value === "string") return value;
+  return null;
+}
+
+function extractTelegramUser(
+  message: Record<string, unknown>,
+  fallbackChatId: ChatId
+): TelegramUserContext {
+  const from = isRecord(message.from) ? message.from : undefined;
+  const id = asId(from?.id) ?? fallbackChatId;
+  const rawUsername =
+    from && typeof from.username === "string" ? from.username.trim().replace(/^@/, "") : "";
+  const username = rawUsername.length > 0 ? rawUsername : null;
+  const first_name =
+    from && typeof from.first_name === "string" && from.first_name.trim()
+      ? from.first_name.trim()
+      : "Telegram user";
+
+  const link = username ? `https://t.me/${username}` : `tg://user?id=${id}`;
+  const markdown = username
+    ? `User: [@${username}](https://t.me/${username})`
+    : `User: ${first_name} (ID: ${id})`;
+
+  return { username, first_name, id, link, markdown };
 }
 
 function isIntent(value: unknown): value is Intent {
@@ -290,7 +325,8 @@ async function sendTelegram(chatId: ChatId, text: string): Promise<void> {
 async function routeTriage(
   chatId: ChatId,
   userText: string,
-  triage: TriageResult | null
+  triage: TriageResult | null,
+  userContext: TelegramUserContext
 ): Promise<void> {
   if (!triage) {
     await sendTelegram(chatId, PARSE_FAIL_REPLY);
@@ -308,6 +344,7 @@ async function routeTriage(
         source: "Support Bot Escalation",
         intent: triage.intent,
         chatId,
+        user_context: userContext,
       });
       return;
     case "FEATURE":
@@ -316,6 +353,7 @@ async function routeTriage(
         source: "Support Bot Feature Request",
         intent: triage.intent,
         chatId,
+        user_context: userContext,
       });
       return;
   }
@@ -340,11 +378,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const chat = isRecord(message.chat) ? message.chat : undefined;
-    const chatId =
-      chat && (typeof chat.id === "number" || typeof chat.id === "string")
-        ? chat.id
-        : null;
+    const chatId = asId(chat?.id);
     if (chatId == null) return ok();
+
+    const userContext = extractTelegramUser(message, chatId);
 
     const text = message.text;
     if (isStartCommand(text)) {
@@ -353,7 +390,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const triage = await triageWithPuter(text);
-    await routeTriage(chatId, text, triage);
+    await routeTriage(chatId, text, triage, userContext);
     return ok();
   } catch (error) {
     console.error(`${LOG_PREFIX} Webhook handler error:`, error);
