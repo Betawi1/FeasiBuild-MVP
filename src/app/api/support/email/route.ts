@@ -37,6 +37,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function extractEmailFromHeader(fromHeader: string): string {
+  const trimmed = fromHeader.trim();
+  const angled = trimmed.match(/<([^>]+)>/);
+  const raw = angled?.[1] ?? trimmed.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return raw.trim().toLowerCase();
+}
+
 function rememberEmail(id: string): boolean {
   if (seenEmailIds.has(id)) return true;
   seenEmailIds.add(id);
@@ -241,14 +248,21 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (rememberEmail(emailId)) return ok();
 
     const email = await fetchReceivedEmail(emailId);
-    const tier = getCustomerTier(email.fromEmail);
+    console.log("Raw From field:", email.from);
+    const extractedEmail = extractEmailFromHeader(email.from);
+    console.log("Extracted email:", extractedEmail);
+    const tier = getCustomerTier(extractedEmail);
+    console.log("Tier returned:", tier);
+    console.log(`Customer ${extractedEmail} classified as ${tier}`);
+
+    const customer: ReceivedEmail = { ...email, fromEmail: extractedEmail };
 
     if (tier === "explorer") {
-      await handleExplorer(email);
+      await handleExplorer(customer);
       return ok();
     }
 
-    await handlePayingCustomer(email);
+    await handlePayingCustomer(customer);
     return ok();
   } catch (error) {
     console.error(`${LOG_PREFIX} Webhook handler error:`, error);

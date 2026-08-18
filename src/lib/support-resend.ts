@@ -8,6 +8,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export type ReceivedEmail = {
   id: string;
+  from: string;
   fromEmail: string;
   fromName: string;
   subject: string;
@@ -155,8 +156,16 @@ export async function fetchReceivedEmail(id: string): Promise<ReceivedEmail> {
     }
 
     const headers = isRecord(email.headers) ? email.headers : {};
+    const rawFrom =
+      (typeof headers.from === "string" && headers.from.trim()) ||
+      (typeof email.from === "string" && email.from.trim()) ||
+      (isRecord(email.from) && typeof email.from.email === "string"
+        ? typeof email.from.name === "string" && email.from.name.trim()
+          ? `${email.from.name.trim()} <${email.from.email.trim()}>`
+          : email.from.email.trim()
+        : "");
     const parsedFrom = parseFromField(email.from, headers.from);
-    if (!parsedFrom) {
+    if (!parsedFrom && !rawFrom) {
       throw new Error("Received email is missing a From address");
     }
 
@@ -172,8 +181,9 @@ export async function fetchReceivedEmail(id: string): Promise<ReceivedEmail> {
 
     return {
       id: typeof email.id === "string" ? email.id : id,
-      fromEmail: parsedFrom.email,
-      fromName: parsedFrom.name,
+      from: rawFrom || parsedFrom?.email || "",
+      fromEmail: parsedFrom?.email ?? rawFrom,
+      fromName: parsedFrom?.name ?? "Customer",
       subject,
       text,
       messageId,
