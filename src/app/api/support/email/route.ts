@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { SUPPORT_TELEGRAM_URL } from "@/lib/constants/support";
 import { getCustomerTier } from "@/lib/entitlements";
 import { sendOpsAlert } from "@/lib/ops-monitor";
-import { DEFAULT_MODEL } from "@/lib/puter-models";
 import {
   extractWebhookEmailId,
   fetchReceivedEmail,
@@ -16,7 +15,8 @@ export const dynamic = "force-dynamic";
 
 const LOG_PREFIX = "[Support Email]";
 const PUTER_API_URL = "https://api.puter.com/drivers/call";
-const PUTER_TIMEOUT_MS = 20_000;
+const PUTER_TIMEOUT_MS = 60_000;
+const PUTER_DRAFT_MODEL = "gpt-4o-mini";
 const TELEGRAM_TIMEOUT_MS = 3000;
 const TELEGRAM_MAX_CHARS = 4096;
 const MAX_SEEN_EMAILS = 100;
@@ -101,6 +101,7 @@ async function draftWithPuter(email: ReceivedEmail): Promise<string | null> {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PUTER_TIMEOUT_MS);
+  const startedAt = Date.now();
 
   try {
     const res = await fetch(PUTER_API_URL, {
@@ -113,7 +114,7 @@ async function draftWithPuter(email: ReceivedEmail): Promise<string | null> {
         interface: "puter-chat-completion",
         method: "complete",
         args: {
-          model: DEFAULT_MODEL,
+          model: PUTER_DRAFT_MODEL,
           stream: false,
           temperature: 0.3,
           max_tokens: 400,
@@ -137,10 +138,12 @@ async function draftWithPuter(email: ReceivedEmail): Promise<string | null> {
     const text = extractPuterChatText(json).trim();
     return text || null;
   } catch (error) {
-    console.error(`${LOG_PREFIX} Puter draft error:`, error);
+    const message = error instanceof Error ? error.message : undefined;
+    console.error(`${LOG_PREFIX} Puter draft error:`, message);
     return null;
   } finally {
     clearTimeout(timeoutId);
+    console.log(`Puter draft took ${Date.now() - startedAt}ms`);
   }
 }
 
