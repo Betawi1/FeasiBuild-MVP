@@ -17,12 +17,25 @@ import {
   YAxis,
 } from "recharts";
 
+const tooltipStyle = {
+  backgroundColor: "#1e293b",
+  border: "1px solid #334155",
+  borderRadius: "8px",
+};
+
+function Cell({ v }: { v: boolean | string }) {
+  if (v === true) return <span className="text-xl text-emerald-400">✓</span>;
+  if (v === false) return <span className="text-xl text-slate-600">✗</span>;
+  return <span className="text-xs text-slate-400">{v}</span>;
+}
+
 export default function ComparisonPage() {
   const speedData = [
     { method: "FeasiBuild", hours: 0.25 },
-    { method: "Competitor A (Legacy)", hours: 120 },
-    { method: "Competitor B (Manual Excel)", hours: 40 },
-    { method: "Competitor C (Enterprise)", hours: 240 },
+    { method: "Regional Cloud SaaS", hours: 20 },
+    { method: "Manual Excel", hours: 40 },
+    { method: "AI Consultancy", hours: 120 },
+    { method: "Legacy Desktop Suite", hours: 240 },
   ];
 
   const featureData = [
@@ -31,7 +44,104 @@ export default function ComparisonPage() {
     { feature: "Market Research", feasiBuild: 90, industryAvg: 45 },
     { feature: "Ease of Use", feasiBuild: 92, industryAvg: 50 },
     { feature: "Output Quality", feasiBuild: 95, industryAvg: 70 },
-    { feature: "Global Coverage", feasiBuild: 95, industryAvg: 40 },
+    { feature: "Jurisdiction Depth", feasiBuild: 95, industryAvg: 40 },
+  ];
+
+  const costCards = [
+    {
+      label: "AI Consultancy",
+      value: "$7,000+",
+      unit: "per study",
+      note: "5-day turnaround, no tool access, data on their servers",
+      highlight: false,
+    },
+    {
+      label: "Legacy Desktop Suite",
+      value: "$500–$3,000",
+      unit: "per month",
+      note: "On-premises, Windows-only, steep learning curve",
+      highlight: false,
+    },
+    {
+      label: "Regional Cloud SaaS",
+      value: "$600–$1,600",
+      unit: "per year",
+      note: "Single-region only, manual data entry",
+      highlight: false,
+    },
+    {
+      label: "FeasiBuild",
+      value: "from $24",
+      unit: "per report",
+      note: "$99 lifetime access, then pay-as-you-use",
+      highlight: true,
+    },
+  ];
+
+  const tableRows = [
+    {
+      name: "AI-Powered Real-Time Market Research",
+      fb: true,
+      legacy: false,
+      regional: false,
+      consultancy: true,
+    },
+    {
+      name: "AI-Written Narrative + Auto-Generated Decks",
+      fb: true,
+      legacy: false,
+      regional: "Limited",
+      consultancy: true,
+    },
+    {
+      name: "Zero-Knowledge Privacy (data stays in YOUR cloud)",
+      fb: true,
+      legacy: false,
+      regional: false,
+      consultancy: false,
+    },
+    {
+      name: "Multi-Jurisdiction Engine (UAE, KSA, MY, AU…)",
+      fb: true,
+      legacy: "Limited",
+      regional: false,
+      consultancy: "Limited",
+    },
+    {
+      name: "Development Waterfalls, Gap-Fill & Escrow Logic",
+      fb: true,
+      legacy: true,
+      regional: "Limited",
+      consultancy: true,
+    },
+    {
+      name: "Niche Assets: Data Centre & Warehouse",
+      fb: true,
+      legacy: "Limited",
+      regional: false,
+      consultancy: true,
+    },
+    {
+      name: "Self-Service: Results in Minutes, Not Weeks",
+      fb: true,
+      legacy: false,
+      regional: true,
+      consultancy: false,
+    },
+    {
+      name: "Pay-As-You-Use Pricing",
+      fb: true,
+      legacy: false,
+      regional: false,
+      consultancy: false,
+    },
+    {
+      name: "White-Label Logo Branding",
+      fb: true,
+      legacy: "Limited",
+      regional: true,
+      consultancy: false,
+    },
   ];
 
   return (
@@ -46,8 +156,14 @@ export default function ComparisonPage() {
             <Link href="/#features" className="transition hover:text-emerald-400">
               Features
             </Link>
-            <Link href="/#how-it-works" className="transition hover:text-emerald-400">
+            <Link
+              href="/#how-it-works"
+              className="transition hover:text-emerald-400"
+            >
               How It Works
+            </Link>
+            <Link href="/#pricing" className="transition hover:text-emerald-400">
+              Pricing
             </Link>
             <Link href="/founder" className="transition hover:text-emerald-400">
               Founder
@@ -67,17 +183,18 @@ export default function ComparisonPage() {
           How FeasiBuild Compares
         </h1>
         <p className="mx-auto max-w-3xl text-xl text-slate-400">
-          See why developers, investors, and consultants choose FeasiBuild over
-          traditional feasibility study methods and legacy software.
+          See why developers, valuers, bankers, and consultants choose FeasiBuild
+          over legacy desktop suites, regional tools, manual Excel, and $7,000
+          consultancy reports.
         </p>
       </div>
 
       <section className="mx-auto mb-20 max-w-5xl px-6">
         <h2 className="mb-8 text-center text-3xl font-bold text-white">
-          Time to Complete Feasibility Study
+          Time to Complete a Feasibility Study
         </h2>
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-8">
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={320}>
             <BarChart data={speedData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis
@@ -85,23 +202,46 @@ export default function ComparisonPage() {
                 stroke="#94a3b8"
                 label={{ value: "Hours", position: "insideBottom", offset: -5 }}
               />
-              <YAxis
-                dataKey="method"
-                type="category"
-                stroke="#94a3b8"
-                width={180}
-              />
+              <YAxis dataKey="method" type="category" stroke="#94a3b8" width={180} />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: "#1e293b",
-                  border: "1px solid #334155",
-                  borderRadius: "8px",
-                }}
-                formatter={(value) => [`${value ?? 0} hours`, "Time Required"]}
+                contentStyle={tooltipStyle}
+                formatter={(value) => [
+                  `${value ?? 0} hours`,
+                  "Time Required",
+                ]}
               />
               <Bar dataKey="hours" fill="#10b981" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="mx-auto mb-20 max-w-7xl px-6">
+        <h2 className="mb-8 text-center text-3xl font-bold text-white">
+          What a Feasibility Study Costs
+        </h2>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {costCards.map((c) => (
+            <div
+              key={c.label}
+              className={`rounded-xl border p-6 text-center ${
+                c.highlight
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-slate-800 bg-slate-900"
+              }`}
+            >
+              <p className="text-sm font-medium text-slate-400">{c.label}</p>
+              <p
+                className={`mt-2 text-3xl font-bold ${
+                  c.highlight ? "text-emerald-400" : "text-white"
+                }`}
+              >
+                {c.value}
+              </p>
+              <p className="text-sm text-slate-400">{c.unit}</p>
+              <p className="mt-3 text-xs text-slate-500">{c.note}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -135,13 +275,7 @@ export default function ComparisonPage() {
                   fillOpacity={0.3}
                 />
                 <Legend />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1e293b",
-                    border: "1px solid #334155",
-                    borderRadius: "8px",
-                  }}
-                />
+                <Tooltip contentStyle={tooltipStyle} />
               </RadarChart>
             </ResponsiveContainer>
           </div>
@@ -154,19 +288,23 @@ export default function ComparisonPage() {
               {[
                 {
                   title: "AI-Powered Automation",
-                  desc: "Automated market research and intelligent defaults. Competitors require manual data entry.",
+                  desc: "Real-time market research and intelligent defaults. Others require manual data entry.",
+                },
+                {
+                  title: "Zero-Knowledge Privacy",
+                  desc: "Your models live in YOUR own cloud (BYO-Infrastructure). We never see or store your data.",
                 },
                 {
                   title: "15-Minute Turnaround",
-                  desc: "Generate institutional-grade studies in minutes, not weeks.",
+                  desc: "Institutional-grade studies in minutes, not weeks or 5-day consultancy queues.",
                 },
                 {
-                  title: "International Coverage",
-                  desc: "Built for UAE, Saudi Arabia, Malaysia, and beyond. Not limited to one region.",
+                  title: "Multi-Jurisdiction Depth",
+                  desc: "UAE/KSA escrow, Malaysia HDA, Australia 10/90 — not limited to one region.",
                 },
                 {
-                  title: "Institutional-Grade Output",
-                  desc: "Professional PDF and PowerPoint exports ready for investors and lenders.",
+                  title: "Pay-As-You-Use Pricing",
+                  desc: "From $24 per report with $99 lifetime access. No $7,000 studies or $3,000/month licenses.",
                 },
               ].map((item) => (
                 <div key={item.title} className="flex items-start gap-4">
@@ -196,13 +334,13 @@ export default function ComparisonPage() {
         </div>
       </section>
 
-      <section className="mx-auto mb-20 max-w-5xl px-6">
+      <section className="mx-auto mb-20 max-w-6xl px-6">
         <h2 className="mb-8 text-center text-3xl font-bold text-white">
           Detailed Feature Comparison
         </h2>
         <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[760px]">
               <thead className="bg-slate-950">
                 <tr>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-slate-300">
@@ -212,74 +350,31 @@ export default function ComparisonPage() {
                     FeasiBuild
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">
-                    Competitor A
+                    Legacy Desktop Suite
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">
-                    Competitor B
+                    Regional Cloud SaaS
                   </th>
                   <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">
-                    Competitor C
+                    AI Consultancy
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {[
-                  {
-                    name: "AI-Powered Market Research",
-                    fb: true,
-                    c1: false,
-                    c2: false,
-                    c3: false,
-                  },
-                  {
-                    name: "Automated Narrative Generation",
-                    fb: true,
-                    c1: false,
-                    c2: false,
-                    c3: false,
-                  },
-                  {
-                    name: "Self-Service Platform",
-                    fb: true,
-                    c1: false,
-                    c2: true,
-                    c3: true,
-                  },
-                  {
-                    name: "Scenario Analysis",
-                    fb: true,
-                    c1: true,
-                    c2: true,
-                    c3: true,
-                  },
-                  {
-                    name: "PDF/PPT Export",
-                    fb: true,
-                    c1: true,
-                    c2: false,
-                    c3: true,
-                  },
-                  {
-                    name: "Global Market Coverage",
-                    fb: true,
-                    c1: false,
-                    c2: false,
-                    c3: true,
-                  },
-                ].map((row) => (
+                {tableRows.map((row) => (
                   <tr key={row.name} className="transition hover:bg-slate-800/50">
                     <td className="px-6 py-4 text-sm text-slate-300">{row.name}</td>
-                    <td className="px-6 py-4 text-center text-xl text-emerald-400">
-                      ✓
+                    <td className="px-6 py-4 text-center">
+                      <Cell v={row.fb} />
                     </td>
-                    <td className="px-6 py-4 text-center text-xl text-slate-600">
-                      {row.c1 ? "✓" : "✗"}
+                    <td className="px-6 py-4 text-center">
+                      <Cell v={row.legacy} />
                     </td>
-                    <td className="px-6 py-4 text-center text-xl text-slate-600">
-                      {row.c2 ? "✓" : "✗"}
+                    <td className="px-6 py-4 text-center">
+                      <Cell v={row.regional} />
                     </td>
-                    <td className="px-6 py-4 text-center text-xl text-slate-600">
-                      {row.c3 ? "✓" : "✗"}
+                    <td className="px-6 py-4 text-center">
+                      <Cell v={row.consultancy} />
                     </td>
                   </tr>
                 ))}
@@ -294,15 +389,21 @@ export default function ComparisonPage() {
           Ready to Experience the Difference?
         </h2>
         <p className="mx-auto mb-8 max-w-2xl text-xl text-slate-400">
-          Join developers and consultants who are saving time and delivering
-          better results with AI-powered feasibility studies.
+          Start free with lifetime access. Model every asset class, run every
+          scenario, and pay only when you export a report.
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link
-            href="/waitlist"
+            href="/dashboard"
             className="rounded-lg bg-emerald-500 px-8 py-4 text-lg font-semibold text-white transition hover:bg-emerald-600"
           >
-            Try FeasiBuild
+            Start Free
+          </Link>
+          <Link
+            href="/#pricing"
+            className="rounded-lg border border-slate-700 px-8 py-4 text-lg font-semibold text-white transition hover:bg-slate-800"
+          >
+            See Pricing
           </Link>
         </div>
       </section>

@@ -6,6 +6,7 @@ import {
   describeSupportStartPayload,
   isValidStartPayload,
 } from "@/lib/constants/support";
+import { sendSupportEmail } from "@/lib/support-resend";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -133,6 +134,32 @@ function parseReplyCommand(
   const message = match[2]?.trim() ?? "";
   if (!chatId || !message) return null;
   return { chatId, message };
+}
+
+type PriorityEmailDraft = {
+  name: string;
+  email: string;
+  subject: string;
+  messageId: string;
+  draft: string;
+};
+
+function parsePriorityEmailDraft(text: string): PriorityEmailDraft | null {
+  if (!text.includes("---DRAFT---")) return null;
+
+  const fromMatch = text.match(/^From:\s*(.*?)\s*<([^>\s]+)>\s*$/m);
+  const subjectMatch = text.match(/^Subject:\s*(.+)$/m);
+  const idMatch = text.match(/^Message-Id:\s*(.*)$/m);
+  const draftMatch = text.match(/---DRAFT---\s*([\s\S]*?)\s*---END---/);
+  if (!fromMatch?.[2] || !subjectMatch?.[1] || !draftMatch) return null;
+
+  return {
+    name: fromMatch[1].trim() || "Customer",
+    email: fromMatch[2].trim(),
+    subject: subjectMatch[1].trim(),
+    messageId: idMatch?.[1]?.trim() ?? "",
+    draft: draftMatch[1].trim(),
+  };
 }
 
 function asId(value: unknown): ChatId | null {
@@ -367,6 +394,131 @@ async function sendTelegram(chatId: ChatId, text: string): Promise<void> {
   }
 }
 
+async function editTelegramMessage(
+  chatId: ChatId,
+  messageId: ChatId,
+  text: string
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error(`${LOG_PREFIX} TELEGRAM_BOT_TOKEN is not set`);
+    await sendOpsAlert("TELEGRAM_BOT_TOKEN is not set", {
+      source: "Support Bot Telegram Edit",
+      chatId,
+    });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/editMessageText`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          message_id: messageId,
+          text,
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(
+        `${LOG_PREFIX} Telegram editMessageText failed:`,
+        res.status,
+        body.slice(0, 200)
+      );
+      await sendOpsAlert(`Telegram editMessageText failed: ${res.status}`, {
+        source: "Support Bot Telegram Edit",
+        chatId,
+        status: res.status,
+      });
+    }
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Telegram editMessageText error:`, error);
+    await sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Support Bot Telegram Edit",
+      chatId,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function handlePriorityEmailReview(
+  message: Record<string, unknown>,
+  chatId: ChatId,
+  text: string
+): Promise<boolean> {
+  const from = isRecord(message.from) ? message.from : undefined;
+  if (!isFounder(from?.id)) return false;
+
+  const replyTo = isRecord(message.reply_to_message)
+    ? message.reply_to_message
+    : undefined;
+  const replyText =
+    replyTo && typeof replyTo.text === "string" ? replyTo.text : "";
+  if (!replyText.includes("---DRAFT---")) return false;
+
+  const parsed = parsePriorityEmailDraft(replyText);
+  const draftMessageId = replyTo ? asId(replyTo.message_id) : null;
+
+  if (!parsed) {
+    await sendTelegram(
+      chatId,
+      "Could not parse that draft. Reply again with /send, /reject, or your edited text."
+    );
+    return true;
+  }
+
+  const command = text.trim();
+  if (command === "/reject") {
+    if (draftMessageId != null) {
+      await editTelegramMessage(chatId, draftMessageId, "❌ Rejected.");
+    }
+    return true;
+  }
+
+  const body = command === "/send" ? parsed.draft : text;
+  if (!body.trim()) {
+    await sendTelegram(chatId, "Draft is empty — nothing to send.");
+    return true;
+  }
+
+  try {
+    await sendSupportEmail({
+      to: parsed.email,
+      subject: `Re: ${parsed.subject}`,
+      text: body,
+      inReplyTo: parsed.messageId || undefined,
+    });
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Priority email send failed:`, error);
+    await sendOpsAlert(error instanceof Error ? error : String(error), {
+      source: "Support Bot Priority Email Send",
+      chatId,
+      customer: parsed.email,
+    });
+    await sendTelegram(chatId, "Failed to send the email. Please try again.");
+    return true;
+  }
+
+  if (draftMessageId != null) {
+    await editTelegramMessage(
+      chatId,
+      draftMessageId,
+      `✅ SENT to ${parsed.email}`
+    );
+  }
+  return true;
+}
+
 async function routeTriage(
   chatId: ChatId,
   userText: string,
@@ -432,6 +584,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const userContext = extractTelegramUser(message, chatId);
 
     const text = message.text;
+    if (await handlePriorityEmailReview(message, chatId, text)) {
+      return ok();
+    }
+
     const start = parseStartCommand(text);
     if (start) {
       let reply = START_REPLY;
