@@ -15,3 +15,8 @@ export function getCustomerTier(email: string): CustomerTier {
   if (!key) return "explorer";
   return TIER_ALLOWLIST.get(key) ?? "explorer";
 }
+
+const allowlist = new Map([
+  ['rashdan.ibrahim@gmail.com', 'advisory'],
+  // keep the pro@example.com, advisory@example.com placeholders
+]);
