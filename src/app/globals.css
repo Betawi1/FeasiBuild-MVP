@@ -149,6 +149,24 @@ body {
   background: white !important;
 }
 
+#slide-capture-container.pdf-capturing [data-pdf-hide] {
+  display: none !important;
+}
+
+#slide-capture-container.pdf-capturing [data-pdf-watermark],
+#slide-capture-container.pdf-capturing [data-pdf-watermark] * {
+  background-color: transparent !important;
+}
+
+#slide-capture-container.pdf-capturing [data-pdf-watermark-mark] {
+  color: rgba(15, 23, 42, 0.1) !important;
+}
+
+#slide-capture-container.pdf-capturing [data-pdf-watermark-footer] {
+  color: rgb(148, 163, 184) !important;
+  background-color: transparent !important;
+}
+
 #slide-capture-container.pdf-capturing {
   width: 1280px !important;
   height: 720px !important;

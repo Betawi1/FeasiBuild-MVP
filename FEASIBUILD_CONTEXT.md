@@ -32,8 +32,9 @@ FeasiBuild runs **two parallel financial streams**, selected from the dashboard.
 
 - `src/app/operational/layout.tsx`, `src/app/sale/layout.tsx`
 - `src/lib/stream-path.ts` — `withStreamPrefix`, `useStreamPrefix`
-- Dashboard: `src/app/dashboard/` — projects home + **`/dashboard/settings`** (AI model preference)
+- Dashboard: `src/app/dashboard/` — projects home + **`/dashboard/settings`** (AI model preference + **Get help** Telegram link)
 - Product docs: `src/app/docs/operational-stream/`, `src/app/docs/sale-stream/`
+- Marketing: landing (`src/app/page.tsx`) includes **`#pricing`** (`PricingSection`); comparison is `/comparison` (anonymous category names only — no real competitor brands)
 
 ### 2.2 Six Component wizards (data input & selection)
 
@@ -148,7 +149,10 @@ Scenario engines:
 | **Calculation engine** | `src/lib/irr-calculations.ts`, `equity-irr.ts`, `operational-pnl.ts`, `operational-project-irr-pnl.ts`, `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, `src/app/operational/engine/c4.levered.engine.ts`, `c5.equity.engine.ts` |
 | **Report generator** | `src/lib/feasibility/**`, `src/types/feasibility.ts`, `src/components/feasibility/**`, `src/app/api/feasibility/**`, `src/lib/pdf-export.ts` |
 | **User AI preference (Puter KV)** | `src/lib/puter-models.ts` (curated catalog), `src/lib/puter-kv-preferences.ts` (logical key `user_preferences` via Secure KV), `src/components/settings/AIModelSelector.tsx`, `src/app/dashboard/settings/page.tsx`; compact selector also in `src/components/dashboard/Header.tsx` |
-| **AI Analyst (advisory drawer)** | `src/store/useAnalystStore.ts` (UI/chat only — never writes `useFinModelStore`), `src/lib/constants/aiAnalystPrompts.ts`, `src/lib/analyst-doc-routes.ts`, `src/lib/analyst-research-snapshot.ts` (component-scoped snapshot + stored `reasoning_notes`), `src/lib/doc-text-extractor.ts`, `src/hooks/useAnalystContext.ts`, `src/components/ai-analyst/AIAnalystDrawer.tsx`, `GET /api/analyst-context?stepId=` (live `fs` read of `src/app/docs/**/page.tsx`); mounted in operational/sale layouts; hidden on Dashboard, Settings, and Feasibility Study |
+| **AI Analyst (advisory drawer)** | `src/store/useAnalystStore.ts` (UI/chat only — never writes `useFinModelStore`), `src/lib/constants/aiAnalystPrompts.ts`, `src/lib/analyst-doc-routes.ts`, `src/lib/analyst-research-snapshot.ts` (component-scoped snapshot + stored `reasoning_notes`), `src/lib/doc-text-extractor.ts`, `src/hooks/useAnalystContext.ts`, `src/components/ai-analyst/AIAnalystDrawer.tsx` (footer: “Still stuck? Talk to a human on Telegram”), `GET /api/analyst-context?stepId=` (live `fs` read of `src/app/docs/**/page.tsx`); mounted in operational/sale layouts; hidden on Dashboard, Settings, and Feasibility Study |
+| **Support Telegram links** | `src/lib/constants/support.ts` (`SUPPORT_TELEGRAM_URL` = `https://t.me/FeasiBuild_Support_Bot`, `buildSupportLink`, `buildWizardSupportContext` e.g. `ops-C1-S6`), `src/hooks/useSupportWizardContext.ts`, `src/components/support/WizardSupportButton.tsx` (lifebuoy next to Audit trail on ops/sale layouts) |
+| **Customer support agents** | Telegram Concierge: `POST /api/support/telegram` (`src/app/api/support/telegram/route.ts`). Priority email: `POST /api/support/email` (`src/app/api/support/email/route.ts`) + `src/lib/entitlements.ts` + `src/lib/support-resend.ts`. Ops Discord: `src/lib/ops-monitor.ts` (`sendOpsAlert`). |
+| **Landing / pricing / comparison** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing` |
 | **Secure Puter KV (Clerk isolation)** | `src/lib/secure-puter-kv.ts` — **only** module that calls `puter.kv.*`. Keys: `feasi_build_{clerkUserId}_{logicalKey}`. Strips legacy `feasibuild_{userId}_` / double prefixes via `toLogicalKvKey`. Retries get/set/del (3×, 1s→2s backoff). `SecureKvUserBinder` + `getSecureKvUserId()` for lib callers. Auth probe: `probePuterKvAccess`. |
 | **KV migration** | `src/lib/migrate-puter-kv.ts` — `migrateOldPuterKeys` + `PuterKvMigrationTrigger` (once per signed-in session). Copies legacy / double-prefixed keys → namespaced, then deletes old. Mounted in `src/app/layout.tsx`. |
 | **Project storage** | `src/lib/puter-storage.ts` (local-first write via `writeLocalKvValue`, then Secure KV), `src/lib/project-save.ts` (`buildAndSaveProject`, `saveProjectToKV`) |
@@ -168,6 +172,19 @@ Scenario engines:
 - Title / market templates resolve from `buildingSubType` via `sale-stream-config.ts`. Unknown subtypes still default to **Residential-High-Rise** — always map new subtypes explicitly.
 - **`sale-escrow` slide** (“Escrow Withdrawal Configuration”) is included **only** when `buildingSubType` includes `"residential"`. Commercial / warehouse decks skip it (HDA / Schedule H is residential-only in the report).
 - Development Assumptions for warehouse uses CapEx lines from `buildSaleCashflowDetailProfile` → `warehouseCostLines` on `SaleDevelopmentCostsSlide`.
+
+### 2.7 Customer support (Telegram + priority email)
+
+Two agents share the founder’s Telegram bot (`@FeasiBuild_Support_Bot`) as the human-review console. **No financial engines are involved.** Clerk does not protect `/api/support/*`.
+
+| Agent | Who | Path | Behavior |
+|-------|-----|------|----------|
+| **Agent 2 — Telegram Concierge** | All users (free) | `POST /api/support/telegram` | Webhook secret `x-telegram-bot-api-secret-header` / `…-secret-token` vs `TELEGRAM_WEBHOOK_SECRET`. Dedupes last 100 `update_id`s. `/start` [payload] maps `ops-C1-S6` → “Operational · Component 1 · Step 6” (`describeSupportStartPayload`); stores `came_from` per chat for Discord escalations. FAQ via **server Puter** JSON triage (`BUG` / `BILLING` / `FEATURE` / `FAQ`). Founder-only `/reply <chat_id> <text>` (`FOUNDER_TELEGRAM_ID`). Always 200 to Telegram after the secret check. |
+| **Priority Email (Pro / Advisory)** | Paying tiers | `POST /api/support/email` | Resend `email.received` is **metadata only** — fetch body via `GET /emails/receiving/{id}` (`src/lib/support-resend.ts`). `getCustomerTier(email)` (`src/lib/entitlements.ts`): V1 hardcoded allowlist; unknown → **`explorer`**. Explorer auto-replies pointing at Telegram. Pro/Advisory: server Puter draft (`gpt-4o-mini`, 60s timeout) → founder Telegram block with `---DRAFT---` / `---END---`. Founder **must Reply** to that message: `/send`, edited text, or `/reject`. Bare `/send` without Reply is **not** triaged — bot explains the Reply gesture. Outbound from `FeasiBuild Support <owner@feasibuild.app>` with `In-Reply-To` / `References`. |
+
+**Env:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `FOUNDER_TELEGRAM_ID`, `PUTER_AUTH_TOKEN`, `RESEND_API_KEY`, `DISCORD_OPS_WEBHOOK_URL`.
+
+**Discord ops alerts:** `sendOpsAlert` renders `user_context` as clickable `https://t.me/username` (never `tg://`). No username → instruct `/reply <chat_id> <message>`. Sources `Support Bot Escalation` / `Support Bot Feature Request` skip Puter summarization.
 
 ---
 
@@ -257,6 +274,18 @@ Slide-out right drawer on C1–C6 wizard (and preview) pages. **Advisory only in
 | **Tier 2** | `useAnalystContext` builds `stepId` from pathname + live wizard step (`useReportWizardStep` / `?step=`) + asset type, fetches `GET /api/analyst-context?stepId=&stepNumber=`, caches per `stepId` + step number. API reads live `src/app/docs/**/page.tsx` via `fs`, strips with `extractDocText()`, then slices with `extractStepSection`. Inner C1–C6 steps map to the parent Component doc (no per-step MDX files exist). Full-doc fallback when `sectionFound` is false. |
 | **Tier 3** | `buildResearchSnapshot` in `src/lib/analyst-research-snapshot.ts` (~2,000 char cap). C1 = cost-side; C2 = revenue-side only (C1 cost notes injected only on explicit cost-guardrail questions). Stored `reasoning_notes` are listed ahead of generic hints when truncating. |
 | **Model** | `getPreferredModel()` (Secure KV). `puter.ai.chat` with `stream: true`; skip `type:"reasoning"` chunks; empty stream retries `stream: false`. |
+| **Human escalate** | Drawer footer + wizard lifebuoy open `buildSupportLink(ops-C1-S6)` so `/start` carries wizard context. |
+
+### 3.4 Support-bot server Puter (not BYO client)
+
+Unlike C1/C2 research and the Analyst drawer, **support agents call Puter from the Next.js server** with `PUTER_AUTH_TOKEN` (`POST https://api.puter.com/drivers/call`, `stream: false`).
+
+| Call | Model | Notes |
+|------|--------|--------|
+| Telegram FAQ triage | `DEFAULT_MODEL` (`qwen/qwen3.7-plus`) | JSON `{ intent, reply }`; tolerant brace extract |
+| Priority email draft | **`gpt-4o-mini`** | Max 4 sentences; 60s abort; log `Puter draft took {ms}ms`; on failure the founder still gets the review block with “AI drafting unavailable — reply manually.” |
+
+Do not use `window.puter` in these routes.
 
 ---
 
@@ -359,14 +388,16 @@ Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx` (`JURISDICTION
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **15 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **19 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
 
-### Just finished (15 Aug 2026)
+### Just finished (17–19 Aug 2026) — Support agents + marketing (no engine math)
 
-- **Operational C6 warehouse / data centre shocks:** Explicit `ASSET_SPECIFIC_FACTORS` for warehouse and `data_centre` (no Hotel fallback). Engine wires C2 fields + P&L; store driver ids include `leaseUpPeriod`, `powerLeaseRate`, `whiteSpaceRent`, `utilization`, `pue`. Docs updated on operational C6 page.
-- **AI Analyst reasoning persistence:** Optional `reasoning_notes` on each research phase; prompts require 4–6 market-specific sentences; snapshot lists them under `ORIGINAL RESEARCH REASONING (stored verbatim):`; Analyst quotes verbatim when present. Persists inside existing `cashOutflows.aiResearchData` (cache fingerprint `_researchKey` + project save payload). No new KV keys. `extractJsonFromClaudeResponse` / stream skip invariant untouched.
-- **Production hygiene (log sweep):** Downgraded verbose `console.log` → `console.debug` in `generate-cash-flow.ts` (8), `secure-puter-kv.ts` (6), `project-save.ts` (8). All `console.error` / `console.warn` kept.
-- **OTHER horizon safety net:** Unset escrow mode on OTHER now defaults to `"none"` (CP+6) in `resolveSaleHorizonLastMonth` only. Monthly router, CP offsets, and UAE_SA / MY / AU / explicit modes unchanged.
+- **Agent 2 Telegram Concierge:** `POST /api/support/telegram` — webhook secret, `update_id` dedupe, `/start` + deep-link payload (`ops-C1-S6`), Puter FAQ triage, Discord escalate with clickable `https://t.me/…` (never `tg://`), founder `/reply <chat_id> <text>`.
+- **In-app “Talk to a human”:** `support.ts` + wizard lifebuoy + Analyst footer + landing footer + Settings Get help. `/start` stores `came_from` for Discord.
+- **Priority Email (Pro/Advisory):** `POST /api/support/email` — Resend inbound fetch, `extractEmailFromHeader` + `getCustomerTier` allowlist (incl. live advisory test address), Explorer auto-reply, Puter `gpt-4o-mini` draft (60s), founder **Reply-required** `/send` / edit / `/reject`. Bare `/send` no longer falls through to FAQ triage.
+- **Ops monitor:** Support sources skip Discord AI summary; context rendered as markdown fields.
+- **Landing `#pricing`:** Explorer / Professional / Advisory + credit packs + comparison table (`PricingSection.tsx`). Navbar Pricing link.
+- **`/comparison`:** Anonymous categories only (Legacy Desktop Suite, Regional Cloud SaaS, AI Consultancy).
 
 ### AI Analyst (complete 15 Aug 2026)
 
@@ -392,13 +423,15 @@ Snapshot as of **15 Aug 2026**. Prefer editing this file over scattering archite
 
 ### Next steps for tomorrow
 
-1. **Manual isolation QA:** Sign in as User A, save a project (including a run of C1 AI research so `reasoning_notes` exist); sign out → User B must not see A’s projects/preferences/caches. Confirm migration restored any pre-namespace projects for A. Reload A’s project and confirm Analyst still quotes stored reasoning notes.
-2. **E2E QA — Operational Data Centre:** C1 → C6 + Feasibility; confirm C6 shows Data Centre-specific shocks (not Hotel); **Clear AI Cache & Regenerate** after model changes.
-3. **E2E QA — Sale warehouse:** Full C1→C6 + Feasibility (title, no escrow slide, Puter/fallback). Confirm OTHER / non-escrow sale horizon is CP+6 when withdrawal mode is unset.
-4. **LLM smoke (one asset each):** C1 research + Analyst “why this rate?” on Hotel and Warehouse — confirm `reasoning_notes` in JSON, snapshot header present, verbatim quote in the drawer.
+1. **E2E priority email (live):** Send from the advisory allowlisted address → confirm Vercel log `classified as advisory` and `Puter draft took {ms}ms` under 60s → Telegram draft has a real body (not the fallback) → **Reply** to the draft with `/send` → customer receives `Re:` with `In-Reply-To`. Repeat `/reject` and an edited-text send.
+2. **Replace V1 entitlements:** Swap the hardcoded `TIER_ALLOWLIST` in `src/lib/entitlements.ts` for PayPal (or checkout) webhook lookups. Keep unknown emails as `explorer`.
+3. **Checkout / credits:** Pricing CTAs still go to `/sign-up`. Wire Professional lifetime + report credit packs + Advisory annual billing; do not invent competitor names on `/comparison`.
+4. **Telegram Concierge smoke:** `/start ops-C1-S6` greeting; FAQ vs BUG Discord (`came_from` + username link); founder `/reply`.
 
 ### Still open / later (not tomorrow’s first jobs)
 
+- **Manual isolation QA** (from 15 Aug): User A vs User B KV; Analyst still quotes `reasoning_notes`.
+- **E2E QA — Operational Data Centre** and **Sale warehouse** C1→C6 + Feasibility (unchanged engine work).
 - **Warehouse (Operational) polish:** Verify all AI schema fields (e.g. `free_rent_months`) are fully wired in UI consumers.
 - **Data Centre polish:** Confirm all C1 AI research fields map cleanly into store / review; optional chart density tuning.
 - **Scenario Analysis:** Some metric paths are still placeholder / UI-first (Hotel / BTR / Retail / Office factor sets were not changed).
@@ -427,8 +460,11 @@ Snapshot as of **15 Aug 2026**. Prefer editing this file over scattering archite
 14. **AI Analyst doc headings:** Keep the "Step N: <Title>" (or C5 "Tab N:") heading convention in `src/app/docs/**`. `extractStepSection` slices by that pattern (colon mandatory; slice ends at the next different number). Doc body prose must never begin a line with "Step N" / "Tab N" — colon-less mimicry previously truncated a slice and the model filled the gap with wrong-component content.  
 15. **AI Analyst docs coupling:** docs keep the "Step N: <Title>" heading convention and mirror the live UI step structure per asset (C2: Hotel = 5 steps, others = 4). Update docs in the same release as any wizard change — Analyst quality = doc quality.  
 16. **Reasoning-notes schema:** research prompts require `reasoning_notes`; `normalizeAiResearchData` must tolerate its absence (old caches/projects). No new Puter KV keys for notes.  
-17. **Operational C6 shocks:** Use the asset’s own factor set from `ASSET_SPECIFIC_FACTORS`. Unmapped types show Common Factors only — never fall back to Hotel.
+17. **Operational C6 shocks:** Use the asset’s own factor set from `ASSET_SPECIFIC_FACTORS`. Unmapped types show Common Factors only — never fall back to Hotel.  
+18. **Support email review:** Founder `/send` / `/reject` / edited replies to priority drafts **must** be a Telegram **Reply** to the `---DRAFT---` message; a bare `/send` must not hit FAQ triage.  
+19. **Entitlements V1:** `getCustomerTier` is a hardcoded allowlist; unknown → `explorer`. Parse `From` via `extractEmailFromHeader` (angle-brackets / parenthetical names) before lookup.  
+20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.
 
 ---
 
-*Last updated 15 Aug 2026 (reasoning-notes persistence; C6 warehouse/DC shocks; OTHER unset escrow → `"none"`; debug log hygiene). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 19 Aug 2026 (Telegram Concierge + priority email + pricing/comparison; no engine math). Prefer editing this file over scattering architecture notes across chats.*

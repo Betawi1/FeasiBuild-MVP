@@ -1,11 +1,25 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import type {
   FeasibilityProjectBundle,
   FeasibilitySlide,
   FeasibilitySlideData,
   SaleFeasibilityBundle,
 } from "@/types/feasibility";
+import { hasWhiteLabelAccess, getCustomerTier } from "@/lib/entitlements";
+import {
+  DEFAULT_LOGO_HEIGHT,
+  clearBrandLogo,
+  loadBrandLogo,
+  loadBrandLogoHeight,
+  saveBrandLogo,
+  saveBrandLogoHeight,
+} from "@/lib/brand-logo";
+import { SlidePaginationProvider } from "@/components/feasibility/SlideHeader";
+import { SlideWatermarkProvider } from "@/components/feasibility/SlideWatermark";
+import { shouldWatermark } from "@/lib/report-entitlements";
 import ProjectAnalysis from "./sections/ProjectAnalysis";
 import MarketReview from "./sections/MarketReview";
 import ExecutiveSummary from "./sections/ExecutiveSummary";
@@ -147,15 +161,95 @@ interface Props {
   isEditing?: boolean;
   onParagraphChange?: (index: number, text: string) => void;
   onDataChange?: (data: FeasibilitySlideData) => void;
+  /** 0-based index in the deck. Title slide (0) has no page number. */
+  slideIndex?: number;
+  /** Total slides in the deck (title included). Numbered pages = this minus 1. */
+  slideCount?: number;
 }
 
-export default function FeasibilitySlideView({
+interface InnerProps extends Props {
+  logo: string | null;
+  logoHeight: number;
+  canWhiteLabel: boolean;
+  onLogoSave: (dataUrl: string) => Promise<void>;
+  onLogoClear: () => Promise<void>;
+  onHeightPreview: (h: number) => void;
+  onHeightCommit: (h: number) => Promise<void>;
+}
+
+export default function FeasibilitySlideView(props: Props) {
+  const { user } = useUser();
+  const email = user?.primaryEmailAddress?.emailAddress ?? "";
+  const canWhiteLabel = hasWhiteLabelAccess(email);
+  const watermark = shouldWatermark(getCustomerTier(email));
+
+  const [logo, setLogo] = useState<string | null>(null);
+  const [logoHeight, setLogoHeight] = useState(DEFAULT_LOGO_HEIGHT);
+  useEffect(() => {
+    if (!user?.id) return;
+    let on = true;
+    void (async () => {
+      const [l, h] = await Promise.all([
+        loadBrandLogo(user.id),
+        loadBrandLogoHeight(user.id),
+      ]);
+      if (on) {
+        setLogo(l);
+        setLogoHeight(h);
+      }
+    })();
+    return () => {
+      on = false;
+    };
+  }, [user?.id]);
+
+  const slideIndex = props.slideIndex ?? 0;
+  const slideCount = props.slideCount ?? 1;
+  const pageNumber = slideIndex > 0 ? slideIndex : null;
+  const totalNumbered = Math.max(0, slideCount - 1);
+
+  return (
+    <SlidePaginationProvider pageNumber={pageNumber} totalNumbered={totalNumbered}>
+      <SlideWatermarkProvider enabled={watermark}>
+        <FeasibilitySlideViewInner
+          {...props}
+          logo={canWhiteLabel ? logo : null}
+          logoHeight={logoHeight}
+          canWhiteLabel={canWhiteLabel}
+          onLogoSave={async (d) => {
+            await saveBrandLogo(d, user?.id);
+            setLogo(d);
+          }}
+          onLogoClear={async () => {
+            await clearBrandLogo(user?.id);
+            setLogo(null);
+            setLogoHeight(DEFAULT_LOGO_HEIGHT);
+          }}
+          onHeightPreview={(h) => setLogoHeight(h)}
+          onHeightCommit={async (h) => {
+            setLogoHeight(h);
+            await saveBrandLogoHeight(h, user?.id);
+          }}
+        />
+      </SlideWatermarkProvider>
+    </SlidePaginationProvider>
+  );
+}
+
+function FeasibilitySlideViewInner({
   slide,
   projectData,
   isEditing,
   onParagraphChange,
   onDataChange,
-}: Props) {
+  logo,
+  logoHeight,
+  canWhiteLabel,
+  onLogoSave,
+  onLogoClear,
+  onHeightPreview,
+  onHeightCommit,
+}: InnerProps) {
   const common = { slide, isEditing, onParagraphChange, onDataChange };
   const editProps = { isEditing, onParagraphChange, onDataChange };
   const { country, city } = projectData.location;
@@ -172,7 +266,19 @@ export default function FeasibilitySlideView({
     const data = isTitleSlideData(slide.data)
       ? slide.data
       : buildTitleSlideData(projectData);
-    return <TitleSlide data={data} {...editProps} />;
+    return (
+      <TitleSlide
+        data={data}
+        logo={logo}
+        logoHeight={logoHeight}
+        canWhiteLabel={canWhiteLabel}
+        onLogoSave={onLogoSave}
+        onLogoClear={onLogoClear}
+        onHeightPreview={onHeightPreview}
+        onHeightCommit={onHeightCommit}
+        {...editProps}
+      />
+    );
   }
 
   if (slide.id === "project-location") {
@@ -977,6 +1083,13 @@ export default function FeasibilitySlideView({
               ? slide.data
               : buildTitleSlideData(projectData)
           }
+          logo={logo}
+          logoHeight={logoHeight}
+          canWhiteLabel={canWhiteLabel}
+          onLogoSave={onLogoSave}
+          onLogoClear={onLogoClear}
+          onHeightPreview={onHeightPreview}
+          onHeightCommit={onHeightCommit}
           {...editProps}
         />
       );

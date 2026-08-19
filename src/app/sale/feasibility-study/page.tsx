@@ -9,6 +9,8 @@ import { exportToPDF } from "@/lib/pdf-export";
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import FeasibilitySlideView from "@/components/feasibility/FeasibilitySlideView";
 import { SlideErrorBoundary } from "@/components/feasibility/SlideErrorBoundary";
+import ReportUpgradeModal from "@/components/feasibility/ReportUpgradeModal";
+import { useReportExportGate } from "@/hooks/useReportExportGate";
 import { SlideCaptureProvider } from "@/components/feasibility/SlideContainer";
 import { generateSaleSlidesWithPuter } from "@/lib/feasibility/sale/enrich-sale-slides-puter";
 import { getSaleStreamConfig } from "@/lib/feasibility/sale/sale-stream-config";
@@ -59,6 +61,15 @@ export default function SaleFeasibilityStudyPage() {
   const [exportProgress, setExportProgress] = useState("");
   const [projectBundle, setProjectBundle] =
     useState<FeasibilityProjectBundle | null>(null);
+  const {
+    tier,
+    usedExports,
+    showUpgrade,
+    setShowUpgrade,
+    downloadLabel,
+    allowOrPrompt,
+    recordSuccessfulExport,
+  } = useReportExportGate(activeProjectId);
 
   const studyTitle = `${getSaleStreamConfig(buildingSubType).assetLabel} Feasibility Study`;
 
@@ -151,6 +162,8 @@ export default function SaleFeasibilityStudyPage() {
   };
 
   const handleExportPDF = async () => {
+    if (!(await allowOrPrompt())) return;
+
     const originalIndex = currentSlideIndex;
     const bundle = projectBundle ?? getSaleFeasibilityBundle();
     const container = document.getElementById("slide-capture-container");
@@ -171,6 +184,7 @@ export default function SaleFeasibilityStudyPage() {
         },
         projectInfo: bundle,
       });
+      await recordSuccessfulExport();
     } catch (err) {
       console.error("PDF Generation Error:", err);
       alert(
@@ -255,6 +269,8 @@ export default function SaleFeasibilityStudyPage() {
               slide={currentSlide}
               projectData={bundle}
               isEditing={isEditing}
+              slideIndex={currentSlideIndex}
+              slideCount={slides.length}
               onParagraphChange={(index, text) =>
                 updateSlideParagraph(currentSlide.id, index, text)
               }
@@ -350,7 +366,7 @@ export default function SaleFeasibilityStudyPage() {
               <span id="download-btn-text">
                 {exportingPdf
                   ? exportProgress || "Generating PDF..."
-                  : "Download PDF"}
+                  : downloadLabel}
               </span>
             </button>
             <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-64 rounded bg-slate-800 p-2 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
@@ -359,6 +375,12 @@ export default function SaleFeasibilityStudyPage() {
           </div>
         </div>
       </div>
+      <ReportUpgradeModal
+        open={showUpgrade}
+        usedExports={usedExports}
+        tier={tier}
+        onClose={() => setShowUpgrade(false)}
+      />
     </div>
   );
 }

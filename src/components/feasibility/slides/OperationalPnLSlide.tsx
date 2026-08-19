@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SlideContainer from "@/components/feasibility/SlideContainer";
+import SlideHeader from "@/components/feasibility/SlideHeader";
 import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
 import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import { generatePnlCommentaryFallback } from "@/lib/feasibility/generate-pnl-commentary";
@@ -185,10 +186,7 @@ export default function OperationalPnLSlide({
 
   return (
     <SlideContainer className="[&>div]:p-3">
-      <div className="mb-2 border-b-2 border-slate-800 pb-1 shrink-0">
-        <h2 className="text-xl font-bold text-slate-900">{data.title}</h2>
-        <p className="text-base text-slate-600">{data.subtitle}</p>
-      </div>
+      <SlideHeader title={data.title} subtitle={data.subtitle} className="mb-2" />
 
       <div className="mb-2 bg-emerald-50 border-l-4 border-emerald-500 p-2 rounded shrink-0">
         <h3 className="text-xs font-bold text-slate-800 mb-1">P&amp;L HIGHLIGHTS</h3>

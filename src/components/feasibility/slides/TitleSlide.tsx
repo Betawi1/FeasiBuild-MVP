@@ -1,11 +1,20 @@
 "use client";
 
 import SlideContainer from "@/components/feasibility/SlideContainer";
+import LogoUploadControl from "@/components/feasibility/LogoUploadControl";
 import type { TitleSlideData } from "@/types/feasibility";
 import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
+import { DEFAULT_LOGO_HEIGHT } from "@/lib/brand-logo";
 
 interface Props extends SlideEditingProps {
   data: TitleSlideData;
+  logo?: string | null;
+  logoHeight?: number;
+  canWhiteLabel?: boolean;
+  onLogoSave?: (dataUrl: string) => Promise<void>;
+  onLogoClear?: () => Promise<void>;
+  onHeightPreview?: (h: number) => void;
+  onHeightCommit?: (h: number) => Promise<void>;
 }
 
 function buildDefaultTitle(data: TitleSlideData): string {
@@ -38,6 +47,13 @@ export default function TitleSlide({
   data,
   isEditing = false,
   onDataChange,
+  logo = null,
+  logoHeight = DEFAULT_LOGO_HEIGHT,
+  canWhiteLabel = false,
+  onLogoSave,
+  onLogoClear,
+  onHeightPreview,
+  onHeightCommit,
 }: Props) {
   const fullTitle = buildDefaultTitle(data);
   const preparedBy = data.preparedBy ?? "Prepared by FeasiBuild AI";
@@ -50,9 +66,44 @@ export default function TitleSlide({
     onDataChange?.({ ...data, ...patch });
   };
 
+  const showLogo = Boolean(logo && canWhiteLabel);
+
   return (
     <SlideContainer className="[&>div]:p-0">
       <div className="relative w-full h-full flex flex-col justify-center items-center text-center px-12 py-12">
+        {showLogo && (
+          <img
+            src={logo!}
+            alt="Company logo"
+            style={{ height: logoHeight }}
+            className="mx-auto mb-6 w-auto object-contain"
+          />
+        )}
+        {canWhiteLabel && isEditing && (
+          <LogoUploadControl
+            logo={logo}
+            height={logoHeight}
+            onSave={async (d) => {
+              await onLogoSave?.(d);
+            }}
+            onClear={async () => {
+              await onLogoClear?.();
+            }}
+            onHeightPreview={(h) => onHeightPreview?.(h)}
+            onHeightCommit={async (h) => {
+              await onHeightCommit?.(h);
+            }}
+          />
+        )}
+        {!canWhiteLabel && isEditing && (
+          <p className="mb-4 text-xs text-slate-400" data-pdf-hide>
+            Logo branding is available on Advisory, or Professional with the
+            100-Pack.{" "}
+            <a href="/#pricing" className="text-emerald-500 underline">
+              See pricing
+            </a>
+          </p>
+        )}
         {isEditing ? (
           <textarea
             value={fullTitle}

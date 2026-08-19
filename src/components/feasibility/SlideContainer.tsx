@@ -1,4 +1,7 @@
+"use client";
+
 import { createContext, useContext, type ReactNode } from "react";
+import SlideWatermark, { useSlideWatermark } from "./SlideWatermark";
 
 interface SlideContainerProps {
   children: ReactNode;
@@ -31,11 +34,12 @@ export default function SlideContainer({
 }: SlideContainerProps) {
   const contextId = useContext(SlideCaptureIdContext);
   const resolvedId = id ?? contextId;
+  const watermark = useSlideWatermark();
 
   return (
     <div
       id={resolvedId}
-      className={`slide-container flex flex-col overflow-hidden rounded-lg bg-white shadow-2xl border border-slate-200 ${className}`}
+      className={`slide-container relative flex flex-col overflow-hidden rounded-lg bg-white shadow-2xl border border-slate-200 ${className}`}
       style={{
         width: "1280px",
         height: "720px",
@@ -46,6 +50,7 @@ export default function SlideContainer({
       <div className="flex h-full w-full min-h-0 flex-col overflow-hidden p-12">
         {children}
       </div>
+      {watermark && <SlideWatermark />}
     </div>
   );
 }
