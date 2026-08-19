@@ -152,6 +152,11 @@ function buildFounderDraftMessage(
   draft: string
 ): string {
   const messageId = email.messageId || email.id;
+  const reviewInstructions = [
+    "To approve: long-press THIS message → Reply → send /send",
+    "To send an edited version: Reply to THIS message with your new text",
+    "To discard: Reply to THIS message with /reject",
+  ].join("\n");
   const body = [
     "📧 PRIORITY EMAIL — DRAFT",
     `From: ${email.fromName} <${email.fromEmail}>`,
@@ -160,7 +165,7 @@ function buildFounderDraftMessage(
     "---DRAFT---",
     draft,
     "---END---",
-    'Reply to this message with "/send" to approve as-is, or reply with your edited text to send the edited version, or "/reject" to discard.',
+    reviewInstructions,
   ].join("\n");
 
   if (body.length <= TELEGRAM_MAX_CHARS) return body;
@@ -175,7 +180,7 @@ function buildFounderDraftMessage(
     "---DRAFT---",
     `${draft.slice(0, maxDraft)}…`,
     "---END---",
-    'Reply to this message with "/send" to approve as-is, or reply with your edited text to send the edited version, or "/reject" to discard.',
+    reviewInstructions,
   ].join("\n");
 }
 

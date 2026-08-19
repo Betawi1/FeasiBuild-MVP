@@ -52,6 +52,8 @@ type TelegramUserContext = {
 
 const REPLY_USAGE = "/reply <chat_id> <message>";
 const REPLY_UNAUTHORIZED = "Not authorized.";
+const MISSING_DRAFT_REPLY_HINT =
+  "To approve or reject a draft: first long-press the draft message and choose Reply (or click the reply arrow on desktop), then send /send, your edited text, or /reject.";
 
 const seenUpdateIds = new Set<number>();
 const seenUpdateOrder: number[] = [];
@@ -113,6 +115,11 @@ function rememberCameFrom(chatId: ChatId, readable: string): void {
 
 function getCameFrom(chatId: ChatId): string | undefined {
   return cameFromByChatId.get(String(chatId));
+}
+
+function isFounderReviewCommand(text: string): boolean {
+  const command = text.trim();
+  return command === "/reject" || command === "/send" || command.startsWith("/send");
 }
 
 function isReplyCommand(text: string): boolean {
@@ -464,7 +471,13 @@ async function handlePriorityEmailReview(
     : undefined;
   const replyText =
     replyTo && typeof replyTo.text === "string" ? replyTo.text : "";
-  if (!replyText.includes("---DRAFT---")) return false;
+  if (!replyText.includes("---DRAFT---")) {
+    if (isFounderReviewCommand(text)) {
+      await sendTelegram(chatId, MISSING_DRAFT_REPLY_HINT);
+      return true;
+    }
+    return false;
+  }
 
   const parsed = parsePriorityEmailDraft(replyText);
   const draftMessageId = replyTo ? asId(replyTo.message_id) : null;
