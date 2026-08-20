@@ -10,6 +10,7 @@ import {
   projectSaveButtonLabel,
   useOptimisticProjectSave,
 } from "@/hooks/useOptimisticProjectSave";
+import { useCanCreateProject } from "@/hooks/useCanCreateProject";
 import type { FinModelStreamKey } from "@/store/useFinModelStore";
 
 type SaveProjectButtonProps = {
@@ -32,6 +33,7 @@ export default function SaveProjectButton({
     retryLastSave,
     hasPendingSave,
   } = useOptimisticProjectSave();
+  const { canCreate, lockedHint } = useCanCreateProject();
   const activeProjectId = useFinModelStore((s) => s.activeProjectId);
   const activeProjectName = useFinModelStore((s) => s.activeProjectName);
   const projectInfo = useFinModelStore((s) => {
@@ -78,6 +80,7 @@ export default function SaveProjectButton({
       tags: input.tags,
       stream,
       userId: user.id,
+      email: user.primaryEmailAddress?.emailAddress,
       projectId: activeProjectId ?? undefined,
     })
       .then((result) => {
@@ -105,6 +108,14 @@ export default function SaveProjectButton({
         variant: "error",
         title: "Sign in required",
         description: "Please sign in to save projects to your account.",
+      });
+      return;
+    }
+    if (!activeProjectId && !canCreate) {
+      showToast({
+        variant: "error",
+        title: "Free tier limit reached",
+        description: lockedHint,
       });
       return;
     }

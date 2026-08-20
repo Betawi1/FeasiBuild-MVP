@@ -10,20 +10,33 @@ import {
   Settings,
 } from "lucide-react";
 import { SignOutButton } from "@clerk/nextjs";
+import { useCanCreateProject } from "@/hooks/useCanCreateProject";
 
 const navItems = [
-  { name: "Dashboard", href: "/dashboard", icon: Home },
-  { name: "New Sale Study", href: "/sale/cash-outflows", icon: PlusCircle },
+  { name: "Dashboard", href: "/dashboard", icon: Home, createsProject: false },
+  {
+    name: "New Sale Study",
+    href: "/sale/cash-outflows",
+    icon: PlusCircle,
+    createsProject: true,
+  },
   {
     name: "New Operational Study",
     href: "/operational/cash-outflows",
     icon: PlusCircle,
+    createsProject: true,
   },
-  { name: "Settings", href: "/dashboard/settings", icon: Settings },
+  {
+    name: "Settings",
+    href: "/dashboard/settings",
+    icon: Settings,
+    createsProject: false,
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { canCreate, lockedHint } = useCanCreateProject();
 
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-slate-800 bg-slate-900">
@@ -40,16 +53,30 @@ export default function Sidebar() {
         {navItems.map((item) => {
           const isActive =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const locked = item.createsProject && !canCreate;
+          const className = `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            locked
+              ? "cursor-not-allowed text-slate-600 opacity-40"
+              : isActive
+                ? "bg-emerald-500/10 text-emerald-500"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+          }`;
+
+          if (locked) {
+            return (
+              <span
+                key={item.name}
+                title={lockedHint}
+                className={className}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.name}
+              </span>
+            );
+          }
+
           return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-emerald-500/10 text-emerald-500"
-                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
-            >
+            <Link key={item.name} href={item.href} className={className}>
               <item.icon className="h-5 w-5" />
               {item.name}
             </Link>

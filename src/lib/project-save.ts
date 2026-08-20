@@ -28,6 +28,8 @@ import {
 } from "@/lib/puter-storage";
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import { sanitizeForStorage } from "@/lib/sanitize";
+import { getCustomerTier } from "@/lib/entitlements";
+import { canCreateProject } from "@/lib/report-entitlements";
 import type {
   AICommentary,
   CollectedProjectState,
@@ -535,6 +537,8 @@ export interface BuildProjectSaveInput {
   tags?: string[];
   stream?: FinModelStreamKey;
   userId: string;
+  /** Clerk primary email — used to enforce Explorer new-project lock. */
+  email?: string;
   /** When set, updates an existing project instead of creating a duplicate. */
   projectId?: string;
 }
@@ -544,6 +548,19 @@ export async function buildAndSaveProject(
 ): Promise<SaveProjectResult> {
   if (!input.userId?.trim()) {
     throw new Error("You must be signed in to save a project.");
+  }
+
+  const isNewProject = !input.projectId?.trim();
+  if (isNewProject) {
+    const ok = await canCreateProject(
+      getCustomerTier(input.email ?? ""),
+      input.userId
+    );
+    if (!ok) {
+      throw new Error(
+        "Free tier limit reached. Upgrade to start new projects."
+      );
+    }
   }
 
   const collected = collectProjectState(input.stream);

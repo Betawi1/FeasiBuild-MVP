@@ -115,3 +115,13 @@ export async function recordExport(
     await markProjectExported(projectId, userId);
   }
 }
+
+/** Explorer loses new-project creation once the free report is consumed. */
+export async function canCreateProject(
+  tier: CustomerTier,
+  userId?: string | null
+): Promise<boolean> {
+  if (tier !== "explorer") return true;
+  const used = await getUsedReportExports(userId);
+  return used < EXPLORER_REPORT_LIMIT;
+}

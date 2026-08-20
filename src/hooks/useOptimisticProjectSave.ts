@@ -7,6 +7,8 @@ import {
   generateProjectId,
   type BuildProjectSaveInput,
 } from "@/lib/project-save";
+import { getCustomerTier } from "@/lib/entitlements";
+import { canCreateProject } from "@/lib/report-entitlements";
 import useFinModelStore from "@/store/useFinModelStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { sendOpsAlert } from "@/lib/ops-monitor";
@@ -108,10 +110,25 @@ export function useOptimisticProjectSave() {
         throw new Error("You must be signed in to save a project.");
       }
 
+      const email =
+        input.email?.trim() ||
+        user?.primaryEmailAddress?.emailAddress ||
+        "";
+      const isNewProject = !input.projectId?.trim();
+      if (isNewProject) {
+        const ok = await canCreateProject(getCustomerTier(email), userId);
+        if (!ok) {
+          throw new Error(
+            "Free tier limit reached. Upgrade to start new projects."
+          );
+        }
+      }
+
       const projectId = input.projectId?.trim() || generateProjectId();
       const payload: BuildProjectSaveInput = {
         ...input,
         userId,
+        email,
         projectId,
       };
 
@@ -128,7 +145,7 @@ export function useOptimisticProjectSave() {
 
       return syncToVault(payload);
     },
-    [syncToVault, user?.id]
+    [syncToVault, user?.id, user?.primaryEmailAddress?.emailAddress]
   );
 
   const retryLastSave = useCallback(async () => {
