@@ -443,15 +443,13 @@ export function buildFinancingEnginePreview(params: {
   const idcSource = financingConfig?.idcTreatment ?? financing.idcTreatment;
   const pref = financing.preferenceShares;
   const landFin = financing.landFinancing;
-  const landLoanActive = landFin?.type === "land_loan";
   const landEquityPct = financing.landEquityPercent ?? 100;
-  const landLoanPrincipal = landLoanActive
-    ? Math.max(
-        0,
-        landFin?.landLoanAmount ??
-          landCost * (1 - landEquityPct / 100)
-      )
-    : 0;
+  const computedLandLoan = Math.max(0, landCost * (1 - landEquityPct / 100));
+  const landLoanPrincipal =
+    landEquityPct >= 100
+      ? 0
+      : Math.max(0, landFin?.landLoanAmount ?? computedLandLoan);
+  const landLoanActive = landLoanPrincipal > 0;
   const landLoanTenorMonths =
     landFin?.landLoanTenorMonths ??
     (landFin?.landLoanTenorYears && landFin.landLoanTenorYears > 0
@@ -578,45 +576,47 @@ export function buildFinancingEnginePreview(params: {
 }
 
 export function mapEngineRowsToUae(rows: EngineMonthlyRow[]): UaeCashFlowRow[] {
+  const num = (v: number | undefined | null) =>
+    Number.isFinite(Number(v)) ? Number(v) : 0;
   return rows.map((r) => ({
     month: r.month,
     phase: r.phase,
     progressPct: r.progressPct,
     isMilestone: r.isMilestone,
-    salesProceeds: r.salesProceeds,
-    escrowInterest: r.escrowInterest,
-    escrowAccountFees: r.escrowAccountFees,
-    escrowBalance: r.escrowBalance,
-    escrowReleases: r.escrowReleases,
-    progressWithdrawal: r.progressWithdrawal,
-    constructionCosts: r.constructionCosts,
-    softCosts: r.softCosts,
-    powc: r.powc,
-    ffe: r.ffe || 0,
-    totalOutflowsExclLand: r.totalOutflowsExclLand,
-    landCost: r.landCost,
-    totalOutflowsInclLand: r.totalOutflowsInclLand,
-    ncf: r.ncf,
-    landLoanDrawdown: r.landLoanDrawdown || 0,
-    landLoanInterest: r.landLoanInterest || 0,
-    landLoanRepayment: r.landLoanRepayment || 0,
-    landLoanFees: r.landLoanFees || 0,
-    loanDrawdown: r.constLoanDrawdown,
-    cumulativeLoanDrawdown: r.constLoanCumulative,
-    interestPayment: r.constLoanInterest,
-    loanRepayment: r.constLoanRepayment,
-    commitmentFee: r.constLoanCommitmentFee,
-    prefDrawdown: r.prefDrawdown,
-    prefDividend: r.prefDividend,
-    prefRepayment: r.prefRepayment,
-    capitalLandInjection: r.capitalLand,
-    capitalCashInjection: r.capitalCash,
-    cumulativeCapital: r.cumulativeCapital,
-    ncfAfterFinancing: r.ncfAfterFinancing,
-    cumulativeNcfAfterFinancing: r.cumulativeNcf,
-    equityCashFlow: r.irrCashFlow,
-    discountRate: r.irrDiscountRate,
-    npv: r.irrNpv,
+    salesProceeds: num(r.salesProceeds),
+    escrowInterest: num(r.escrowInterest),
+    escrowAccountFees: num(r.escrowAccountFees),
+    escrowBalance: num(r.escrowBalance),
+    escrowReleases: num(r.escrowReleases),
+    progressWithdrawal: num(r.progressWithdrawal),
+    constructionCosts: num(r.constructionCosts),
+    softCosts: num(r.softCosts),
+    powc: num(r.powc),
+    ffe: num(r.ffe),
+    totalOutflowsExclLand: num(r.totalOutflowsExclLand),
+    landCost: num(r.landCost),
+    totalOutflowsInclLand: num(r.totalOutflowsInclLand),
+    ncf: num(r.ncf),
+    landLoanDrawdown: num(r.landLoanDrawdown),
+    landLoanInterest: num(r.landLoanInterest),
+    landLoanRepayment: num(r.landLoanRepayment),
+    landLoanFees: num(r.landLoanFees),
+    loanDrawdown: num(r.constLoanDrawdown),
+    cumulativeLoanDrawdown: num(r.constLoanCumulative),
+    interestPayment: num(r.constLoanInterest),
+    loanRepayment: num(r.constLoanRepayment),
+    commitmentFee: num(r.constLoanCommitmentFee),
+    prefDrawdown: num(r.prefDrawdown),
+    prefDividend: num(r.prefDividend),
+    prefRepayment: num(r.prefRepayment),
+    capitalLandInjection: num(r.capitalLand),
+    capitalCashInjection: num(r.capitalCash),
+    cumulativeCapital: num(r.cumulativeCapital),
+    ncfAfterFinancing: num(r.ncfAfterFinancing),
+    cumulativeNcfAfterFinancing: num(r.cumulativeNcf),
+    equityCashFlow: num(r.irrCashFlow),
+    discountRate: num(r.irrDiscountRate),
+    npv: num(r.irrNpv),
   }));
 }
 

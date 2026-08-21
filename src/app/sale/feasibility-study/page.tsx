@@ -23,6 +23,8 @@ import {
 } from "@/lib/cache-service";
 import { checkPuterStatusAndLog } from "@/lib/puter-auth";
 import { markFeasibilityStudyCompleted } from "@/lib/project-save";
+import { ensureProjectAutoSaved } from "@/hooks/useOptimisticProjectSave";
+import { useToast } from "@/components/ui/Toast";
 import useFinModelStore from "@/store/useFinModelStore";
 
 const btnOutline =
@@ -41,6 +43,7 @@ const SECTION_LABEL: Record<FeasibilitySlide["section"], string> = {
 export default function SaleFeasibilityStudyPage() {
   const router = useRouter();
   const { user } = useUser();
+  const { showToast } = useToast();
   const activeProjectId = useFinModelStore((s) => s.activeProjectId);
   const buildingSubType = useFinModelStore(
     (s) => s.sale.projectInfo.buildingSubType
@@ -120,12 +123,24 @@ export default function SaleFeasibilityStudyPage() {
       }
       setCurrentSlideIndex(0);
 
-      if (slidesResult.length > 0 && user?.id && activeProjectId) {
-        void markFeasibilityStudyCompleted(
-          user.id,
-          activeProjectId,
-          new Date().toISOString()
-        );
+      if (slidesResult.length > 0) {
+        void (async () => {
+          const savedId = await ensureProjectAutoSaved({
+            stream: "sale",
+            clerkUserId: user?.id,
+            email: user?.primaryEmailAddress?.emailAddress,
+            showToast,
+          });
+          const projectId =
+            savedId || useFinModelStore.getState().activeProjectId;
+          if (slidesResult.length > 0 && user?.id && projectId) {
+            void markFeasibilityStudyCompleted(
+              user.id,
+              projectId,
+              new Date().toISOString()
+            );
+          }
+        })();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate study");
@@ -133,7 +148,7 @@ export default function SaleFeasibilityStudyPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, setSlides, setMarketResearchCache, user?.id]);
+  }, [setSlides, setMarketResearchCache, user?.id, user?.primaryEmailAddress?.emailAddress, showToast]);
 
   useEffect(() => {
     void checkPuterStatusAndLog();
@@ -164,6 +179,13 @@ export default function SaleFeasibilityStudyPage() {
   const handleExportPDF = async () => {
     if (!(await allowOrPrompt())) return;
 
+    const savedId = await ensureProjectAutoSaved({
+      stream: "sale",
+      clerkUserId: user?.id,
+      email: user?.primaryEmailAddress?.emailAddress,
+      showToast,
+    });
+
     const originalIndex = currentSlideIndex;
     const bundle = projectBundle ?? getSaleFeasibilityBundle();
     const container = document.getElementById("slide-capture-container");
@@ -184,7 +206,7 @@ export default function SaleFeasibilityStudyPage() {
         },
         projectInfo: bundle,
       });
-      await recordSuccessfulExport();
+      await recordSuccessfulExport(savedId);
     } catch (err) {
       console.error("PDF Generation Error:", err);
       alert(

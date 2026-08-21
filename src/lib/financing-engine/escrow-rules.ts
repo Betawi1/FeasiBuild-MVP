@@ -74,6 +74,19 @@ export function isUaeLocation(
 }
 
 /**
+ * Sale C4 Step 3 land-equity slider: locked at 100% only for UAE + Dubai.
+ * KSA, other emirates, and every other country stay unlocked (30–100%).
+ * Escrow rule selection must never drive this lock.
+ */
+export function isLandEquitySliderLocked(opts: {
+  country?: string | null;
+  countryCode?: string | null;
+  city?: string | null;
+}): boolean {
+  return isUaeLocation(opts.country, opts.countryCode) && isDubaiCity(opts.city);
+}
+
+/**
  * Location pre-selects a default only. Never hard-link a country to a rule in the engine.
  * Australia → 10/90; Malaysia → Progress Drawdown; UAE + Dubai → Staged; all else → none.
  */

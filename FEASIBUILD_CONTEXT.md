@@ -169,6 +169,7 @@ Scenario engines:
 - **Key shape:** Logical keys from `puter-storage` / cache / preferences are cleaned then stored as `feasi_build_{userId}_{cleanKey}` (e.g. `proj_…`, `user_preferences`, `feasibuild_cache_…`).
 - **Optimistic save:** Persist to `localStorage` first (`{userId}:{key}`), show **Saved Locally**, then background sync to Puter with Secure KV retries. Failed syncs show **Retry Save** and retry when `navigator.onLine` returns.
 - **Single Save control (Operational):** Only `SaveProjectButton` in `operational/layout.tsx` / `sale/layout.tsx`. In-page save on `cash-outflows` was removed to prevent duplicate project IDs.
+- **Auto-save on study & export:** `buildAndSaveProject` runs automatically (both streams) when the feasibility deck first builds successfully and again before PDF export. Reuses the optimistic save pipeline (local-first → Secure KV); reuses the session project id, mints `proj_…` only when none exists; minting a **new** id is gated by `canCreateProject` (Explorer lock); one toast per project (“Project saved — it now appears on your dashboard”); nav-bar `SaveProjectButton` reflects the auto-save state.
 
 **Sale feasibility deck rules (presentation, not engine math)**
 
@@ -262,7 +263,8 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 
 - Puter streams typed chunks (`type: "text" | "reasoning" | "error" | …`). Answer text comes from `type:"text"`; reasoning is skipped for slides and for C1/C2 JSON (last-resort only if no text arrives).
 - Empty stream → retry with `stream: false`; still empty → throw with prompt preview logging.
-- Chart JSON uses `extractJsonFromClaudeResponse` (unwrap quoted/double-serialized JSON, salvage truncated payloads). **`generateChartData` must never throw** — parse failure logs `[generateChartData] chart JSON unavailable — skipping chart.` and returns `null`; callers skip or keep static fallbacks so the deck still builds and exports (DeepSeek V3.2 is a known quoted-JSON offender). Chart calls use compact-raw-JSON prompts and `max_tokens: 8000`.
+- Chart JSON uses `extractJsonFromClaudeResponse` (unwrap quoted/double-serialized JSON, salvage truncated payloads). **`generateChartData` is quiet:** extraction is wrapped in try/catch with `extractJsonFromClaudeResponse(content, { quiet: true })`; any failure (parse or Puter) → a **single** `console.warn` `"[generateChartData] chart JSON unavailable — skipping chart."` and `return null`. Never throws, never `console.error`s. Callers skip or keep static fallbacks so the deck still builds and exports.
+- `extractJsonFromClaudeResponse` accepts `{ quiet?: boolean }` (suppresses its `console.error`s; still throws) and an **S5** strategy: payload starts with `"` and contains `\"` → unescape (`\"` → `"`, `\n` → newline, `\\` → `\`), then truncation repair (string-aware scan; cut at last complete element; close open brackets) and `JSON.parse`; partial `charts` arrays accepted. Research / C1–C2 path is unchanged (non-quiet). Chart calls use compact-raw-JSON prompts and `max_tokens: 8000`.
 - Sale commentary (`generateSaleCommentary`) catches AI failures and uses `generateSaleCommentaryFallback` so the deck still builds.
 
 **Claude Sonnet 4.6 note:** Prefer the Puter id `anthropic/claude-sonnet-4-6` (hyphen). Sonnet often emits markdown CoT; never treat reasoning text as the research payload.
@@ -327,6 +329,8 @@ cumulativeNcfPost   = afterLandEquity + cashEquityInjection   // ≥ 0
 
 Mirrored in financing preview pages. Sale stream uses RCF / facility draws first where applicable, then **backstop equity** so cumulative NCF returns to 0 (`src/lib/financing-engine/generate-cash-flow.ts`).
 
+**Sale (same module):** gap-fill runs over the **full horizon**, including the land-loan bullet month. Displayed cumulative NCF is a **continuous running sum** (never wiped by equity distributions). There is **no equity sweep while the land loan is outstanding**. Tail cash-equity injections (including a bullet-month shortfall plug) enter `capitalCash` / cumulative capital / `irrCashFlow` as **negatives**.
+
 ### 4.2 1-Month Offset Rule
 
 Applied so interest and certain escrow movements use **prior-period balances** (or lag certification by one month):
@@ -383,37 +387,34 @@ Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to sta
 
 ### 5.1 Staged Escrow Rule (default: Dubai, UAE only)
 
-- Certification every 3 or 6 months during CP; withdrawal **+1 month** after certification.
-- Retention % user-editable (default 5), held until practical completion + defect liability; residual trust sweep at **CP+12**.
-- Horizon = **CP+12**.
+- Certification every 3/6 months during CP; withdrawal **+1 month** after certification.
+- Retention % user-editable (default 5), held until practical completion + defect liability; residual sweep at **CP+12**. Horizon **CP+12**.
+- Non-Dubai projects using this rule keep **unlocked** land equity; the land term loan rows (draw, interest, bullet) appear in the monthly projection under this rule like any other.
 
 ### 5.2 Progress Drawdown Rule (default: Malaysia)
 
-- Milestone / S-curve-linked drawdowns (HDA-style); deposit at M0; post-VP retention through VP+24; HDA deposit interest at **CP+24**.
-- Horizon = **CP+24**.
+- Milestone/S-curve drawdowns (HDA-style); deposit at M0; post-VP retention through VP+24; HDA deposit interest at **CP+24**. Horizon **CP+24**.
 
 ### 5.3 10/90 Rule (default: Australia)
 
-- Purchase Deposit % (default 10) and Balance % (default 90) user-editable, must sum to 100.
-- Deposit to trust at **every** lock month (during and after CP); balance at settlement (CP locks at CP+1 handover; post-CP locks same month); deposits released at settlement; residual sweep by **CP+12**.
-- Actual Sales Proceeds = balance + trust releases; ΣASP = Σlocked sales + net trust interest − fees. Trust interest uses the 1-month offset.
-- Gap-fill: loan ≤ facility and often ≤ **70% of cumulative locked sales**; remainder equity.
-- Horizon = **CP+12**.
+- Deposit % (default 10) / Balance % (default 90) user-editable, must sum to 100.
+- Deposit to trust at **every** lock month; balance at settlement (CP locks at CP+1, post-CP same month); releases at settlement; residual sweep by **CP+12**; trust interest 1-month offset; ΣASP = Σlocked + net interest − fees.
+- Gap-fill loan ≤ **70%** of cumulative locked sales. Horizon **CP+12**.
 
-### 5.4 No Escrow Rules (explicit non-escrow)
+### 5.4 No Escrow Rules
 
-- Direct sales − outflows; no escrow rows (`applyNonEscrowLogic`). Horizon = **CP+6**.
+- Direct sales − outflows; no escrow rows (`applyNonEscrowLogic`). Horizon **CP+6**.
 
 ### 5.5 Critical bug avoidance — column length & rule fallback
 
-Rules are **mechanisms, not country labels**. Location only pre-selects a default; all four options stay selectable:
+Rules are **mechanisms, not country labels**. Location only pre-selects (AU → 10/90, MY → progress, UAE+Dubai → staged, everyone else incl. KSA/other emirates → none with full choice). Engine routing and horizons follow the **SELECTED** rule. Land-equity **100% lock is Dubai-only**.
 
 - Australia → 10/90 (`ten_ninety`)
 - Malaysia → progress
 - UAE **and city Dubai** → staged
 - **All other locations** (KSA, other emirates including Abu Dhabi / RAK / Sharjah / Ajman / Fujairah, Thailand, China, …) → `none` default with full choice
 
-Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12, progress +24, none +6.
+Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12, progress +24, none +6. Switching the selected rule must **never** overwrite the stored land equity %.
 
 1. **Column lengths must be dynamic:** `lastMonth = resolveSaleHorizonLastMonth(inputs)` → columns = `lastMonth + 1` (M0 … last). Always derive from **CP + selected-rule offset**, never hard-code staged length for all countries.
 2. **No country inherits staged logic by accident.** KSA and non-Dubai emirates default to `none`. Thailand / Vietnam / Indonesia / China bucket to `none` unless the user selects a rule.
@@ -499,15 +500,15 @@ Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering archite
 1. Equity gap-fill keeps **cumulative NCF Post-Financing ≥ 0**.  
 2. Escrow interest, UAE progress withdrawals, and construction loan interest use the **1-month offset**.  
 3. Levered equity IRR: **negatives = equity injections**; **positives = NCF post-financing after the funding gap closes** (see §4.3 for series variants).  
-4. Sale CF column count = **CP + selected-rule offset** (staged +12, 10/90 +12, progress +24, none / commercial +6). Engine routing follows the **selected** rule, not the country.  
-5. Escrow rules are **mechanisms, not country labels.** Location only pre-selects (Australia → 10/90; Malaysia → progress; UAE + Dubai → staged; **all other locations** including KSA and non-Dubai emirates → none, with full choice). Unset/empty mode → `none` (CP+6). No country inherits staged by accident; China + staged must not label the slide “UAE — RERA”.  
+4. Sale CF columns = **CP + selected-rule offset** (staged +12, 10/90 +12, progress +24, none +6).  
+5. No location inherits a rule or a land-equity lock by accident; defaults only pre-select; Dubai-only 100% lock. Unset/empty mode → `none` (CP+6). China + staged must not label the slide “UAE — RERA”.  
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
 8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
 10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.  
 11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
-12. **Project save UX:** One Save control per stream layout; optimistic local write before vault sync.  
+12. **Project save UX:** One Save control per stream layout; optimistic local write before vault sync; auto-save on study generation and export reuses the same pipeline; Explorer lock still gates new-id minting.  
 13. **AI Analyst:** Advisory only — never auto-write into `useFinModelStore`. Live docs are read server-side via `fs` (`/api/analyst-context`); skip Puter `reasoning` chunks; resolve the LLM via `getPreferredModel()`. Quote stored `reasoning_notes` verbatim when the snapshot header is present.  
 14. **AI Analyst doc headings:** Keep the "Step N: <Title>" (or C5 "Tab N:") heading convention in `src/app/docs/**`. `extractStepSection` slices by that pattern (colon mandatory; slice ends at the next different number). Doc body prose must never begin a line with "Step N" / "Tab N" — colon-less mimicry previously truncated a slice and the model filled the gap with wrong-component content.  
 15. **AI Analyst docs coupling:** docs keep the "Step N: <Title>" heading convention and mirror the live UI step structure per asset (C2: Hotel = 5 steps, others = 4). Update docs in the same release as any wizard change — Analyst quality = doc quality.  
@@ -518,8 +519,8 @@ Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering archite
 20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.  
 21. **White-label logo:** Advisory always; Professional only with 100-Pack allowlist; Explorer never. Height 40–200px in Secure KV; title slide only.  
 22. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — first export per `proj_…` consumes; same-project re-exports free. Advisory — unlimited, no watermark. Failed PDFs do not consume.  
-23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`.
+23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads (DeepSeek V3.2); `generateChartData` logs a warn only.
 
 ---
 
-*Last updated 20 Aug 2026 (feasibility logo/pagination/watermark + export gating + chart JSON salvage; no engine math). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 21 Aug 2026 (auto-save on study/export; chart salvage v3 quiet + S5 unescape+repair). Prefer editing this file over scattering architecture notes across chats.*

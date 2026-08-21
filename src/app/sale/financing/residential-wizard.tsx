@@ -28,6 +28,7 @@ import {
   ESCROW_RULE_DISPLAY_NAME,
   ESCROW_RULE_IDS,
   defaultEscrowRuleForLocation,
+  isLandEquitySliderLocked,
   normalizeEscrowRuleId,
   type EscrowRuleId,
 } from "@/lib/financing-engine/escrow-rules";
@@ -79,7 +80,7 @@ export const JURISDICTION_RULES: Record<
   }
 > = {
   UAE: {
-    landEquityMin: 100,
+    landEquityMin: 30,
     retentionBasis: "GDV",
     retentionPct: 5,
     retentionReleaseMonths: 12,
@@ -89,7 +90,7 @@ export const JURISDICTION_RULES: Record<
     defaultEscrowRule: "staged",
   },
   KSA: {
-    landEquityMin: 100,
+    landEquityMin: 30,
     retentionBasis: "GDV",
     retentionPct: 5,
     retentionReleaseMonths: 12,
@@ -341,21 +342,12 @@ function defaultEscrowWithdrawalMode(projectInfo: ProjectInfo): EscrowWithdrawal
 }
 
 function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Partial<FormData> {
-  const jurisdictionMin = JURISDICTION_RULES[jurisdiction].landEquityMin;
   const drawdownMode: DrawdownModeUi =
     cfg.drawdownMode === "gap-fill" ? "equity-first" : "ltc-proportional";
   return {
     loanToCostPercent: cfg.loanToCostPercent,
     maxLtvPercent: cfg.maxLtvPercent,
     rcfCommitmentFeePercent: cfg.commitmentFeePct,
-    landEquityPercent:
-      jurisdictionMin >= 100
-        ? 100
-        : Math.max(
-            LAND_EQUITY_SLIDER_MIN,
-            jurisdictionMin,
-            cfg.landEquityPct ?? jurisdictionMin
-          ),
     certificationIntervalMonths: cfg.certificationIntervalMonths,
     milestoneThresholdPct: cfg.milestoneThresholdPct,
     drawdownMode,
@@ -366,7 +358,6 @@ function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Parti
         : cfg.fixedOrProfitRatePercent || cfg.interestRatePct,
     idcTreatment: cfg.idcTreatment,
     escrowDepositRate: JURISDICTION_RULES[jurisdiction].depositRate,
-    salesReduceEquity: jurisdiction === "Malaysia",
   };
 }
 
@@ -510,14 +501,25 @@ function ResidentialFinancingWizardContent() {
 
   const financingConfig = (financing as { config?: FinancingConfig }).config;
 
-  const initialLandEquity =
-    rules.landEquityMin >= 100
-      ? 100
-      : Math.max(
+  const landEquityLockedByLocation = isLandEquitySliderLocked({
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+  });
+
+  const storedLandEquity =
+    financing.landEquityPercent ?? financingConfig?.landEquityPct;
+  const initialLandEquity = landEquityLockedByLocation
+    ? 100
+    : Math.min(
+        100,
+        Math.max(
           LAND_EQUITY_SLIDER_MIN,
-          rules.landEquityMin,
-          financingConfig?.landEquityPct ?? rules.landEquityMin
-        );
+          Number.isFinite(Number(storedLandEquity))
+            ? Number(storedLandEquity)
+            : 40
+        )
+      );
 
   const [formData, setFormData] = useState<FormData>(() => {
     const loanToCostPercent = financingConfig?.loanToCostPercent ?? 65;
@@ -590,7 +592,11 @@ function ResidentialFinancingWizardContent() {
             6.0,
       idcTreatment: financingConfig?.idcTreatment ?? "capitalize",
       escrowDepositRate: rules.depositRate,
-      salesReduceEquity: jurisdiction === "Malaysia",
+      // Old MALAYSIA → progress (GDV toggle on). UAE_SA / AUSTRALIA / OTHER → off.
+      salesReduceEquity:
+        (storedEscrow?.withdrawalMode
+          ? storedEscrow.withdrawalMode
+          : defaultEscrowWithdrawalMode(projectInfo)) === "progress",
       ...prefFromStore,
     };
   });
@@ -608,7 +614,17 @@ function ResidentialFinancingWizardContent() {
   }, [formData.certificationIntervalMonths]);
 
   const updateField = useCallback(<K extends keyof FormData>(field: K, value: FormData[K]) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    const nextSalesReduce =
+      field === "escrowWithdrawalMode"
+        ? (value as EscrowWithdrawalMode) === "progress"
+        : undefined;
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+      ...(nextSalesReduce !== undefined
+        ? { salesReduceEquity: nextSalesReduce }
+        : {}),
+    }));
 
     // Persist escrow rule + editable params so preview/engine recalculate from the store.
     if (
@@ -624,6 +640,9 @@ function ResidentialFinancingWizardContent() {
           : formData.escrowWithdrawalMode;
       updateFinancing(
         {
+          ...(nextSalesReduce !== undefined
+            ? { salesReduceEquity: nextSalesReduce }
+            : {}),
           escrowConfig: {
             ...(financing.escrowConfig ?? {}),
             withdrawalMode: nextMode,
@@ -775,22 +794,20 @@ function ResidentialFinancingWizardContent() {
 
   useEffect(() => {
     if (!financingConfig) return;
-    const minEq = rules.landEquityMin;
-    const landEq =
-      minEq >= 100
-        ? 100
-        : Math.max(
-            LAND_EQUITY_SLIDER_MIN,
-            minEq,
-            financingConfig.landEquityPct ?? minEq
-          );
     setFormData((prev) => ({
       ...prev,
       ...configToForm(financingConfig, jurisdiction),
-      landEquityPercent: landEq,
+      landEquityPercent: prev.landEquityPercent,
     }));
     // eslint-disable-next-line react-hooks/exhaust-deps -- hydrate once when store config appears
   }, [financingConfig?.loanToCostPercent, financingConfig?.drawdownMode]);
+
+  useEffect(() => {
+    if (!landEquityLockedByLocation) return;
+    setFormData((prev) =>
+      prev.landEquityPercent === 100 ? prev : { ...prev, landEquityPercent: 100 }
+    );
+  }, [landEquityLockedByLocation]);
 
   const constructionPeriod = cashOutflows.constructionPeriod || 30;
   const constructionPeriodForFlows = constructionPeriod;
@@ -884,9 +901,8 @@ function ResidentialFinancingWizardContent() {
   const prefSharesAmount = formData.prefSharesEnabled
     ? cashEquityRequired * (formData.prefSharesAllocationPercent / 100)
     : 0;
-  // Lock at 100% if country land-equity min is 100% OR staged escrow is selected
-  const isLandEquityLocked =
-    rules.landEquityMin >= 100 || formData.escrowWithdrawalMode === "staged";
+  // Lock at 100% only for UAE + Dubai. Escrow rule must never drive this.
+  const isLandEquityLocked = landEquityLockedByLocation;
 
   const landLoanAmount = Math.max(0, landCost * (1 - formData.landEquityPercent / 100));
   const australiaLandLoanCap = landCost * 0.65;
@@ -1114,8 +1130,8 @@ function ResidentialFinancingWizardContent() {
     streamPrefix,
   ]);
 
-  const salesReduceDisabled =
-    jurisdiction !== "Malaysia" || rules.retentionBasis !== "GDV";
+  // Old MALAYSIA → Progress Drawdown Rule. Staged / 10/90 / none stay disabled (UAE_SA / AUSTRALIA / OTHER).
+  const salesReduceDisabled = formData.escrowWithdrawalMode !== "progress";
 
   return (
     <div className="min-h-screen bg-slate-950 pb-32 text-slate-100">
@@ -1635,14 +1651,11 @@ function ResidentialFinancingWizardContent() {
                   <span>100% (Full Equity)</span>
                 </div>
 
-                {((["UAE", "KSA", "Saudi Arabia"].includes(projectInfo.country) ||
-                  jurisdiction === "UAE" ||
-                  jurisdiction === "KSA") && (
+                {isLandEquityLocked && (
                   <p className="mt-2 text-xs text-amber-400">
-                    Under the {projectInfo.country || jurisdiction} rules developer must own 100% of
-                    the land equity.
+                    Dubai projects require 100% land equity. The land term loan is not used.
                   </p>
-                ))}
+                )}
               </div>
 
               {formData.landEquityPercent < 100 && !isLandEquityLocked && (
@@ -2436,10 +2449,12 @@ function ResidentialFinancingWizardContent() {
           <div className="space-y-6">
             <h2 className="text-xl font-semibold text-white">Sales &amp; Escrow Recycling</h2>
             <div className="space-y-4 rounded-lg bg-slate-800/80 p-6 ring-1 ring-slate-700">
-              <p className="text-sm text-slate-300">
-                Under construction cost-based release (UAE/KSA), surplus escrow receipts
-                automatically reduce drawn RCF during the development phase.
-              </p>
+              {formData.escrowWithdrawalMode === "staged" ? (
+                <p className="text-sm text-slate-300">
+                  Under the Staged Escrow Rule (construction cost-based release), surplus escrow
+                  receipts automatically reduce the drawn RCF during the development phase.
+                </p>
+              ) : null}
               <label
                 className={`flex items-center gap-3 rounded border p-3 ${
                   salesReduceDisabled
@@ -2456,11 +2471,11 @@ function ResidentialFinancingWizardContent() {
                   }
                   className="text-emerald-500"
                 />
-                <span>Sales reduce equity need (Malaysia / GDV-based)</span>
+                <span>Sales reduce equity need (Progress Drawdown Rule / GDV-based)</span>
               </label>
               {salesReduceDisabled ? (
                 <p className="text-xs text-slate-500">
-                  Enabled when jurisdiction is Malaysia (GDV-based release models).
+                  Enabled when the Progress Drawdown Rule is selected (GDV-based release models).
                 </p>
               ) : null}
             </div>

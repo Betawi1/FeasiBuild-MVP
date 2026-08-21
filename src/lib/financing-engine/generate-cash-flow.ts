@@ -104,7 +104,7 @@ export type FinancingInputs = {
   interestRatePct: number;
   idcTreatment: 'capitalize' | 'paid-current';
   
-  // Land Loan (MY/AUS)
+  // Land term loan (all escrow rules; enabled when land equity < 100%)
   landLoanEnabled?: boolean;
   landLoanAmount: number;
   /** Annual rate as decimal (e.g. 0.065 for 6.5%). */
@@ -679,7 +679,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     auConstructionBalancePaid: false,
 
     /** Land term loan fully repaid — construction RCF may repay only after this. */
-    landLoanPaid: !inputs.landLoanEnabled,
+    landLoanPaid: true,
+
+    /** IRR equity distributions already paid — do not reset displayed cumulative NCF. */
+    equityDistributedToDate: 0,
   };
 
   state.availableEquity =
@@ -897,22 +900,25 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       state.cumulativeEquity = row.capitalLand + row.capitalCash;
       row.prefDrawdown = inputs.prefSharesEnabled ? Math.max(0, inputs.prefSharesAmount) : 0;
       state.prefSharesBalance = row.prefDrawdown;
-      // --- LAND LOAN DRAWDOWN (M0) — when Step 3 land term loan is enabled ---
-      if (m === 0 && inputs.landLoanEnabled) {
+      // --- LAND LOAN DRAWDOWN (M0) — all rules; not assumed 100% land equity ---
+      {
         const landCostM0 = Number(inputs.landCost) || 0;
         const landEquityPct = (inputs.landEquityPercent ?? 100) / 100;
         const principal =
           inputs.landLoanAmount > 0
             ? inputs.landLoanAmount
             : Math.max(0, landCostM0 * (1 - landEquityPct));
+        const enableLandLoan = principal > 1e-6 && landEquityPct < 1;
 
-        row.landLoanDrawdown = principal;
-        state.landLoanBalance = principal;
-        state.landLoanPaid = false;
-        row.landLoanInterest = 0;
-        row.landLoanFees =
-          principal *
-          (inputs.landLoanArrangementFeePct + inputs.landLoanValuationFeePct);
+        if (enableLandLoan) {
+          row.landLoanDrawdown = principal;
+          state.landLoanBalance = principal;
+          state.landLoanPaid = false;
+          row.landLoanInterest = 0;
+          row.landLoanFees =
+            principal *
+            (inputs.landLoanArrangementFeePct + inputs.landLoanValuationFeePct);
+        }
       }
     } else {
       row.capitalLand = 0;
@@ -924,11 +930,15 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     let landLoanInterest = 0;
     let landLoanRepayment = 0;
 
-    // A. Interest & Fees (1-Month Offset)
-    const landLoanMaturityMonth = inputs.constructionPeriodMonths + 1;
+    // A. Interest & Fees (1-Month Offset: interest at M_t on balance at end of M_{t-1})
+    const landLoanTenorMonths =
+      inputs.landLoanTenorMonths && inputs.landLoanTenorMonths > 0
+        ? inputs.landLoanTenorMonths
+        : inputs.constructionPeriodMonths + 6;
+    const landLoanMaturityMonth = landLoanTenorMonths;
 
     if (m > 0) {
-      // --- LAND LOAN MONTHLY LOGIC (interest + bullet repayment at CP+1) ---
+      // --- LAND LOAN MONTHLY LOGIC (interest + bullet at Step 3 tenor = CP+6) ---
       if (state.landLoanBalance > 0) {
         const monthlyInterest = state.landLoanBalance * (inputs.landLoanRatePct / 12);
         const interestTreatment =
@@ -948,7 +958,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
           }
         }
 
-        if (inputs.landLoanEnabled && m === landLoanMaturityMonth) {
+        if (m === landLoanMaturityMonth) {
           landLoanRepayment = state.landLoanBalance;
           row.landLoanRepayment = -landLoanRepayment;
           state.landLoanBalance = 0;
@@ -995,7 +1005,8 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       }
     }
     
-    const previousCumNcf = m > 0 ? monthlyData[m - 1].cumulativeNcf : 0;
+    const previousCumNcf =
+      m > 0 ? Number(monthlyData[m - 1]?.cumulativeNcf) || 0 : 0;
     const operatingNcf = row.ncf;
     const arrangementFeeM0 = m === 0 ? -inputs.approvedCreditFacility * 0.001 : 0;
 
@@ -1112,26 +1123,6 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       }
     }
 
-    // Backstop equity only after M0, and only when approved facility is fully drawn (no more RCF headroom).
-    // Australia uses cap-and-switch equity gap-fill in the draw block above.
-    if (
-      row.cumulativeNcf < 0 &&
-      m > 0 &&
-      !isCommercial &&
-      !useAustraliaTrust
-    ) {
-      const plug = -row.cumulativeNcf;
-      const facilityHeadroom = inputs.approvedCreditFacility - state.rcfBalance;
-      if (plug > 0 && facilityHeadroom < 1e-6) {
-        row.capitalCash += plug;
-        state.backstopEquityInjected += plug;
-        state.cumulativeEquity += plug;
-        row.ncfAfterFinancing += plug;
-        row.cumulativeNcf = previousCumNcf + row.ncfAfterFinancing;
-        row.irrCashFlow -= plug;
-      }
-    }
-
     // --- PREFERENCE SHARES PRINCIPAL REPAYMENT (after construction RCF fully repaid) ---
     if (inputs.prefSharesEnabled && state.prefSharesBalance > 0 && m > 0) {
       const isConstructionLoanPaid =
@@ -1162,6 +1153,32 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       }
     }
 
+    // Single source of truth: running sum of monthly NCF after loan & equity (never reset
+    // by equity distributions). Gap-fill any remaining shortfall once RCF cannot draw —
+    // including the land-loan bullet month.
+    row.ncfAfterFinancing = Number.isFinite(row.ncfAfterFinancing)
+      ? row.ncfAfterFinancing
+      : 0;
+    row.cumulativeNcf = previousCumNcf + row.ncfAfterFinancing;
+    if (!Number.isFinite(row.cumulativeNcf)) row.cumulativeNcf = 0;
+    if (row.cumulativeNcf < -1e-6 && m > 0 && !isCommercial) {
+      const facilityHeadroom = Math.max(
+        0,
+        (inputs.approvedCreditFacility || 0) - state.rcfBalance
+      );
+      const rcfCanStillDraw = isConstructionPhase && facilityHeadroom > 1e-6;
+      const australiaConstructionHandled = useAustraliaTrust && isConstructionPhase;
+      if (!australiaConstructionHandled && !rcfCanStillDraw) {
+        const plug = -row.cumulativeNcf;
+        row.capitalCash += plug;
+        state.backstopEquityInjected += plug;
+        state.cumulativeEquity += plug;
+        row.ncfAfterFinancing += plug;
+        row.cumulativeNcf = 0;
+        row.irrCashFlow -= plug;
+      }
+    }
+
     // Update Cumulative Capital (M0 Step 3 + any post-M0 backstop `capitalCash`)
     state.cumulativeCapital += row.capitalLand + row.capitalHdaDeposit + row.capitalCash;
     row.cumulativeCapital = state.cumulativeCapital;
@@ -1170,22 +1187,24 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     row.cumulativeDrawdown = state.rcfBalance;
 
     // --- EQUITY DISTRIBUTION / IRR LOGIC ---
-    // Sequence: cumulative NCF is final project cash position; then drain surplus to equity when debt + pref are repaid.
+    // Do not drain / zero displayed cumulative NCF. Do not distribute while the land
+    // term loan is still outstanding (bullet is part of NCF before any residual sweep).
     if (m === 0) {
       row.irrCashFlow = -(row.capitalLand + row.capitalHdaDeposit + row.capitalCash);
     } else {
       const pastConstruction = m > inputs.constructionPeriodMonths;
-      const isLoanPaid =
-        !state.rcfEverDrawn || state.rcfBalance <= 0.01;
+      const isRcfPaid = !state.rcfEverDrawn || state.rcfBalance <= 0.01;
       const isPrefPaid = state.prefSharesBalance <= 0.01;
-      const canWithdrawEquity = pastConstruction && isLoanPaid && isPrefPaid;
+      const canWithdrawEquity =
+        pastConstruction && isRcfPaid && isPrefPaid && state.landLoanPaid;
 
-      const cashAvailableForEquity = Math.max(0, row.cumulativeNcf);
-      const equityDistribution = canWithdrawEquity ? cashAvailableForEquity : 0;
+      const distributable = canWithdrawEquity
+        ? Math.max(0, row.cumulativeNcf - (state.equityDistributedToDate || 0))
+        : 0;
 
-      if (equityDistribution > 0) {
-        row.irrCashFlow += equityDistribution;
-        row.cumulativeNcf = 0;
+      if (distributable > 0) {
+        row.irrCashFlow += distributable;
+        state.equityDistributedToDate += distributable;
       }
     }
 

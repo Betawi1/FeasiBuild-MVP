@@ -8,6 +8,7 @@ import {
   getUsedReportExports,
   recordExport,
 } from "@/lib/report-entitlements";
+import useFinModelStore from "@/store/useFinModelStore";
 
 export function useReportExportGate(projectId: string | null) {
   const { user } = useUser();
@@ -43,8 +44,14 @@ export function useReportExportGate(projectId: string | null) {
     return true;
   }
 
-  async function recordSuccessfulExport(): Promise<void> {
-    await recordExport(tier, projectId, user?.id);
+  async function recordSuccessfulExport(
+    projectIdOverride?: string | null
+  ): Promise<void> {
+    const id =
+      projectIdOverride?.trim() ||
+      projectId ||
+      useFinModelStore.getState().activeProjectId;
+    await recordExport(tier, id, user?.id);
     if (tier === "explorer") {
       setUsedExports(await getUsedReportExports(user?.id));
       setShowUpgrade(true);

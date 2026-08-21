@@ -89,6 +89,117 @@ function repairTruncatedJson(text: string): string {
   return out;
 }
 
+/**
+ * Unescape a quoted JSON string body: \\" → ", \\n → newline, \\\\ → \\.
+ * Works when the outer closing quote is missing (truncated DeepSeek payloads).
+ */
+function unescapeQuotedTruncatedPayload(text: string): string {
+  let t = text.trim();
+  if (t.startsWith('"')) t = t.slice(1);
+  if (t.endsWith('"') && !t.endsWith('\\"')) t = t.slice(0, -1);
+  return t.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
+}
+
+/**
+ * If the brace/bracket stack never empties, drop the trailing partial
+ * object/key and close remaining containers so JSON.parse can succeed.
+ */
+function cutLastCompleteElementThenClose(text: string): string {
+  type Frame = { kind: "obj" | "arr"; afterColon: boolean };
+  const stack: Frame[] = [];
+  let inStr = false;
+  let esc = false;
+  let lastComplete = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inStr) {
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (ch === "\\") {
+        esc = true;
+        continue;
+      }
+      if (ch === '"') {
+        inStr = false;
+        const parent = stack[stack.length - 1];
+        if (parent?.kind === "arr") lastComplete = i + 1;
+        else if (parent?.kind === "obj" && parent.afterColon) {
+          lastComplete = i + 1;
+          parent.afterColon = false;
+        }
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inStr = true;
+      continue;
+    }
+    if (ch === "{") {
+      stack.push({ kind: "obj", afterColon: false });
+      continue;
+    }
+    if (ch === "[") {
+      stack.push({ kind: "arr", afterColon: false });
+      continue;
+    }
+    if (ch === "}" || ch === "]") {
+      if (stack.length) stack.pop();
+      lastComplete = i + 1;
+      const parent = stack[stack.length - 1];
+      if (parent?.kind === "obj") parent.afterColon = false;
+      continue;
+    }
+    if (ch === ":") {
+      const parent = stack[stack.length - 1];
+      if (parent?.kind === "obj") parent.afterColon = true;
+      continue;
+    }
+    if (ch === "," || /\s/.test(ch)) continue;
+
+    let end = i + 1;
+    if (ch === "t" && text.startsWith("true", i)) end = i + 4;
+    else if (ch === "f" && text.startsWith("false", i)) end = i + 5;
+    else if (ch === "n" && text.startsWith("null", i)) end = i + 4;
+    else if (ch === "-" || (ch >= "0" && ch <= "9")) {
+      const m = text.slice(i).match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/);
+      end = m ? i + m[0].length : i + 1;
+    }
+    const parent = stack[stack.length - 1];
+    if (parent?.kind === "arr") lastComplete = end;
+    else if (parent?.kind === "obj" && parent.afterColon) {
+      lastComplete = end;
+      parent.afterColon = false;
+    }
+    i = end - 1;
+  }
+
+  const truncated = inStr || stack.length > 0;
+  let out =
+    truncated && lastComplete > 0 ? text.slice(0, lastComplete) : text;
+  out = out.replace(/,\s*$/, "");
+  return repairTruncatedJson(out);
+}
+
+/**
+ * DeepSeek V3.2 chart shape: a quoted JSON string (often truncated mid-object).
+ * Returns the parsed object, or undefined if this shape does not apply.
+ */
+function salvageDoubleSerializedTruncated(raw: string): unknown | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('"') || !trimmed.includes('\\"')) return undefined;
+  const unescaped = unescapeQuotedTruncatedPayload(trimmed).trim();
+  if (!unescaped.startsWith("{") && !unescaped.startsWith("[")) return undefined;
+
+  const direct = asJsonObject(unwrapParsed(tryParse(unescaped) ?? undefined));
+  if (direct) return direct;
+
+  const repaired = cutLastCompleteElementThenClose(unescaped);
+  return asJsonObject(unwrapParsed(tryParse(repaired) ?? undefined));
+}
+
 function firstBalancedSnippet(text: string): string | null {
   const brace = text.indexOf("{");
   const bracket = text.indexOf("[");
@@ -201,8 +312,14 @@ function firstParsable(
 /**
  * Extracts pure JSON from model responses (Qwen / DeepSeek / Claude / GPT).
  * Also works when they wrap JSON in fences, CoT tags, or a quoted JSON string.
+ *
+ * `quiet`: skip console.error on failure (chart path). Still throws so callers
+ * can catch; research parsing should omit this flag.
  */
-export function extractJsonFromClaudeResponse(rawText: string): unknown {
+export function extractJsonFromClaudeResponse(
+  rawText: string,
+  options?: { quiet?: boolean }
+): unknown {
   const trimmed = rawText.trim();
   if (!trimmed) {
     throw new Error("Model returned an empty response.");
@@ -265,8 +382,19 @@ export function extractJsonFromClaudeResponse(rawText: string): unknown {
     if (repaired) return repaired;
   }
 
-  console.error("All JSON extraction strategies failed");
-  console.error("Raw response preview:", trimmed.substring(0, 500));
+  // S5: double-serialized + truncated (DeepSeek V3.2) — unescape then cut/close
+  for (const candidate of [trimmed, withoutReasoning, unwrappedTrimmed]) {
+    const salvaged = salvageDoubleSerializedTruncated(candidate);
+    if (salvaged) {
+      console.debug("[extractJson] strategy=unescape+repair");
+      return salvaged;
+    }
+  }
+
+  if (!options?.quiet) {
+    console.error("All JSON extraction strategies failed");
+    console.error("Raw response preview:", trimmed.substring(0, 500));
+  }
   throw new Error(
     `Model returned non-JSON content. Raw response: ${trimmed.substring(0, 200)}...`
   );

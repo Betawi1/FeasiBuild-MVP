@@ -26,6 +26,8 @@ import {
 } from "@/lib/cache-service";
 import { checkPuterStatusAndLog } from "@/lib/puter-auth";
 import { markFeasibilityStudyCompleted } from "@/lib/project-save";
+import { ensureProjectAutoSaved } from "@/hooks/useOptimisticProjectSave";
+import { useToast } from "@/components/ui/Toast";
 import useFinModelStore from "@/store/useFinModelStore";
 import type { FeasibilitySlide } from "@/types/feasibility";
 
@@ -159,6 +161,7 @@ function feasibilityStudyTitle(buildingType: string, assetType?: string): string
 export default function FeasibilityStudyPage() {
   const router = useRouter();
   const { user } = useUser();
+  const { showToast } = useToast();
   const activeProjectId = useFinModelStore((s) => s.activeProjectId);
   const buildingType = useFinModelStore(
     (s) => s.operational.projectInfo.buildingType
@@ -269,12 +272,24 @@ export default function FeasibilityStudyPage() {
       }
       setCurrentSlideIndex(0);
 
-      if (slidesResult.length > 0 && user?.id && activeProjectId) {
-        void markFeasibilityStudyCompleted(
-          user.id,
-          activeProjectId,
-          new Date().toISOString()
-        );
+      if (slidesResult.length > 0) {
+        void (async () => {
+          const savedId = await ensureProjectAutoSaved({
+            stream: "operational",
+            clerkUserId: user?.id,
+            email: user?.primaryEmailAddress?.emailAddress,
+            showToast,
+          });
+          const projectId =
+            savedId || useFinModelStore.getState().activeProjectId;
+          if (user?.id && projectId) {
+            void markFeasibilityStudyCompleted(
+              user.id,
+              projectId,
+              new Date().toISOString()
+            );
+          }
+        })();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate study");
@@ -282,7 +297,7 @@ export default function FeasibilityStudyPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, buildingType, setSlides, setMarketResearchCache, user?.id]);
+  }, [buildingType, setSlides, setMarketResearchCache, user?.id, user?.primaryEmailAddress?.emailAddress, showToast]);
 
   useEffect(() => {
     void checkPuterStatusAndLog();
@@ -313,6 +328,13 @@ export default function FeasibilityStudyPage() {
   const handleExportPDF = async () => {
     if (!(await allowOrPrompt())) return;
 
+    const savedId = await ensureProjectAutoSaved({
+      stream: "operational",
+      clerkUserId: user?.id,
+      email: user?.primaryEmailAddress?.emailAddress,
+      showToast,
+    });
+
     const originalIndex = currentSlideIndex;
     const bundle = projectBundle ?? getFeasibilityProjectBundle();
     const container = document.getElementById("slide-capture-container");
@@ -333,7 +355,7 @@ export default function FeasibilityStudyPage() {
         },
         projectInfo: bundle,
       });
-      await recordSuccessfulExport();
+      await recordSuccessfulExport(savedId);
     } catch (err) {
       console.error("PDF Generation Error:", err);
       alert(

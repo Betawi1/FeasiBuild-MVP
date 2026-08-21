@@ -219,40 +219,35 @@ export function CashFlowTableUaeSa({
             isNCF
           />
 
-          {/* Land Loan Section: Only shown for Commercial & No-Escrow (hideEscrowRows=true) */}
-          {hideEscrowRows && (
-            <>
-              <SectionHeader colSpan={colCount} label="LAND LOAN" />
-              <TableRow
-                label="Loan drawdown"
-                data={data}
-                getValue={(r) => r.landLoanDrawdown}
-                formatCurrency={formatCurrency}
-                isHighlight
-              />
-              <TableRow
-                label="Interest payment"
-                data={data}
-                getValue={(r) => r.landLoanInterest}
-                formatCurrency={formatCurrency}
-                isNegative
-              />
-              <TableRow
-                label="Loan repayment"
-                data={data}
-                getValue={(r) => r.landLoanRepayment}
-                formatCurrency={formatCurrency}
-                isNegative
-              />
-              <TableRow
-                label="Loan fees"
-                data={data}
-                getValue={(r) => r.landLoanFees}
-                formatCurrency={formatCurrency}
-                isNegative
-              />
-            </>
-          )}
+          <SectionHeader colSpan={colCount} label="LAND LOAN" />
+          <TableRow
+            label="Loan drawdown"
+            data={data}
+            getValue={(r) => r.landLoanDrawdown}
+            formatCurrency={formatCurrency}
+            isHighlight
+          />
+          <TableRow
+            label="Interest payment"
+            data={data}
+            getValue={(r) => r.landLoanInterest}
+            formatCurrency={formatCurrency}
+            isNegative
+          />
+          <TableRow
+            label="Loan repayment"
+            data={data}
+            getValue={(r) => r.landLoanRepayment}
+            formatCurrency={formatCurrency}
+            isNegative
+          />
+          <TableRow
+            label="Loan fees"
+            data={data}
+            getValue={(r) => r.landLoanFees}
+            formatCurrency={formatCurrency}
+            isNegative
+          />
 
           <SectionHeader colSpan={colCount} label="CONSTRUCTION LOAN" />
           <TableRow
@@ -350,6 +345,7 @@ export function CashFlowTableUaeSa({
             formatCurrency={formatCurrency}
             isBold
             isNCF
+            preserveZero
           />
 
           <SectionHeader colSpan={colCount} label="INTERNAL RATE OF RETURN" />
@@ -403,6 +399,7 @@ function TableRow({
   isBalance = false,
   isNCF = false,
   isPercent = false,
+  preserveZero = false,
 }: {
   label: string;
   data: MonthlyRow[];
@@ -414,6 +411,7 @@ function TableRow({
   isBalance?: boolean;
   isNCF?: boolean;
   isPercent?: boolean;
+  preserveZero?: boolean;
 }) {
   const rowSum = data.reduce((sum, row) => sum + getValue(row), 0);
   const sumZero = rowSum === 0 || Object.is(rowSum, -0);
@@ -436,15 +434,15 @@ function TableRow({
           isBold ? "font-semibold text-slate-100" : "text-slate-300"
         } ${showRed ? "text-red-400" : ""} ${showGreen ? "text-emerald-400" : ""} ${
           row.isMilestone ? "border-l-2 border-l-emerald-500 bg-emerald-500/10" : "bg-slate-900/40"
-        } ${isZero ? "text-slate-500" : ""}`;
+        } ${isZero && !preserveZero ? "text-slate-500" : ""}`;
 
         let display: string;
-        if (isZero) {
+        if (isZero && !preserveZero) {
           display = "—";
         } else if (isPercent) {
           display = Number.isFinite(val) ? `${(val * 100).toFixed(2)}%` : "—";
         } else {
-          display = formatCurrency(val);
+          display = formatCurrency(Number.isFinite(val) ? val : 0);
         }
 
         return (

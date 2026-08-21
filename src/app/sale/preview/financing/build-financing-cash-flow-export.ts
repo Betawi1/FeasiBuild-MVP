@@ -126,6 +126,10 @@ function uaeSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
       get: (r) => r.totalOutflowsInclLand,
     },
     { label: "NET CASH FLOWS (NCF)", get: (r) => r.ncf },
+    { section: "LAND LOAN", label: "Loan drawdown", get: (r) => r.landLoanDrawdown },
+    { label: "Interest payment", get: (r) => r.landLoanInterest },
+    { label: "Loan repayment", get: (r) => r.landLoanRepayment },
+    { label: "Loan fees", get: (r) => r.landLoanFees },
     { section: "CONSTRUCTION LOAN", label: "Loan drawdown", get: (r) => r.constLoanDrawdown },
     {
       label: "Cumulative drawdown",

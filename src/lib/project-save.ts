@@ -30,6 +30,7 @@ import { sendOpsAlert } from "@/lib/ops-monitor";
 import { sanitizeForStorage } from "@/lib/sanitize";
 import { getCustomerTier } from "@/lib/entitlements";
 import { canCreateProject } from "@/lib/report-entitlements";
+import { getSecureKvUserId } from "@/lib/secure-puter-kv";
 import type {
   AICommentary,
   CollectedProjectState,
@@ -49,6 +50,47 @@ export function projectStorageKey(
 ): string {
   if (userId) return userProjectDataKey(userId, projectId);
   return `${PROJECT_KEY_PREFIX}${projectId}`;
+}
+
+const LOCAL_ANON_USER_KEY = "feasi_anon_user_id";
+
+/**
+ * Clerk id when signed in; otherwise a stable browser-local id so anonymous
+ * sessions can local-first save and sync once the account is bound.
+ */
+export function resolveSaveUserId(clerkUserId?: string | null): string {
+  const clerk = clerkUserId?.trim();
+  if (clerk) return clerk;
+  const bound = getSecureKvUserId();
+  if (bound) return bound;
+  if (typeof window === "undefined") return "anonymous";
+  try {
+    let id = window.localStorage.getItem(LOCAL_ANON_USER_KEY);
+    if (!id) {
+      id = `anon_${Date.now().toString(36)}_${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
+      window.localStorage.setItem(LOCAL_ANON_USER_KEY, id);
+    }
+    return id;
+  } catch {
+    return "anonymous";
+  }
+}
+
+export function resolveDefaultProjectName(
+  stream?: FinModelStreamKey
+): string {
+  const state = useFinModelStore.getState();
+  if (state.activeProjectName?.trim()) return state.activeProjectName.trim();
+  const key = resolveFinModelStreamKey(stream, state.assetType);
+  const info = state[key].projectInfo;
+  const city = info.city?.trim();
+  const buildingType = info.buildingType
+    ? info.buildingType.charAt(0).toUpperCase() + info.buildingType.slice(1)
+    : "Project";
+  if (city) return `${city} ${buildingType}`;
+  return buildingType;
 }
 
 export function generateProjectId(): string {

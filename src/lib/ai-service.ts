@@ -627,11 +627,10 @@ class PuterAIProvider implements AIProvider {
 
       let parsed: unknown;
       try {
-        parsed = extractJsonFromClaudeResponse(content);
-      } catch (e) {
+        parsed = extractJsonFromClaudeResponse(content, { quiet: true });
+      } catch {
         console.warn(
-          "[generateChartData] chart JSON unavailable — skipping chart.",
-          e
+          "[generateChartData] chart JSON unavailable — skipping chart."
         );
         return null;
       }
@@ -643,10 +642,9 @@ class PuterAIProvider implements AIProvider {
       }
 
       return parsed;
-    } catch (error) {
+    } catch {
       console.warn(
-        "[generateChartData] chart JSON unavailable — skipping chart.",
-        error
+        "[generateChartData] chart JSON unavailable — skipping chart."
       );
       return null;
     }
