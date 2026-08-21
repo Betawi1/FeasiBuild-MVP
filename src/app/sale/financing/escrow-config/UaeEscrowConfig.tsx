@@ -20,7 +20,7 @@ export default function UaeEscrowConfig({
     <div className="space-y-6">
       <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
         <h3 className="mb-4 text-lg font-semibold text-white">
-          UAE/SA Certification Interval Configuration
+          Staged Escrow Rule Configuration
         </h3>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -56,6 +56,7 @@ export default function UaeEscrowConfig({
               min={0}
               max={100}
               step={0.5}
+              placeholder="5"
               value={formData.retentionPercent}
               onChange={(e) =>
                 updateField(
@@ -66,7 +67,9 @@ export default function UaeEscrowConfig({
               disabled={isLocked}
               className={inputClass}
             />
-            <p className="mt-2 text-xs text-slate-500">Held until project completion</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Held until practical completion and defect-liability release
+            </p>
           </div>
         </div>
 

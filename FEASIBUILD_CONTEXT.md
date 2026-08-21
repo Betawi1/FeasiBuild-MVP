@@ -152,12 +152,15 @@ Scenario engines:
 | **AI Analyst (advisory drawer)** | `src/store/useAnalystStore.ts` (UI/chat only — never writes `useFinModelStore`), `src/lib/constants/aiAnalystPrompts.ts`, `src/lib/analyst-doc-routes.ts`, `src/lib/analyst-research-snapshot.ts` (component-scoped snapshot + stored `reasoning_notes`), `src/lib/doc-text-extractor.ts`, `src/hooks/useAnalystContext.ts`, `src/components/ai-analyst/AIAnalystDrawer.tsx` (footer: “Still stuck? Talk to a human on Telegram”), `GET /api/analyst-context?stepId=` (live `fs` read of `src/app/docs/**/page.tsx`); mounted in operational/sale layouts; hidden on Dashboard, Settings, and Feasibility Study |
 | **Support Telegram links** | `src/lib/constants/support.ts` (`SUPPORT_TELEGRAM_URL` = `https://t.me/FeasiBuild_Support_Bot`, `buildSupportLink`, `buildWizardSupportContext` e.g. `ops-C1-S6`), `src/hooks/useSupportWizardContext.ts`, `src/components/support/WizardSupportButton.tsx` (lifebuoy next to Audit trail on ops/sale layouts) |
 | **Customer support agents** | Telegram Concierge: `POST /api/support/telegram` (`src/app/api/support/telegram/route.ts`). Priority email: `POST /api/support/email` (`src/app/api/support/email/route.ts`) + `src/lib/entitlements.ts` + `src/lib/support-resend.ts`. Ops Discord: `src/lib/ops-monitor.ts` (`sendOpsAlert`). |
+| **Entitlements / report gating** | `src/lib/entitlements.ts` (`getCustomerTier`, `hasWhiteLabelAccess`). Report/export rules: `src/lib/report-entitlements.ts` (`evaluateExport`, `recordExport`, `canCreateProject`). Hooks: `useReportExportGate`, `useCanCreateProject`. |
+| **White-label logo** | `src/lib/brand-logo.ts` (Secure KV `brand_logo` + `brand_logo_height`, 40–200px default 64). UI: `LogoUploadControl.tsx` on the title slide (Advisory always; Professional only with 100-Pack allowlist). |
+| **Feasibility chrome** | `SlideHeader.tsx` (page numbers via `SlidePaginationProvider`); `SlideWatermark.tsx` (Explorer only); `ReportUpgradeModal.tsx`; PDF capture hides upload/upsell via `data-pdf-hide`. |
 | **Landing / pricing / comparison** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing` |
 | **Secure Puter KV (Clerk isolation)** | `src/lib/secure-puter-kv.ts` — **only** module that calls `puter.kv.*`. Keys: `feasi_build_{clerkUserId}_{logicalKey}`. Strips legacy `feasibuild_{userId}_` / double prefixes via `toLogicalKvKey`. Retries get/set/del (3×, 1s→2s backoff). `SecureKvUserBinder` + `getSecureKvUserId()` for lib callers. Auth probe: `probePuterKvAccess`. |
 | **KV migration** | `src/lib/migrate-puter-kv.ts` — `migrateOldPuterKeys` + `PuterKvMigrationTrigger` (once per signed-in session). Copies legacy / double-prefixed keys → namespaced, then deletes old. Mounted in `src/app/layout.tsx`. |
 | **Project storage** | `src/lib/puter-storage.ts` (local-first write via `writeLocalKvValue`, then Secure KV), `src/lib/project-save.ts` (`buildAndSaveProject`, `saveProjectToKV`) |
 | **Optimistic save UI** | `src/hooks/useOptimisticProjectSave.ts`, `src/hooks/useNetworkStatus.ts`, `src/components/header/SaveProjectButton.tsx` (nav-bar only — no duplicate C1 page button). States: Saved Locally (≥500ms) → Syncing → Synced / Retry; auto-retry on reconnect. |
-| **JSON sanitizer (Claude / verbose LLMs)** | `src/lib/extract-json-from-claude.ts` — used by `useAiResearch.ts` and chart parsing in `ai-service.ts` |
+| **JSON sanitizer (verbose LLMs)** | `src/lib/extract-json-from-claude.ts` — used by `useAiResearch.ts` and chart parsing in `ai-service.ts`. Unwraps double-serialized / quoted JSON, repairs truncated payloads; error copy is model-agnostic (“Model returned non-JSON…”). |
 | **Shared UI helpers** | `src/components/ui/AiInput.tsx` (override / reset baseline; avoid `string === number` comparisons under TS strict narrowing) |
 
 ### 2.6 BYO Puter storage & save UX
@@ -170,7 +173,7 @@ Scenario engines:
 **Sale feasibility deck rules (presentation, not engine math)**
 
 - Title / market templates resolve from `buildingSubType` via `sale-stream-config.ts`. Unknown subtypes still default to **Residential-High-Rise** — always map new subtypes explicitly.
-- **`sale-escrow` slide** (“Escrow Withdrawal Configuration”) is included **only** when `buildingSubType` includes `"residential"`. Commercial / warehouse decks skip it (HDA / Schedule H is residential-only in the report).
+- **`sale-escrow` slide** (“Escrow Withdrawal Configuration”) is included **only** when `buildingSubType` includes `"residential"`. Commercial / warehouse decks skip it. Headings use the selected rule name (not country/RERA labels).
 - Development Assumptions for warehouse uses CapEx lines from `buildSaleCashflowDetailProfile` → `warehouseCostLines` on `SaleDevelopmentCostsSlide`.
 
 ### 2.7 Customer support (Telegram + priority email)
@@ -185,6 +188,20 @@ Two agents share the founder’s Telegram bot (`@FeasiBuild_Support_Bot`) as the
 **Env:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `FOUNDER_TELEGRAM_ID`, `PUTER_AUTH_TOKEN`, `RESEND_API_KEY`, `DISCORD_OPS_WEBHOOK_URL`.
 
 **Discord ops alerts:** `sendOpsAlert` renders `user_context` as clickable `https://t.me/username` (never `tg://`). No username → instruct `/reply <chat_id> <message>`. Sources `Support Bot Escalation` / `Support Bot Feature Request` skip Puter summarization.
+
+### 2.8 Feasibility study branding, pagination, and export gating
+
+Applies to **both** Operational and Sale 16:9 decks. **No financial engines or `useFeasibilityStore` data shape.**
+
+| Rule | Behavior |
+|------|----------|
+| **White-label logo** | Advisory: always. Professional (`pro`): only if email is on `PRO_LOGO_PACK_ALLOWLIST` (100-Pack). Explorer: never (upsell in edit mode). Logo data URL + height in Secure KV (`brand_logo`, `brand_logo_height`). Title slide: centred above the main title; slider 40–200px (default 64). |
+| **Page numbers** | Title slide (index 0) has none. Slide 2 of N is `Page 1 of N-1`. Number sits on the subtitle row, top-right, via `SlideHeader` + `SlidePaginationProvider`. |
+| **Explorer watermark** | Diagonal “FeasiBuild · Free Preview” + footer banner on every slide (incl. title). `pointer-events-none`. Present in PDF. Professional / Advisory: clean. |
+| **Export limits** | Explorer: **every** PDF download counts; max 1 (`fs_exports_used`); then “Upgrade to Export”. Professional: first export of a `proj_…` id consumes (`fs_exported_projects`); **re-exports of the same project are free forever**. Advisory: unlimited, nothing recorded. Failed PDF jobs do not increment. |
+| **Explorer dashboard lock** | After the free report is consumed, **no new project creation** (dashboard buttons, sidebar “New … Study”, minting a new `proj_…` on save). Existing projects stay openable / editable / regenerable. Exploration before the first download is unlimited. |
+
+`evaluateExport().consumesReport` is credit-ready: when checkout goes live, decrement a report credit only when that flag is true.
 
 ---
 
@@ -245,7 +262,7 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 
 - Puter streams typed chunks (`type: "text" | "reasoning" | "error" | …`). Answer text comes from `type:"text"`; reasoning is skipped for slides and for C1/C2 JSON (last-resort only if no text arrives).
 - Empty stream → retry with `stream: false`; still empty → throw with prompt preview logging.
-- Chart JSON uses `extractJsonFromClaudeResponse` (not a naive fence strip + `JSON.parse`).
+- Chart JSON uses `extractJsonFromClaudeResponse` (unwrap quoted/double-serialized JSON, salvage truncated payloads). **`generateChartData` must never throw** — parse failure logs `[generateChartData] chart JSON unavailable — skipping chart.` and returns `null`; callers skip or keep static fallbacks so the deck still builds and exports (DeepSeek V3.2 is a known quoted-JSON offender). Chart calls use compact-raw-JSON prompts and `max_tokens: 8000`.
 - Sale commentary (`generateSaleCommentary`) catches AI failures and uses `generateSaleCommentaryFallback` so the deck still builds.
 
 **Claude Sonnet 4.6 note:** Prefer the Puter id `anthropic/claude-sonnet-4-6` (hyphen). Sonnet often emits markdown CoT; never treat reasoning text as the research payload.
@@ -340,57 +357,91 @@ Applied so interest and certain escrow movements use **prior-period balances** (
 
 ---
 
-## 5. Jurisdiction-Specific Cash Flow Rules
+## 5. Escrow Withdrawal Rules (mechanisms, not countries)
 
-Canonical types and horizon: `Jurisdiction = 'UAE_SA' | 'MALAYSIA' | 'AUSTRALIA' | 'OTHER'` in  
-`src/lib/financing-engine/generate-cash-flow.ts`.
+Canonical rule ids: `EscrowRuleId = 'ten_ninety' | 'staged' | 'progress' | 'none'` in
+`src/lib/financing-engine/escrow-rules.ts`. Engine horizon and monthly router follow the
+**selected rule**, never the country bucket.
 
-Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowConfig.tsx`  
-Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx` (`JURISDICTION_RULES`).
+Display names: **10/90 Rule**, **Staged Escrow Rule**, **Progress Drawdown Rule**, **No Escrow Rules**.
 
-### 5.1 UAE / KSA — Escrow model
+Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowConfig.tsx`
+(panel titles are rule names). Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx`
+(`JURISDICTION_RULES.defaultEscrowRule`). Location only **pre-selects** a default; all four tabs
+remain selectable everywhere.
+
+**Location defaults (never hard-linked in the engine)**
+
+- Australia → 10/90 Rule (CP+12)
+- Malaysia → Progress Drawdown Rule (CP+24)
+- United Arab Emirates **and city Dubai** → Staged Escrow Rule (CP+12)
+- All other locations (KSA, Abu Dhabi, RAK, Sharjah, Ajman, Fujairah, Thailand, China, …) → No Escrow Rules (CP+6)
+
+**Backward compatibility:** stored modes `uae`/`malaysia`/`australia`/`none` map to the new ids.
+Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to staged/progress/ten_ninety;
+`OTHER` or empty → none.
+
+### 5.1 Staged Escrow Rule (default: Dubai, UAE only)
 
 - Certification every 3 or 6 months during CP; withdrawal **+1 month** after certification.
-- Post-CP surplus release above retention floor; **final escrow release at CP + 12**.
-- Loan draw often capped vs cumulative eligible costs (30/70-style).
-- **Timeline / columns = Construction Period + 12 months.**
+- Retention % user-editable (default 5), held until practical completion + defect liability; residual trust sweep at **CP+12**.
+- Horizon = **CP+12**.
 
-### 5.2 Malaysia — HDA / Non-escrow-adjacent staging
+### 5.2 Progress Drawdown Rule (default: Malaysia)
 
-- HDA deposit at M0; stage releases tied to S-curve / HDA milestones; post-VP retention schedule through VP+24.
-- HDA deposit interest credited at **CP + 24**.
-- **Timeline / columns = Construction Period + 24 months.**
+- Milestone / S-curve-linked drawdowns (HDA-style); deposit at M0; post-VP retention through VP+24; HDA deposit interest at **CP+24**.
+- Horizon = **CP+24**.
 
-### 5.3 Australia — 10/90 retention model
+### 5.3 10/90 Rule (default: Australia)
 
-- During CP: deposit % (default **10**) of locked sales → trust; **90%** balance settles post-CP / on ongoing sales rules.
-- Trust retention / full release by **CP + 12**.
+- Purchase Deposit % (default 10) and Balance % (default 90) user-editable, must sum to 100.
+- Deposit to trust at **every** lock month (during and after CP); balance at settlement (CP locks at CP+1 handover; post-CP locks same month); deposits released at settlement; residual sweep by **CP+12**.
+- Actual Sales Proceeds = balance + trust releases; ΣASP = Σlocked sales + net trust interest − fees. Trust interest uses the 1-month offset.
 - Gap-fill: loan ≤ facility and often ≤ **70% of cumulative locked sales**; remainder equity.
-- **Timeline / columns = Construction Period + 12 months.**
+- Horizon = **CP+12**.
 
-### 5.4 Commercial / explicit non-escrow
+### 5.4 No Escrow Rules (explicit non-escrow)
 
-- Direct sales − outflows; no escrow rows (`applyNonEscrowLogic`).
-- Commercial sale financing horizon: **CP + 6**.
+- Direct sales − outflows; no escrow rows (`applyNonEscrowLogic`). Horizon = **CP+6**.
 
-### 5.5 Critical bug avoidance — column length & country fallback
+### 5.5 Critical bug avoidance — column length & rule fallback
 
-1. **Column lengths must be dynamic:** `lastMonth = resolveSaleHorizonLastMonth(inputs)` → columns = `lastMonth + 1` (M0 … last). Always derive from **CP + jurisdiction offset**, never hard-code UAE length for all countries.
-2. **Thailand / Vietnam / Indonesia / etc. bucket to `OTHER`** via `normalizeCountryHorizonBucket` — they must **not** silently run UAE escrow logic.
-3. For `OTHER`, horizon follows **C4 escrow tab selection**:
-   - `malaysia` → CP+24  
-   - `australia` → CP+12  
-   - `none` → CP+6  
-   - **Unset / empty / null mode on OTHER is treated as `"none"` (CP+6)** in `resolveSaleHorizonLastMonth`, matching the monthly non-escrow router. UAE_SA / MALAYSIA / AUSTRALIA and any explicitly-set mode are unchanged.
-4. Never assume Thailand “defaults to UAE escrow”; UI defaults should prefer `"none"` / user-selected model for TH/VN/OTHER.
+Rules are **mechanisms, not country labels**. Location only pre-selects a default; all four options stay selectable:
+
+- Australia → 10/90 (`ten_ninety`)
+- Malaysia → progress
+- UAE **and city Dubai** → staged
+- **All other locations** (KSA, other emirates including Abu Dhabi / RAK / Sharjah / Ajman / Fujairah, Thailand, China, …) → `none` default with full choice
+
+Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12, progress +24, none +6.
+
+1. **Column lengths must be dynamic:** `lastMonth = resolveSaleHorizonLastMonth(inputs)` → columns = `lastMonth + 1` (M0 … last). Always derive from **CP + selected-rule offset**, never hard-code staged length for all countries.
+2. **No country inherits staged logic by accident.** KSA and non-Dubai emirates default to `none`. Thailand / Vietnam / Indonesia / China bucket to `none` unless the user selects a rule.
+3. Horizon follows the **selected C4 escrow tab**:
+   - `staged` → CP+12
+   - `ten_ninety` → CP+12
+   - `progress` → CP+24
+   - `none` → CP+6
+   - **Unset / empty / null mode is treated as `none` (CP+6)** unless an old jurisdiction enum is present (`UAE_SA`/`MALAYSIA`/`AUSTRALIA`).
+4. Feasibility **sale-escrow** slide headings use the selected rule name (e.g. “Staged Escrow Rule Configuration”). Country regulators (RERA, HDA, state 10/90) appear only as local-regime notes when the project location’s default matches that rule — a China project on staged must **not** read “UAE — RERA”.
+5. Preview tables (MY/UAE/AU variants) and exports follow the selected rule and read retention / deposit / balance from the store, never from constants.
 
 ---
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **19 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
 
-### Just finished (17–19 Aug 2026) — Support agents + marketing (no engine math)
+### Just finished (19–20 Aug 2026) — Feasibility chrome, entitlements gating, chart salvage (no engine math)
+
+- **White-label logo + size:** Title slide (both streams). `hasWhiteLabelAccess` (Advisory always; Pro + 100-Pack allowlist). Secure KV `brand_logo` / `brand_logo_height` (40–200px, default 64). Upload control hidden during PDF capture.
+- **Page numbers:** `SlideHeader` + `SlidePaginationProvider` — title unnumbered; “Page k of N−1” top-right on the subtitle row.
+- **Explorer watermark + 1-export cap:** `SlideWatermark` on every slide; `fs_exports_used`; first PDF succeeds then upsell; later downloads blocked (“Upgrade to Export”).
+- **Professional same-project re-exports:** `evaluateExport` / `recordExport` — first `proj_…` export marked in `fs_exported_projects`; later exports of that id are free. Advisory records nothing.
+- **Explorer dashboard lock:** After the free report, `canCreateProject` disables New Operational / New Sale (dashboard + sidebar) and refuses minting a new project id on save. Existing projects remain editable.
+- **Chart JSON salvage (v2):** `extract-json-from-claude.ts` unwraps quoted payloads and repairs truncated JSON. `generateChartData` is non-fatal (`null` + warn). Callers on both streams skip / static-fallback. Model-agnostic extract errors.
+
+### Just finished earlier (17–19 Aug 2026) — Support agents + marketing
 
 - **Agent 2 Telegram Concierge:** `POST /api/support/telegram` — webhook secret, `update_id` dedupe, `/start` + deep-link payload (`ops-C1-S6`), Puter FAQ triage, Discord escalate with clickable `https://t.me/…` (never `tg://`), founder `/reply <chat_id> <text>`.
 - **In-app “Talk to a human”:** `support.ts` + wizard lifebuoy + Analyst footer + landing footer + Settings Get help. `/start` stores `came_from` for Discord.
@@ -423,13 +474,14 @@ Snapshot as of **19 Aug 2026**. Prefer editing this file over scattering archite
 
 ### Next steps for tomorrow
 
-1. **E2E priority email (live):** Send from the advisory allowlisted address → confirm Vercel log `classified as advisory` and `Puter draft took {ms}ms` under 60s → Telegram draft has a real body (not the fallback) → **Reply** to the draft with `/send` → customer receives `Re:` with `In-Reply-To`. Repeat `/reject` and an edited-text send.
-2. **Replace V1 entitlements:** Swap the hardcoded `TIER_ALLOWLIST` in `src/lib/entitlements.ts` for PayPal (or checkout) webhook lookups. Keep unknown emails as `explorer`.
-3. **Checkout / credits:** Pricing CTAs still go to `/sign-up`. Wire Professional lifetime + report credit packs + Advisory annual billing; do not invent competitor names on `/comparison`.
-4. **Telegram Concierge smoke:** `/start ops-C1-S6` greeting; FAQ vs BUG Discord (`came_from` + username link); founder `/reply`.
+1. **DeepSeek chart E2E:** Regenerate a Sale study with DeepSeek V3.2 — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
+2. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
+3. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
+4. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
 
 ### Still open / later (not tomorrow’s first jobs)
 
+- **Support smoke (from 19 Aug):** Live priority email (`Reply` `/send` / `/reject` / edited send) and Telegram Concierge (`/start ops-C1-S6`, FAQ vs BUG Discord, founder `/reply`).
 - **Manual isolation QA** (from 15 Aug): User A vs User B KV; Analyst still quotes `reasoning_notes`.
 - **E2E QA — Operational Data Centre** and **Sale warehouse** C1→C6 + Feasibility (unchanged engine work).
 - **Warehouse (Operational) polish:** Verify all AI schema fields (e.g. `free_rent_months`) are fully wired in UI consumers.
@@ -447,11 +499,11 @@ Snapshot as of **19 Aug 2026**. Prefer editing this file over scattering archite
 1. Equity gap-fill keeps **cumulative NCF Post-Financing ≥ 0**.  
 2. Escrow interest, UAE progress withdrawals, and construction loan interest use the **1-month offset**.  
 3. Levered equity IRR: **negatives = equity injections**; **positives = NCF post-financing after the funding gap closes** (see §4.3 for series variants).  
-4. Sale CF column count = **CP + jurisdiction offset** (MY +24, UAE/KSA/AU +12, commercial non-escrow +6).  
-5. **Thailand ≠ UAE** — `OTHER` must not inherit UAE escrow strategy by accident. Unset OTHER withdrawal mode defaults to `"none"` (CP+6).  
+4. Sale CF column count = **CP + selected-rule offset** (staged +12, 10/90 +12, progress +24, none / commercial +6). Engine routing follows the **selected** rule, not the country.  
+5. Escrow rules are **mechanisms, not country labels.** Location only pre-selects (Australia → 10/90; Malaysia → progress; UAE + Dubai → staged; **all other locations** including KSA and non-Dubai emirates → none, with full choice). Unset/empty mode → `none` (CP+6). No country inherits staged by accident; China + staged must not label the slide “UAE — RERA”.  
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
-8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show HDA/Schedule H escrow.  
+8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
 10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.  
 11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
@@ -463,8 +515,11 @@ Snapshot as of **19 Aug 2026**. Prefer editing this file over scattering archite
 17. **Operational C6 shocks:** Use the asset’s own factor set from `ASSET_SPECIFIC_FACTORS`. Unmapped types show Common Factors only — never fall back to Hotel.  
 18. **Support email review:** Founder `/send` / `/reject` / edited replies to priority drafts **must** be a Telegram **Reply** to the `---DRAFT---` message; a bare `/send` must not hit FAQ triage.  
 19. **Entitlements V1:** `getCustomerTier` is a hardcoded allowlist; unknown → `explorer`. Parse `From` via `extractEmailFromHeader` (angle-brackets / parenthetical names) before lookup.  
-20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.
+20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.  
+21. **White-label logo:** Advisory always; Professional only with 100-Pack allowlist; Explorer never. Height 40–200px in Secure KV; title slide only.  
+22. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — first export per `proj_…` consumes; same-project re-exports free. Advisory — unlimited, no watermark. Failed PDFs do not consume.  
+23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`.
 
 ---
 
-*Last updated 19 Aug 2026 (Telegram Concierge + priority email + pricing/comparison; no engine math). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 20 Aug 2026 (feasibility logo/pagination/watermark + export gating + chart JSON salvage; no engine math). Prefer editing this file over scattering architecture notes across chats.*

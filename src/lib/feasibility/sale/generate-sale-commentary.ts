@@ -118,7 +118,7 @@ export function generateSaleCommentaryFallback(
         `Net proceeds after deductions of ${fmtSaleMoney(m.netProceeds, c, true)} support institutional return thresholds with payback at month ${m.paybackMonth}.`,
         `Average selling price of ${c} ${m.avgPricePsf}/sqft positions the project within the competitive freehold/strata band for ${bundle.location.city}.`,
         `Sales velocity and launch timing assumptions align with ${bundle.location.country} market absorption benchmarks for ${config.assetLabel.toLowerCase()} product.`,
-        `Escrow-regulated buyer collections under ${m.escrowJurisdiction} rules mitigate counterparty risk while funding construction milestones.`,
+        `Escrow-regulated buyer collections under the ${m.escrowJurisdiction} mitigate counterparty risk while funding construction milestones.`,
       ];
     case "Project Overview":
       return [
@@ -216,7 +216,7 @@ export function generateSaleCommentaryFallback(
       ];
     case "Escrow Configuration":
       return [
-        `${m.escrowJurisdiction} escrow rules govern buyer payment collection and developer withdrawal timing.`,
+        `The ${m.escrowJurisdiction} governs buyer payment collection and developer withdrawal timing.`,
         `Progress-linked withdrawals align developer cash access with construction certification.`,
         `Retention provisions protect buyers until handover and defect liability periods.`,
       ];

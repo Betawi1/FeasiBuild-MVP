@@ -5,10 +5,26 @@ import SlideHeader from "@/components/feasibility/SlideHeader";
 import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParagraphs";
 import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { SaleEscrowWithdrawalData } from "@/types/feasibility";
+import {
+  ESCROW_RULE_CONFIG_TITLE,
+  ESCROW_RULE_DISPLAY_NAME,
+  normalizeEscrowRuleId,
+  type EscrowRuleId,
+} from "@/lib/financing-engine/escrow-rules";
 
 interface Props extends SlideEditingProps {
   data: SaleEscrowWithdrawalData;
   paragraphs?: string[];
+}
+
+function resolveSlideRule(data: SaleEscrowWithdrawalData): EscrowRuleId {
+  if (data.ruleId) return normalizeEscrowRuleId(data.ruleId);
+  const j = (data.jurisdiction ?? "").toLowerCase();
+  if (j === "uae" || j.includes("rera") || j.includes("staged")) return "staged";
+  if (j === "malaysia" || j.includes("hda") || j.includes("progress")) return "progress";
+  if (j === "australia" || j.includes("10/90") || j.includes("ten_ninety")) return "ten_ninety";
+  if (j.includes("no escrow") || j === "none") return "none";
+  return normalizeEscrowRuleId(data.jurisdiction);
 }
 
 export default function EscrowWithdrawalSlide({
@@ -18,6 +34,13 @@ export default function EscrowWithdrawalSlide({
   onParagraphChange,
 }: Props) {
   const c = data.currency;
+  const rule = resolveSlideRule(data);
+  const title =
+    data.configTitle || ESCROW_RULE_CONFIG_TITLE[rule] || ESCROW_RULE_DISPLAY_NAME[rule];
+  const showRera = rule === "staged" && data.localRegimeNote === "Dubai RERA";
+  const showHda = rule === "progress" && Boolean(data.localRegimeNote?.includes("HDA"));
+  const showAu1090 =
+    rule === "ten_ninety" && Boolean(data.localRegimeNote?.toLowerCase().includes("10/90"));
 
   return (
     <SlideContainer>
@@ -37,11 +60,24 @@ export default function EscrowWithdrawalSlide({
         </div>
       )}
       <div className="flex-1 overflow-auto min-h-0">
-        {data.jurisdiction === "UAE" && (
+        {rule === "staged" && (
           <div>
-            <h3 className="text-sm font-bold text-slate-800 mb-2">
-              UAE — RERA Escrow Configuration
-            </h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                Buyer payments are lodged in a designated escrow account and withdrawn only after
+                construction-progress certifications.
+              </li>
+              <li>
+                Certifications occur every {data.uaeConfig.certificationInterval}, with a{" "}
+                {data.uaeConfig.retentionPercentage}% retention held until{" "}
+                {data.uaeConfig.releaseTiming}.
+              </li>
+              <li>
+                Setup fee {c} {Number(data.uaeConfig.setupFee).toLocaleString()} and management fee{" "}
+                {data.uaeConfig.managementFee}% p.a. on the average balance.
+              </li>
+            </ul>
             <table className="feasibility-table w-full text-xs border border-slate-300 mb-3">
               <tbody>
                 <tr>
@@ -74,40 +110,59 @@ export default function EscrowWithdrawalSlide({
             </table>
             <div className="mt-2 bg-slate-50 border-l-4 border-blue-500 p-3 rounded">
               <h4 className="text-xs font-bold text-slate-800 mb-2">
-                UAE RERA Escrow Framework — Detailed Explanation
+                Staged Escrow Framework — Detailed Explanation
               </h4>
               <p className="text-xs text-slate-700 leading-relaxed mb-2">
-                Under the UAE Real Estate Regulatory Agency (RERA) escrow regulations, all buyer
-                payments for off-plan properties must be deposited into a designated escrow account
-                managed by an approved bank or financial institution. This framework is designed to
-                protect buyer interests and ensure that developer funds are used exclusively for the
-                specific project for which they were collected.
+                Under a certification-based staged withdrawal mechanism, all buyer payments for
+                off-plan properties are deposited into a designated escrow account managed by an
+                approved bank or financial institution. The framework protects buyer interests and
+                ensures developer funds are used exclusively for the project for which they were
+                collected.
               </p>
               <p className="text-xs text-slate-700 leading-relaxed mb-2">
-                The developer may withdraw funds from the escrow account based on construction
-                progress certifications issued by the project engineer or consultant. In this
-                project, certifications occur every {data.uaeConfig.certificationInterval}, allowing
-                periodic withdrawals aligned with actual construction milestones. A retention of{" "}
-                {data.uaeConfig.retentionPercentage}% of the Gross Development Value (GDV) is held in
-                escrow until {data.uaeConfig.releaseTiming}, serving as a defect liability reserve to
-                address any post-completion issues.
+                The developer may withdraw funds based on construction progress certifications
+                issued by the project engineer or consultant. In this project, certifications occur
+                every {data.uaeConfig.certificationInterval}, allowing periodic withdrawals aligned
+                with actual construction milestones. A retention of{" "}
+                {data.uaeConfig.retentionPercentage}% is held in escrow until{" "}
+                {data.uaeConfig.releaseTiming}, serving as a defect-liability reserve to address
+                post-completion issues.
               </p>
+              {showRera && (
+                <p className="text-xs text-slate-700 leading-relaxed mb-2">
+                  For this Dubai project the local regime is the Real Estate Regulatory Agency
+                  (RERA) escrow framework, which applies the same certification-and-retention
+                  mechanism.
+                </p>
+              )}
               <p className="text-xs text-slate-700 leading-relaxed">
                 The escrow account incurs a one-time setup fee of {c}{" "}
                 {Number(data.uaeConfig.setupFee).toLocaleString()} and an annual management fee of{" "}
-                {data.uaeConfig.managementFee}% on the average balance. This structure ensures
-                transparent fund management, reduces developer default risk, and provides buyers with
-                confidence that their payments are secured until project completion and handover.
+                {data.uaeConfig.managementFee}% on the average balance.
               </p>
             </div>
           </div>
         )}
 
-        {data.jurisdiction === "Malaysia" && (
+        {rule === "progress" && (
           <div>
-            <h3 className="text-sm font-bold text-slate-800 mb-2">
-              Malaysia — HDA Escrow Configuration (Schedule H)
-            </h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                Withdrawals follow construction-progress milestones (S-curve thresholds) against
+                actual sales collected.
+              </li>
+              <li>
+                A construction deposit is lodged at commencement and retained through the
+                post-completion tail.
+              </li>
+              {showHda && (
+                <li>
+                  This project&apos;s location uses the Malaysia Housing Development Act (HDA)
+                  progress-drawdown convention as the local regime.
+                </li>
+              )}
+            </ul>
             <table className="feasibility-table w-full text-[8px] border border-slate-300 mb-3">
               <thead>
                 <tr className="bg-slate-800 text-white">
@@ -135,7 +190,7 @@ export default function EscrowWithdrawalSlide({
             <table className="feasibility-table w-full text-xs border border-slate-300">
               <tbody>
                 <tr>
-                  <td className="border border-slate-300 p-2 font-medium">HDA Deposit</td>
+                  <td className="border border-slate-300 p-2 font-medium">Construction Deposit</td>
                   <td className="border border-slate-300 p-2">{data.malaysiaConfig.hdaDeposit}</td>
                 </tr>
                 <tr>
@@ -154,26 +209,52 @@ export default function EscrowWithdrawalSlide({
                     {data.malaysiaConfig.retentionRelease.finalRelease}
                   </td>
                 </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Escrow Setup Fee</td>
+                  <td className="border border-slate-300 p-2">
+                    {c} {Number(data.malaysiaConfig.setupFee).toLocaleString()}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Management Fee</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.malaysiaConfig.managementFee}% p.a.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
         )}
 
-        {data.jurisdiction === "Australia" && (
+        {rule === "ten_ninety" && (
           <div>
-            <h3 className="text-sm font-bold text-slate-800 mb-2">
-              Australia — 10/90 Withdrawal Rule
-            </h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                A purchase deposit is held in trust during construction; the balance is paid at
+                completion / settlement.
+              </li>
+              <li>
+                Deposit {data.australiaConfig.purchaseDeposit}% and balance{" "}
+                {data.australiaConfig.balancePayment}% of sales proceeds.
+              </li>
+              {showAu1090 && (
+                <li>
+                  This project&apos;s location follows Australian state 10/90 trust conventions as
+                  the local regime.
+                </li>
+              )}
+            </ul>
             <table className="feasibility-table w-full text-xs border border-slate-300">
               <tbody>
                 <tr>
-                  <td className="border border-slate-300 p-2 font-medium">Purchase Deposit</td>
+                  <td className="border border-slate-300 p-2 font-medium">Purchase Deposit %</td>
                   <td className="border border-slate-300 p-2">
                     {data.australiaConfig.purchaseDeposit}% of Sales Proceeds
                   </td>
                 </tr>
                 <tr>
-                  <td className="border border-slate-300 p-2 font-medium">Balance Payment</td>
+                  <td className="border border-slate-300 p-2 font-medium">Balance Payment %</td>
                   <td className="border border-slate-300 p-2">
                     {data.australiaConfig.balancePayment}% of Sales Proceeds
                   </td>
@@ -202,6 +283,21 @@ export default function EscrowWithdrawalSlide({
                 </tr>
               </tbody>
             </table>
+          </div>
+        )}
+
+        {rule === "none" && (
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                No statutory escrow or trust withdrawal mechanism is applied to this project.
+              </li>
+              <li>
+                Sales proceeds sweep directly to debt service and equity distribution (standard
+                commercial waterfall).
+              </li>
+            </ul>
           </div>
         )}
       </div>

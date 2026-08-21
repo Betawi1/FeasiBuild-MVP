@@ -7,6 +7,16 @@ import type { FinancingConfig } from "@/lib/sale-financing-engine";
 import type { MonthlyRow as EngineMonthlyRow } from "@/lib/financing-engine/generate-cash-flow";
 import useFinModelStore from "@/store/useFinModelStore";
 import { formatDrawdownLabel } from "@/lib/feasibility/build-term-loan-data";
+import {
+  ESCROW_RULE_CONFIG_TITLE,
+  ESCROW_RULE_DISPLAY_NAME,
+  defaultEscrowRuleForLocation,
+  isAustraliaLocation,
+  isDubaiCity,
+  isMalaysiaLocation,
+  isUaeLocation,
+  resolveEscrowRule,
+} from "@/lib/financing-engine/escrow-rules";
 import type {
   SaleDevelopmentCostsData,
   SaleDevelopmentScheduleData,
@@ -436,8 +446,35 @@ export function buildSaleEscrowWithdrawalData(
 ): SaleEscrowWithdrawalData {
   const f = bundle.financing;
   const ec = f.escrowConfig;
-  const jurisdiction = bundle.saleMetrics.escrowJurisdiction;
+  const city = bundle.location.city;
+  const country = bundle.location.country;
+  const rule = resolveEscrowRule({
+    withdrawalMode: ec?.withdrawalMode,
+    jurisdiction: isMalaysiaLocation(country)
+      ? "MALAYSIA"
+      : isAustraliaLocation(country)
+        ? "AUSTRALIA"
+        : isUaeLocation(country) && isDubaiCity(city)
+        ? "UAE_SA"
+        : "OTHER",
+  });
+  const locationDefault = defaultEscrowRuleForLocation({
+    country,
+    city,
+  });
+  let localRegimeNote: string | undefined;
+  if (rule === "staged" && locationDefault === "staged" && isDubaiCity(city)) {
+    localRegimeNote = "Dubai RERA";
+  } else if (rule === "progress" && locationDefault === "progress") {
+    localRegimeNote = "Malaysia HDA";
+  } else if (rule === "ten_ninety" && locationDefault === "ten_ninety") {
+    localRegimeNote = "Australian state 10/90 regimes";
+  }
+
   const c = bundle.currency;
+  const retentionPct = ec?.uaeSa?.retentionPercentage ?? 5;
+  const depositPct = ec?.australia?.depositPct ?? 10;
+  const balancePct = ec?.australia?.balancePct ?? 90;
 
   const malaysiaSchedule = [
     { stage: "Stage 1", milestone: "SPA Signing", withdrawalPercent: "10%", sCurveTrigger: "Monthly" },
@@ -453,12 +490,16 @@ export function buildSaleEscrowWithdrawalData(
 
   return {
     currency: c,
-    jurisdiction,
+    ruleId: rule,
+    ruleName: ESCROW_RULE_DISPLAY_NAME[rule],
+    configTitle: ESCROW_RULE_CONFIG_TITLE[rule],
+    localRegimeNote,
+    jurisdiction: ESCROW_RULE_DISPLAY_NAME[rule],
     uaeConfig: {
       certificationInterval: `${ec?.uaeSa?.certificationInterval ?? 3} months`,
-      retentionPercentage: ec?.uaeSa?.retentionPercentage ?? 5,
+      retentionPercentage: retentionPct,
       releaseTiming: "Practical completion + defect liability",
-      illustrativeRetention: fmtPct(ec?.uaeSa?.retentionPercentage ?? 5, bundle.component4.gdv),
+      illustrativeRetention: fmtPct(retentionPct, bundle.component4.gdv),
       setupFee: f.escrowSetupFee ?? 0,
       managementFee: f.escrowManagementFeePct ?? 0,
     },
@@ -471,14 +512,14 @@ export function buildSaleEscrowWithdrawalData(
         finalRelease: `VP + ${ec?.malaysia?.retentionFinalReleaseMonths ?? 24} months`,
       },
       illustrativeRetention: fmtPct(5, bundle.component4.gdv),
-      releaseTiming: "Schedule H milestones",
+      releaseTiming: "Progress milestones through VP + 24 months",
       setupFee: f.escrowSetupFee ?? 0,
       managementFee: f.escrowManagementFeePct ?? 0,
     },
     australiaConfig: {
-      purchaseDeposit: ec?.australia?.depositPct ?? 10,
-      balancePayment: ec?.australia?.balancePct ?? 90,
-      illustrativeRetention: fmtPct(5, bundle.component4.gdv),
+      purchaseDeposit: depositPct,
+      balancePayment: balancePct,
+      illustrativeRetention: fmtPct(depositPct, bundle.component4.gdv),
       releaseTiming: "Settlement / completion",
       setupFee: f.escrowSetupFee ?? 0,
       managementFee: f.escrowManagementFeePct ?? 0,
@@ -688,7 +729,12 @@ export function isSaleRevolvingCreditData(d: unknown): d is SaleRevolvingCreditD
 }
 
 export function isSaleEscrowWithdrawalData(d: unknown): d is SaleEscrowWithdrawalData {
-  return !!d && typeof d === "object" && typeof (d as SaleEscrowWithdrawalData).jurisdiction === "string";
+  return (
+    !!d &&
+    typeof d === "object" &&
+    (typeof (d as SaleEscrowWithdrawalData).ruleId === "string" ||
+      typeof (d as SaleEscrowWithdrawalData).jurisdiction === "string")
+  );
 }
 
 export function isSalePostFinancingCashFlowData(d: unknown): d is SalePostFinancingCashFlowData {

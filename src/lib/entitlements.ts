@@ -7,6 +7,7 @@ export type CustomerTier = "explorer" | "pro" | "advisory";
 
 const TIER_ALLOWLIST = new Map<string, CustomerTier>([
   ["pro@example.com", "pro"],
+  ["rashdan.ibrahim@icloud.com", "pro"],
   ["advisory@example.com", "advisory"],
   ["rashdan.ibrahim@gmail.com", "advisory"],
 ]);

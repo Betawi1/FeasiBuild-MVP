@@ -21,10 +21,16 @@ import MalaysiaEscrowConfig from "./escrow-config/MalaysiaEscrowConfig";
 import UaeEscrowConfig from "./escrow-config/UaeEscrowConfig";
 import type {
   EscrowConfigUpdateField,
-  EscrowCountryBucket,
   EscrowWithdrawalMode,
   MalaysiaPropertyType,
 } from "./escrow-config/types";
+import {
+  ESCROW_RULE_DISPLAY_NAME,
+  ESCROW_RULE_IDS,
+  defaultEscrowRuleForLocation,
+  normalizeEscrowRuleId,
+  type EscrowRuleId,
+} from "@/lib/financing-engine/escrow-rules";
 
 /** Sample cumulative NCF for Funding Gap chart (matches commercial wizard) */
 const generateFundingGapChartData = (
@@ -69,6 +75,7 @@ export const JURISDICTION_RULES: Record<
     depositRate: number;
     badge: string;
     covenantLtcMax: number;
+    defaultEscrowRule: EscrowRuleId;
   }
 > = {
   UAE: {
@@ -77,8 +84,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 3.9,
-    badge: "UAE — RERA",
+    badge: "UAE",
     covenantLtcMax: 75,
+    defaultEscrowRule: "staged",
   },
   KSA: {
     landEquityMin: 100,
@@ -86,8 +94,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 4.0,
-    badge: "KSA — SFDA",
+    badge: "KSA",
     covenantLtcMax: 75,
+    defaultEscrowRule: "none",
   },
   Malaysia: {
     landEquityMin: 3,
@@ -95,8 +104,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 18,
     depositRate: 3.0,
-    badge: "Malaysia — GDV escrow",
+    badge: "Malaysia",
     covenantLtcMax: 80,
+    defaultEscrowRule: "progress",
   },
   Australia: {
     landEquityMin: 35,
@@ -104,8 +114,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 0.5,
-    badge: "Australia — state regimes",
+    badge: "Australia",
     covenantLtcMax: 65,
+    defaultEscrowRule: "ten_ninety",
   },
   Vietnam: {
     landEquityMin: 15,
@@ -113,8 +124,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 24,
     depositRate: 4.5,
-    badge: "Vietnam — escrow",
+    badge: "Vietnam",
     covenantLtcMax: 70,
+    defaultEscrowRule: "none",
   },
   Thailand: {
     landEquityMin: 0,
@@ -122,8 +134,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 2.5,
-    badge: "Thailand — escrow",
+    badge: "Thailand",
     covenantLtcMax: 75,
+    defaultEscrowRule: "none",
   },
   Other: {
     landEquityMin: 0, // Allows variable land equity
@@ -133,6 +146,7 @@ export const JURISDICTION_RULES: Record<
     depositRate: 0,
     badge: "Other / No Specific Escrow Rules",
     covenantLtcMax: 75,
+    defaultEscrowRule: "none",
   },
 };
 
@@ -312,50 +326,18 @@ function resolveJurisdiction(projectInfo: ProjectInfo): JurisdictionId {
   return "Other";
 }
 
-function resolveEscrowCountry(
-  projectInfo: ProjectInfo,
-  jurisdiction: JurisdictionId
-): EscrowCountryBucket {
-  const code = projectInfo.countryCode?.toUpperCase() ?? "";
-  if (code === "MY" || jurisdiction === "Malaysia") return "MY";
-  if (code === "SA" || jurisdiction === "KSA") return "SA";
-  if (code === "AE" || jurisdiction === "UAE") return "UAE";
-  if (code === "AU" || jurisdiction === "Australia") return "AU";
-  if (code === "VN" || jurisdiction === "Vietnam") return "VN";
-  if (code === "TH" || jurisdiction === "Thailand") return "TH";
-  return "OTHER";
-}
-
 function resolveMalaysiaPropertyType(projectInfo: ProjectInfo): MalaysiaPropertyType {
   const sub = projectInfo.buildingSubType ?? "";
   if (sub.includes("landed")) return "LANDED";
   return "HIGH_RISE";
 }
 
-function defaultEscrowWithdrawalMode(country: EscrowCountryBucket): EscrowWithdrawalMode {
-  if (country === "AU") return "australia";
-  if (country === "UAE" || country === "SA") return "uae";
-  if (country === "MY") return "malaysia";
-  // For flexible countries (TH, VN, OTHER), default to "none" to let user choose
-  return "none";
-}
-
-function jurisdictionToEscrowCountry(jurisdiction: JurisdictionId): EscrowCountryBucket {
-  if (jurisdiction === "Malaysia") return "MY";
-  if (jurisdiction === "KSA") return "SA";
-  if (jurisdiction === "UAE") return "UAE";
-  if (jurisdiction === "Australia") return "AU";
-  if (jurisdiction === "Vietnam") return "VN";
-  if (jurisdiction === "Thailand") return "TH";
-  return "OTHER";
-}
-
-function escrowCountryLabel(country: EscrowCountryBucket): string {
-  if (country === "AU") return "Australian";
-  if (country === "VN") return "Vietnamese";
-  if (country === "TH") return "Thai";
-  if (country === "OTHER") return "Other";
-  return country;
+function defaultEscrowWithdrawalMode(projectInfo: ProjectInfo): EscrowWithdrawalMode {
+  return defaultEscrowRuleForLocation({
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+  });
 }
 
 function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Partial<FormData> {
@@ -375,15 +357,6 @@ function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Parti
             cfg.landEquityPct ?? jurisdictionMin
           ),
     certificationIntervalMonths: cfg.certificationIntervalMonths,
-    escrowWithdrawalMode: defaultEscrowWithdrawalMode(
-      jurisdictionToEscrowCountry(jurisdiction)
-    ),
-    auDepositPct: 10,
-    auBalancePct: 90,
-    malaysiaPropertyType: "HIGH_RISE",
-    retentionFirstReleaseMonths: 8,
-    retentionFinalReleaseMonths: 24,
-    retentionPercent: JURISDICTION_RULES[jurisdiction].retentionPct,
     milestoneThresholdPct: cfg.milestoneThresholdPct,
     drawdownMode,
     interestRateType: cfg.rateType,
@@ -494,15 +467,16 @@ function ResidentialFinancingWizardContent() {
   const projectIRR = sale.projectIRR;
 
   const jurisdiction = resolveJurisdiction(projectInfo);
-  const escrowCountry = useMemo(
-    () => resolveEscrowCountry(projectInfo, jurisdiction),
-    [projectInfo, jurisdiction]
+  const locationDefaultRule = useMemo(
+    () =>
+      defaultEscrowRuleForLocation({
+        country: projectInfo.country,
+        countryCode: projectInfo.countryCode,
+        city: projectInfo.city,
+      }),
+    [projectInfo.country, projectInfo.countryCode, projectInfo.city]
   );
-  const showAustraliaTab = escrowCountry === "AU";
-  const showMalaysiaTab = escrowCountry === "MY";
-  const showUaeTab = escrowCountry === "UAE" || escrowCountry === "SA";
-  const showFlexibleTabs = escrowCountry === "VN" || escrowCountry === "TH";
-  const showAllTabs = showFlexibleTabs || jurisdiction === "Other";
+  const showRulePickerHint = locationDefaultRule === "none";
   const rules = JURISDICTION_RULES[jurisdiction];
   const feeSuggestions = FEE_SUGGESTIONS[jurisdiction];
   const feeSuggestionRegionLabel =
@@ -563,7 +537,6 @@ function ResidentialFinancingWizardContent() {
       financing.preferenceShares,
       cashEquityInit
     );
-    const escrowCountryInit = resolveEscrowCountry(projectInfo, jurisdiction);
     const storedEscrow = financing.escrowConfig;
 
     return {
@@ -579,9 +552,9 @@ function ResidentialFinancingWizardContent() {
       landEquityPercent: initialLandEquity,
       landLoanRatePercent: 6.5,
       landLoanInterestTreatment: "capitalize",
-      escrowWithdrawalMode:
-        storedEscrow?.withdrawalMode ??
-        defaultEscrowWithdrawalMode(escrowCountryInit),
+      escrowWithdrawalMode: storedEscrow?.withdrawalMode
+        ? normalizeEscrowRuleId(storedEscrow.withdrawalMode)
+        : defaultEscrowWithdrawalMode(projectInfo),
       malaysiaPropertyType:
         storedEscrow?.malaysia?.propertyType ??
         resolveMalaysiaPropertyType(projectInfo),
@@ -590,7 +563,8 @@ function ResidentialFinancingWizardContent() {
       retentionFinalReleaseMonths:
         storedEscrow?.malaysia?.retentionFinalReleaseMonths ?? 24,
       retentionPercent:
-        storedEscrow?.uaeSa?.retentionPercentage ?? rules.retentionPct,
+        storedEscrow?.uaeSa?.retentionPercentage ??
+        (rules.retentionPct > 0 ? rules.retentionPct : 5),
       auDepositPct:
         storedEscrow?.australia?.depositPct ??
         storedEscrow?.australia?.retentionPct ??
@@ -636,13 +610,49 @@ function ResidentialFinancingWizardContent() {
   const updateField = useCallback(<K extends keyof FormData>(field: K, value: FormData[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
 
-    // CRITICAL: Ensure withdrawal mode is saved to the store immediately
-    if (field === "escrowWithdrawalMode") {
+    // Persist escrow rule + editable params so preview/engine recalculate from the store.
+    if (
+      field === "escrowWithdrawalMode" ||
+      field === "retentionPercent" ||
+      field === "certificationIntervalMonths" ||
+      field === "auDepositPct" ||
+      field === "auBalancePct"
+    ) {
+      const nextMode =
+        field === "escrowWithdrawalMode"
+          ? (value as EscrowWithdrawalMode)
+          : formData.escrowWithdrawalMode;
       updateFinancing(
         {
           escrowConfig: {
             ...(financing.escrowConfig ?? {}),
-            withdrawalMode: value as EscrowWithdrawalMode,
+            withdrawalMode: nextMode,
+            uaeSa: {
+              certificationInterval:
+                field === "certificationIntervalMonths"
+                  ? ((value as number) === 6 ? 6 : 3)
+                  : formData.certificationIntervalMonths === 6
+                    ? 6
+                    : 3,
+              retentionPercentage:
+                field === "retentionPercent"
+                  ? (value as number)
+                  : formData.retentionPercent,
+            },
+            australia: {
+              depositPct:
+                field === "auDepositPct"
+                  ? (value as number)
+                  : field === "auBalancePct"
+                    ? Math.max(0, Math.min(100, 100 - (value as number)))
+                    : formData.auDepositPct,
+              balancePct:
+                field === "auBalancePct"
+                  ? (value as number)
+                  : field === "auDepositPct"
+                    ? Math.max(0, Math.min(100, 100 - (value as number)))
+                    : formData.auBalancePct,
+            },
           },
         },
         "sale"
@@ -656,7 +666,7 @@ function ResidentialFinancingWizardContent() {
     ) {
       auditSaleFinancingField(field as string, value);
     }
-  }, [updateFinancing, financing.escrowConfig]);
+  }, [updateFinancing, financing.escrowConfig, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct]);
 
   const updateEscrowField: EscrowConfigUpdateField = useCallback(
     (field, value) => {
@@ -762,15 +772,6 @@ function ResidentialFinancingWizardContent() {
         : { ...prev, malaysiaPropertyType: propertyType }
     );
   }, [projectInfo.buildingSubType]);
-
-  useEffect(() => {
-    if (!showAustraliaTab) return;
-    setFormData((prev) =>
-      prev.escrowWithdrawalMode === "australia"
-        ? prev
-        : { ...prev, escrowWithdrawalMode: "australia" }
-    );
-  }, [showAustraliaTab]);
 
   useEffect(() => {
     if (!financingConfig) return;
@@ -883,9 +884,9 @@ function ResidentialFinancingWizardContent() {
   const prefSharesAmount = formData.prefSharesEnabled
     ? cashEquityRequired * (formData.prefSharesAllocationPercent / 100)
     : 0;
-  // Lock at 100% if country is UAE/KSA OR if UAE/KSA escrow model is selected
+  // Lock at 100% if country land-equity min is 100% OR staged escrow is selected
   const isLandEquityLocked =
-    rules.landEquityMin >= 100 || formData.escrowWithdrawalMode === "uae";
+    rules.landEquityMin >= 100 || formData.escrowWithdrawalMode === "staged";
 
   const landLoanAmount = Math.max(0, landCost * (1 - formData.landEquityPercent / 100));
   const australiaLandLoanCap = landCost * 0.65;
@@ -895,10 +896,6 @@ function ResidentialFinancingWizardContent() {
       : 0;
 
   const gdcExclLand = Math.max(0, tdc - landCost);
-
-  const retentionBaseAmount =
-    rules.retentionBasis === "GDV" ? gdv : tdc;
-  const retentionAmount = retentionBaseAmount * (rules.retentionPct / 100);
 
   const constructionTotal = cashOutflows.constructionCost || 0;
   const sCurvePctAtMilestone = useMemo(() => {
@@ -1128,7 +1125,7 @@ function ResidentialFinancingWizardContent() {
             Component 4: Residential Financing (Sale)
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Land term loan + construction RCF • Escrow rules by jurisdiction
+            Land term loan + construction RCF • Escrow withdrawal mechanisms
           </p>
           <div className="mt-3 flex justify-between text-sm text-slate-400">
             <span>
@@ -2068,91 +2065,38 @@ function ResidentialFinancingWizardContent() {
             </h2>
 
             <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-              <span className="font-semibold text-emerald-400">{rules.badge}</span>
+              <span className="font-semibold text-emerald-400">
+                {ESCROW_RULE_DISPLAY_NAME[formData.escrowWithdrawalMode]}
+              </span>
               <span className="rounded bg-slate-700 px-2 py-1 text-xs text-slate-300">
-                Jurisdiction
+                {projectInfo.city || "—"}, {projectInfo.country || "—"}
               </span>
             </div>
 
-            {(showAustraliaTab || showAllTabs || showMalaysiaTab || showUaeTab) && (
-              <div className="flex flex-wrap border-b border-slate-700 gap-1">
-                {showAustraliaTab && (
-                  <button
-                    type="button"
-                    className="cursor-default border-b-2 border-emerald-400 px-4 py-2 text-sm font-medium text-emerald-400"
-                  >
-                    10/90 Rule
-                    <span className="ml-2 text-xs text-slate-500">(Locked)</span>
-                  </button>
-                )}
-                {showAllTabs && !showAustraliaTab && (
-                  <button
-                    type="button"
-                    onClick={() => updateField("escrowWithdrawalMode", "australia")}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      formData.escrowWithdrawalMode === "australia"
-                        ? "border-b-2 border-emerald-400 text-emerald-400"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    10/90 Rule
-                  </button>
-                )}
-                {(showMalaysiaTab || showAllTabs) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (showAllTabs) updateField("escrowWithdrawalMode", "malaysia");
-                    }}
-                    disabled={!showAllTabs}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      formData.escrowWithdrawalMode === "malaysia"
-                        ? "border-b-2 border-emerald-400 text-emerald-400"
-                        : "text-slate-400"
-                    } ${!showAllTabs ? "cursor-default" : "hover:text-slate-200"}`}
-                  >
-                    HDA Progress Withdrawals
-                    {escrowCountry === "MY" && (
-                      <span className="ml-2 text-xs text-slate-500">(Locked)</span>
-                    )}
-                  </button>
-                )}
-                {(showUaeTab || showAllTabs) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (showAllTabs) updateField("escrowWithdrawalMode", "uae");
-                    }}
-                    disabled={!showAllTabs}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      formData.escrowWithdrawalMode === "uae"
-                        ? "border-b-2 border-emerald-400 text-emerald-400"
-                        : "text-slate-400"
-                    } ${!showAllTabs ? "cursor-default" : "hover:text-slate-200"}`}
-                  >
-                    Certification Intervals
-                    {(escrowCountry === "UAE" || escrowCountry === "SA") && (
-                      <span className="ml-2 text-xs text-slate-500">(Locked)</span>
-                    )}
-                  </button>
-                )}
-                {showAllTabs && (
-                  <button
-                    type="button"
-                    onClick={() => updateField("escrowWithdrawalMode", "none")}
-                    className={`px-4 py-2 text-sm font-medium transition-colors ${
-                      formData.escrowWithdrawalMode === "none"
-                        ? "border-b-2 border-emerald-400 text-emerald-400"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    No Escrow Rules
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="flex flex-wrap border-b border-slate-700 gap-1">
+              {ESCROW_RULE_IDS.map((ruleId) => (
+                <button
+                  key={ruleId}
+                  type="button"
+                  onClick={() => updateField("escrowWithdrawalMode", ruleId)}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    formData.escrowWithdrawalMode === ruleId
+                      ? "border-b-2 border-emerald-400 text-emerald-400"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {ESCROW_RULE_DISPLAY_NAME[ruleId]}
+                </button>
+              ))}
+            </div>
 
-            {showFlexibleTabs && (
+            <p className="text-xs text-slate-400">
+              These are withdrawal mechanisms, not country labels — each market adopts one by
+              regulation or convention; select the one that matches the project&apos;s legal
+              framework.
+            </p>
+
+            {showRulePickerHint && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
                 <div className="flex items-start gap-3">
                   <svg
@@ -2174,8 +2118,8 @@ function ResidentialFinancingWizardContent() {
                       Select Your Escrow Withdrawal Method
                     </h4>
                     <p className="mt-1 text-sm text-slate-300">
-                      For {escrowCountryLabel(escrowCountry)} projects, you can choose any of the
-                      following approaches:
+                      For projects without a default rule (e.g. Thailand, China, KSA, or UAE
+                      emirates other than Dubai), you can choose any of the following approaches
                     </p>
                     <ul className="mt-2 space-y-1 text-sm text-slate-400">
                       <li>
@@ -2183,11 +2127,11 @@ function ResidentialFinancingWizardContent() {
                         trust during construction, balance settled on completion
                       </li>
                       <li>
-                        • <strong className="text-slate-300">HDA Progress Withdrawals:</strong>{" "}
+                        • <strong className="text-slate-300">Progress Drawdown Rule:</strong>{" "}
                         progress-based withdrawals tied to construction milestones
                       </li>
                       <li>
-                        • <strong className="text-slate-300">Certification Intervals:</strong>{" "}
+                        • <strong className="text-slate-300">Staged Escrow Rule:</strong>{" "}
                         time-based withdrawals at certification intervals
                       </li>
                       <li>
@@ -2206,7 +2150,7 @@ function ResidentialFinancingWizardContent() {
             )}
 
             <div className="space-y-6">
-              {showAustraliaTab && (
+              {formData.escrowWithdrawalMode === "ten_ninety" && (
                 <AustraliaEscrowConfig
                   formData={formData}
                   updateField={updateEscrowField}
@@ -2214,29 +2158,17 @@ function ResidentialFinancingWizardContent() {
                 />
               )}
 
-              {!showAustraliaTab &&
-                formData.escrowWithdrawalMode === "australia" &&
-                showAllTabs && (
-                  <AustraliaEscrowConfig
-                    formData={formData}
-                    updateField={updateEscrowField}
-                    isLocked={false}
-                  />
-                )}
+              {formData.escrowWithdrawalMode === "progress" && (
+                <MalaysiaEscrowConfig formData={formData} />
+              )}
 
-              {!showAustraliaTab &&
-                (formData.escrowWithdrawalMode === "malaysia" || showMalaysiaTab) && (
-                  <MalaysiaEscrowConfig formData={formData} />
-                )}
-
-              {!showAustraliaTab &&
-                (formData.escrowWithdrawalMode === "uae" || showUaeTab) && (
-                  <UaeEscrowConfig
-                    formData={formData}
-                    updateField={updateEscrowField}
-                    isLocked={!showAllTabs}
-                  />
-                )}
+              {formData.escrowWithdrawalMode === "staged" && (
+                <UaeEscrowConfig
+                  formData={formData}
+                  updateField={updateEscrowField}
+                  isLocked={false}
+                />
+              )}
 
               {formData.escrowWithdrawalMode === "none" && (
                 <div className="space-y-4 rounded-lg bg-slate-800/80 p-6 ring-1 ring-slate-700">
@@ -2259,19 +2191,22 @@ function ResidentialFinancingWizardContent() {
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="rounded-lg bg-slate-900/70 p-3 ring-1 ring-slate-700">
-                <p className="text-xs text-slate-400">Illustrative retention (jurisdiction)</p>
+                <p className="text-xs text-slate-400">Illustrative retention</p>
                 <p className="font-semibold text-white">
                   {formData.escrowWithdrawalMode === "none" ? (
                     <>No escrow retention</>
-                  ) : showAustraliaTab ? (
+                  ) : formData.escrowWithdrawalMode === "ten_ninety" ? (
                     <>
-                      {formData.auDepositPct}% purchase deposit in trust • 5% GDV retention for
-                      12 months post completion
+                      {formData.auDepositPct}% purchase deposit in trust •{" "}
+                      {formData.auBalancePct}% balance at completion
                     </>
                   ) : (
                     <>
-                      {rules.retentionPct}% of {rules.retentionBasis} •{" "}
-                      {formatCurrency(retentionAmount)}
+                      {formData.retentionPercent}% of {rules.retentionBasis} •{" "}
+                      {formatCurrency(
+                        (rules.retentionBasis === "GDV" ? gdv : tdc) *
+                          (formData.retentionPercent / 100)
+                      )}
                     </>
                   )}
                 </p>
@@ -2281,8 +2216,7 @@ function ResidentialFinancingWizardContent() {
                 <p className="font-semibold text-white">
                   {formData.escrowWithdrawalMode === "none"
                     ? "N/A — no escrow release schedule"
-                    : showMalaysiaTab ||
-                        (showFlexibleTabs && formData.escrowWithdrawalMode === "malaysia")
+                    : formData.escrowWithdrawalMode === "progress"
                       ? "24 months post completion"
                       : "12 months post completion"}
                 </p>

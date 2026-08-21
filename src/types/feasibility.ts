@@ -675,6 +675,13 @@ export interface SalePostFinancingMonthlyRow {
 
 export interface SaleEscrowWithdrawalData {
   currency: string;
+  /** Selected withdrawal rule id (ten_ninety | staged | progress | none). */
+  ruleId: string;
+  ruleName: string;
+  configTitle: string;
+  /** Local regime label only when the project location's default matches this rule (e.g. Dubai → RERA). */
+  localRegimeNote?: string;
+  /** @deprecated Prefer ruleId. Kept so older saved decks still type-guard. */
   jurisdiction: string;
   uaeConfig: Record<string, string | number>;
   malaysiaConfig: {

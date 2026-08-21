@@ -128,7 +128,7 @@ export default function MalaysiaEscrowConfig({ formData }: MalaysiaEscrowConfigP
 
       <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
         <h3 className="mb-4 text-lg font-semibold text-white">
-          Malaysia HDA Progress Withdrawal Schedule
+          Progress Drawdown Rule Configuration
         </h3>
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -222,7 +222,7 @@ export default function MalaysiaEscrowConfig({ formData }: MalaysiaEscrowConfigP
             <div className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
               8 months after VP
             </div>
-            <p className="mt-1 text-xs text-slate-500">Fixed per HDA regulations</p>
+            <p className="mt-1 text-xs text-slate-500">Fixed per the progress-drawdown retention schedule</p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-400">
@@ -231,7 +231,7 @@ export default function MalaysiaEscrowConfig({ formData }: MalaysiaEscrowConfigP
             <div className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
               24 months after VP
             </div>
-            <p className="mt-1 text-xs text-slate-500">Fixed per HDA regulations</p>
+            <p className="mt-1 text-xs text-slate-500">Fixed per the progress-drawdown retention schedule</p>
           </div>
         </div>
       </div>

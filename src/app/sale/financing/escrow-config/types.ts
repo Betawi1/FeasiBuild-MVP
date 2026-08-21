@@ -1,5 +1,7 @@
+import type { EscrowRuleId } from "@/lib/financing-engine/escrow-rules";
+
 /** Escrow withdrawal method selected in Component 4 Step 5. */
-export type EscrowWithdrawalMode = "malaysia" | "uae" | "australia" | "none";
+export type EscrowWithdrawalMode = EscrowRuleId;
 
 export type MalaysiaPropertyType = "HIGH_RISE" | "LANDED";
 
@@ -20,5 +22,5 @@ export type EscrowConfigUpdateField = <K extends keyof EscrowConfigFormFields>(
   value: EscrowConfigFormFields[K]
 ) => void;
 
-/** Country bucket for escrow tab visibility (Component 4 Step 5). */
+/** Country bucket for location-only default (never locks tabs). */
 export type EscrowCountryBucket = "MY" | "SA" | "UAE" | "AU" | "VN" | "TH" | "OTHER";

@@ -2,10 +2,17 @@ import type {
   Jurisdiction,
   MonthlyRow as EngineMonthlyRow,
 } from "@/lib/financing-engine/generate-cash-flow";
+import {
+  resolveEscrowRule,
+  type EscrowRuleId,
+} from "@/lib/financing-engine/escrow-rules";
 
 export type FinancingCashFlowExportOpts = {
   rows: EngineMonthlyRow[];
   jurisdiction: Jurisdiction;
+  /** Selected escrow rule — export table variant follows the rule, not country. */
+  escrowRule?: EscrowRuleId | string;
+  withdrawalMode?: string;
   hideEscrowRows?: boolean;
   /** Sale warehouse — include FF&E between Construction and Soft costs. */
   showFfe?: boolean;
@@ -262,6 +269,7 @@ function australiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] 
         get: (r) => r.cumuLockedInSales,
         totalMode: "last",
       },
+      { label: "Deposit to Trust", get: (r) => r.depositToTrust },
       {
         label: "Cumu. Trust Account",
         get: (r) => r.cumuTrustAccount,
@@ -269,6 +277,7 @@ function australiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] 
       },
       { label: "Trust Account Interest Income", get: (r) => r.trustAccountInterest },
       { label: "Trust Account Fees", get: (r) => r.trustAccountFees },
+      { label: "Balance Payment", get: (r) => r.balancePayment },
       { label: "Trust Account Releases", get: (r) => r.trustAccountReleases },
       { label: "Actual Sales Proceeds", get: (r) => r.actualSalesProceeds }
     );
@@ -337,13 +346,13 @@ function australiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] 
   return specs;
 }
 
-function specsForJurisdiction(
-  jurisdiction: Jurisdiction,
+function specsForEscrowRule(
+  rule: EscrowRuleId,
   hideEscrowRows: boolean,
   showFfe: boolean
 ): ExportRowSpec[] {
-  if (jurisdiction === "MALAYSIA") return malaysiaSpecs(hideEscrowRows, showFfe);
-  if (jurisdiction === "AUSTRALIA") return australiaSpecs(hideEscrowRows, showFfe);
+  if (rule === "progress") return malaysiaSpecs(hideEscrowRows, showFfe);
+  if (rule === "ten_ninety") return australiaSpecs(hideEscrowRows, showFfe);
   return uaeSpecs(hideEscrowRows, showFfe);
 }
 
@@ -354,6 +363,8 @@ export function buildFinancingCashFlowExportRows(
   const {
     rows,
     jurisdiction,
+    escrowRule,
+    withdrawalMode,
     hideEscrowRows = false,
     showFfe = false,
     projectLabel,
@@ -389,7 +400,12 @@ export function buildFinancingCashFlowExportRows(
     "TOTAL",
   ]);
 
-  for (const spec of specsForJurisdiction(jurisdiction, hideEscrowRows, showFfe)) {
+  const rule = resolveEscrowRule({
+    withdrawalMode: escrowRule || withdrawalMode,
+    jurisdiction,
+  });
+
+  for (const spec of specsForEscrowRule(rule, hideEscrowRows, showFfe)) {
     pushSection(out, spec, dataRows);
   }
 

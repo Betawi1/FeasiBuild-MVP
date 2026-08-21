@@ -152,23 +152,31 @@ async function generateMacroChartData(
   const prompt = createMacroChartPrompt(macroType, country);
   if (!prompt) return null;
 
-  const result = await aiProvider.generateChartData(prompt, {
-    cacheKey,
-    forceRegenerate,
-  });
-  if (!result || typeof result !== "object") return null;
+  try {
+    const result = await aiProvider.generateChartData(prompt, {
+      cacheKey,
+      forceRegenerate,
+    });
+    if (!result || typeof result !== "object") return null;
 
-  const chart = result as Partial<SlideChart>;
-  if (!chart.data || !Array.isArray(chart.data)) return null;
+    const chart = result as Partial<SlideChart>;
+    if (!chart.data || !Array.isArray(chart.data)) return null;
 
-  return withTallChart({
-    type: chart.type === "bar" || chart.type === "line" ? chart.type : "line",
-    title: chart.title ?? `${macroType} Trend`,
-    data: chart.data,
-    xKey: chart.xKey ?? "year",
-    yKeys: chart.yKeys ?? ["value"],
-    colors: chart.colors,
-  });
+    return withTallChart({
+      type: chart.type === "bar" || chart.type === "line" ? chart.type : "line",
+      title: chart.title ?? `${macroType} Trend`,
+      data: chart.data,
+      xKey: chart.xKey ?? "year",
+      yKeys: chart.yKeys ?? ["value"],
+      colors: chart.colors,
+    });
+  } catch (e) {
+    console.warn(
+      "[generateChartData] chart JSON unavailable — skipping chart.",
+      e
+    );
+    return null;
+  }
 }
 
 function normalizeCachedChart(raw: unknown): SlideChart | null {

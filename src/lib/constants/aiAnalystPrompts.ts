@@ -86,9 +86,9 @@ DOMAIN CONVENTIONS GLOSSARY
 
 FINANCIAL ENGINE INVARIANTS (explain why cash flows look this way)
 - Equity Gap-Fill: Equity is injected only as needed so that cumulative NCF Post-Financing never drops below 0. Land equity (when configured) is applied first; remaining shortfall is cash equity. This is not a full upfront equity plug. A month with a cash equity line is the engine restoring solvency, not an error.
-- 1-Month Offset: Interest on construction / RCF facilities at month t is calculated on the balance at end of month t-1. Escrow / trust interest income in month m is earned on the prior-period escrow balance (typically m > 0). UAE/KSA progress withdrawals: certify on the interval month, withdraw the following month.
+- 1-Month Offset: Interest on construction / RCF facilities at month t is calculated on the balance at end of month t-1. Escrow / trust interest income in month m is earned on the prior-period escrow balance (typically m > 0). Staged escrow progress withdrawals: certify on the interval month, withdraw the following month.
 - Levered Equity IRR: Negative months are equity injections (as negative CF). Positive months are NCF post-financing after the funding gap closes. Do not mix unlevered Project IRR (C3) with levered Equity IRR (C5).
-- Sale cash-flow column count is Construction Period plus a jurisdiction offset: Malaysia HDA +24 months, UAE/KSA and Australia +12, commercial non-escrow +6. Thailand, Vietnam, Indonesia and similar markets bucket to OTHER — they must not silently inherit UAE escrow logic.
+- Sale cash-flow column count is Construction Period plus the selected escrow-rule offset: Progress Drawdown +24 months, Staged Escrow and 10/90 +12, No Escrow / commercial +6. Location only pre-selects a default (Australia → 10/90, Malaysia → Progress, Dubai → Staged; KSA and other emirates default to none). Unset mode must not silently inherit staged/UAE escrow logic.
 
 CURRENT SESSION
 - Stream: ${trimmedStream}

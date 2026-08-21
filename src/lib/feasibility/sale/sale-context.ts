@@ -14,6 +14,14 @@ import {
 import { formatDrawdownLabel } from "@/lib/feasibility/build-term-loan-data";
 import { getSaleStreamConfig } from "@/lib/feasibility/sale/sale-stream-config";
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
+import {
+  ESCROW_RULE_DISPLAY_NAME,
+  isAustraliaLocation,
+  isDubaiCity,
+  isMalaysiaLocation,
+  isUaeLocation,
+  resolveEscrowRule,
+} from "@/lib/financing-engine/escrow-rules";
 
 function formatToken(id?: string): string {
   if (!id?.trim()) return "";
@@ -49,19 +57,24 @@ function saleableArea(co: CashOutflows, ci: CashInflows): number {
   return Math.round(bua * ((ci.saleableBUARatio || 86) / 100));
 }
 
+function legacyEngineJurisdiction(projectInfo: ProjectInfo): string {
+  if (isMalaysiaLocation(projectInfo.country, projectInfo.countryCode)) return "MALAYSIA";
+  if (isAustraliaLocation(projectInfo.country, projectInfo.countryCode)) return "AUSTRALIA";
+  if (isUaeLocation(projectInfo.country, projectInfo.countryCode) && isDubaiCity(projectInfo.city)) {
+    return "UAE_SA";
+  }
+  return "OTHER";
+}
+
 function escrowJurisdictionLabel(
   projectInfo: ProjectInfo,
   financing: Financing
 ): string {
-  const mode = financing.escrowConfig?.withdrawalMode;
-  if (mode === "malaysia") return "Malaysia";
-  if (mode === "australia") return "Australia";
-  if (mode === "uae") return "UAE";
-  const cc = (projectInfo.countryCode ?? projectInfo.country ?? "").toUpperCase();
-  if (cc === "MY" || cc.includes("MALAYSIA")) return "Malaysia";
-  if (cc === "AU" || cc.includes("AUSTRALIA")) return "Australia";
-  if (cc === "UAE" || cc.includes("EMIRATES")) return "UAE";
-  return "UAE";
+  const rule = resolveEscrowRule({
+    withdrawalMode: financing.escrowConfig?.withdrawalMode,
+    jurisdiction: legacyEngineJurisdiction(projectInfo),
+  });
+  return ESCROW_RULE_DISPLAY_NAME[rule];
 }
 
 export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {

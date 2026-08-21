@@ -9,11 +9,14 @@ import { useReportWizardStep } from "@/hooks/useReportWizardStep";
 import Step4PreferenceShares from "./steps/Step4-PreferenceShares";
 import Step8CommercialFinancing from "./steps/Step8-CommercialFinancing";
 import type {
-  EscrowConfigUpdateField,
-  EscrowCountryBucket,
   EscrowWithdrawalMode,
   MalaysiaPropertyType,
 } from "./escrow-config/types";
+import {
+  defaultEscrowRuleForLocation,
+  normalizeEscrowRuleId,
+  type EscrowRuleId,
+} from "@/lib/financing-engine/escrow-rules";
 import useFinModelStore from "@/store/useFinModelStore";
 import { FundingGapAreaChart } from "@/app/development-finance/FundingGapAreaChart";
 import { buildCashFlowArray } from "@/lib/irr-calculations";
@@ -61,6 +64,7 @@ export const JURISDICTION_RULES: Record<
     depositRate: number;
     badge: string;
     covenantLtcMax: number;
+    defaultEscrowRule: EscrowRuleId;
   }
 > = {
   UAE: {
@@ -69,8 +73,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 3.9,
-    badge: "UAE — RERA",
+    badge: "UAE",
     covenantLtcMax: 75,
+    defaultEscrowRule: "staged",
   },
   KSA: {
     landEquityMin: 100,
@@ -78,8 +83,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 4.0,
-    badge: "KSA — SFDA",
+    badge: "KSA",
     covenantLtcMax: 75,
+    defaultEscrowRule: "none",
   },
   Malaysia: {
     landEquityMin: 3,
@@ -87,8 +93,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 18,
     depositRate: 3.0,
-    badge: "Malaysia — GDV escrow",
+    badge: "Malaysia",
     covenantLtcMax: 80,
+    defaultEscrowRule: "progress",
   },
   Australia: {
     landEquityMin: 35,
@@ -96,8 +103,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 0.5,
-    badge: "Australia — state regimes",
+    badge: "Australia",
     covenantLtcMax: 65,
+    defaultEscrowRule: "ten_ninety",
   },
   Vietnam: {
     landEquityMin: 15,
@@ -105,8 +113,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 24,
     depositRate: 4.5,
-    badge: "Vietnam — escrow",
+    badge: "Vietnam",
     covenantLtcMax: 70,
+    defaultEscrowRule: "none",
   },
   Thailand: {
     landEquityMin: 0,
@@ -114,8 +123,9 @@ export const JURISDICTION_RULES: Record<
     retentionPct: 5,
     retentionReleaseMonths: 12,
     depositRate: 2.5,
-    badge: "Thailand — escrow",
+    badge: "Thailand",
     covenantLtcMax: 75,
+    defaultEscrowRule: "none",
   },
 };
 
@@ -288,47 +298,18 @@ function resolveJurisdiction(projectInfo: ProjectInfo): JurisdictionId {
   return "UAE";
 }
 
-function resolveEscrowCountry(
-  projectInfo: ProjectInfo,
-  jurisdiction: JurisdictionId
-): EscrowCountryBucket {
-  const code = projectInfo.countryCode?.toUpperCase() ?? "";
-  if (code === "MY" || jurisdiction === "Malaysia") return "MY";
-  if (code === "SA" || jurisdiction === "KSA") return "SA";
-  if (code === "AE" || jurisdiction === "UAE") return "UAE";
-  if (code === "AU" || jurisdiction === "Australia") return "AU";
-  if (code === "VN" || jurisdiction === "Vietnam") return "VN";
-  if (code === "TH" || jurisdiction === "Thailand") return "TH";
-  return "UAE";
-}
-
 function resolveMalaysiaPropertyType(projectInfo: ProjectInfo): MalaysiaPropertyType {
   const sub = projectInfo.buildingSubType ?? "";
   if (sub.includes("landed")) return "LANDED";
   return "HIGH_RISE";
 }
 
-function defaultEscrowWithdrawalMode(country: EscrowCountryBucket): EscrowWithdrawalMode {
-  if (country === "AU") return "australia";
-  if (country === "UAE" || country === "SA") return "uae";
-  return "malaysia";
-}
-
-function jurisdictionToEscrowCountry(jurisdiction: JurisdictionId): EscrowCountryBucket {
-  if (jurisdiction === "Malaysia") return "MY";
-  if (jurisdiction === "KSA") return "SA";
-  if (jurisdiction === "UAE") return "UAE";
-  if (jurisdiction === "Australia") return "AU";
-  if (jurisdiction === "Vietnam") return "VN";
-  if (jurisdiction === "Thailand") return "TH";
-  return "UAE";
-}
-
-function escrowCountryLabel(country: EscrowCountryBucket): string {
-  if (country === "AU") return "Australian";
-  if (country === "VN") return "Vietnamese";
-  if (country === "TH") return "Thai";
-  return country;
+function defaultEscrowWithdrawalMode(projectInfo: ProjectInfo): EscrowWithdrawalMode {
+  return defaultEscrowRuleForLocation({
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+  });
 }
 
 function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Partial<FormData> {
@@ -348,11 +329,6 @@ function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Parti
             cfg.landEquityPct ?? jurisdictionMin
           ),
     certificationIntervalMonths: cfg.certificationIntervalMonths,
-    escrowWithdrawalMode: defaultEscrowWithdrawalMode(
-      jurisdictionToEscrowCountry(jurisdiction)
-    ),
-    auDepositPct: 10,
-    auBalancePct: 90,
     malaysiaPropertyType: "HIGH_RISE",
     retentionFirstReleaseMonths: 8,
     retentionFinalReleaseMonths: 24,
@@ -467,14 +443,6 @@ function CommercialFinancingWizardContent() {
   const projectIRR = sale.projectIRR;
 
   const jurisdiction = resolveJurisdiction(projectInfo);
-  const escrowCountry = useMemo(
-    () => resolveEscrowCountry(projectInfo, jurisdiction),
-    [projectInfo, jurisdiction]
-  );
-  const showAustraliaTab = escrowCountry === "AU";
-  const showMalaysiaTab = escrowCountry === "MY";
-  const showUaeTab = escrowCountry === "UAE" || escrowCountry === "SA";
-  const showFlexibleTabs = escrowCountry === "VN" || escrowCountry === "TH";
   const rules = JURISDICTION_RULES[jurisdiction];
   const feeSuggestions = FEE_SUGGESTIONS[jurisdiction];
   const feeSuggestionRegionLabel =
@@ -538,7 +506,6 @@ function CommercialFinancingWizardContent() {
       financing.preferenceShares,
       cashEquityInit
     );
-    const escrowCountryInit = resolveEscrowCountry(projectInfo, jurisdiction);
     const storedEscrow = financing.escrowConfig;
 
     return {
@@ -554,9 +521,9 @@ function CommercialFinancingWizardContent() {
       landEquityPercent: initialLandEquity,
       landLoanRatePercent: 6.5,
       landLoanInterestTreatment: "capitalize",
-      escrowWithdrawalMode:
-        storedEscrow?.withdrawalMode ??
-        defaultEscrowWithdrawalMode(escrowCountryInit),
+      escrowWithdrawalMode: storedEscrow?.withdrawalMode
+        ? normalizeEscrowRuleId(storedEscrow.withdrawalMode)
+        : defaultEscrowWithdrawalMode(projectInfo),
       malaysiaPropertyType:
         storedEscrow?.malaysia?.propertyType ??
         resolveMalaysiaPropertyType(projectInfo),
@@ -618,13 +585,6 @@ function CommercialFinancingWizardContent() {
       auditSaleFinancingField(field as string, value);
     }
   }, []);
-
-  const updateEscrowField: EscrowConfigUpdateField = useCallback(
-    (field, value) => {
-      updateField(field as keyof FormData, value as FormData[keyof FormData]);
-    },
-    [updateField]
-  );
 
   // First visit: UI steps 2–4 align with currentStep 1–3; drawdown/interest at 4→6 and 5→7
   useEffect(() => {
@@ -697,15 +657,6 @@ function CommercialFinancingWizardContent() {
         : { ...prev, malaysiaPropertyType: propertyType }
     );
   }, [projectInfo.buildingSubType]);
-
-  useEffect(() => {
-    if (!showAustraliaTab) return;
-    setFormData((prev) =>
-      prev.escrowWithdrawalMode === "australia"
-        ? prev
-        : { ...prev, escrowWithdrawalMode: "australia" }
-    );
-  }, [showAustraliaTab]);
 
   useEffect(() => {
     if (!financingConfig) return;

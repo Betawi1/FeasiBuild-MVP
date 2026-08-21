@@ -439,6 +439,7 @@ export async function generateOperationalMarketChartData(
     cacheKey,
     forceRegenerate,
   });
+  if (!result) return null;
 
   const normalized = normalizeOperationalMarketCharts(result, config);
   if (!normalized) return null;
@@ -800,6 +801,7 @@ export async function generateOperationalSupplyPipelineData(
     cacheKey,
     forceRegenerate,
   });
+  if (!result) return null;
 
   const normalized = normalizeOperationalSupplyPipeline(result, config);
   if (!normalized) return null;
@@ -1368,6 +1370,7 @@ export async function generateOperationalTenantProfileData(
     cacheKey,
     forceRegenerate,
   });
+  if (!result) return null;
 
   const normalized = normalizeOperationalTenantProfile(result, config);
   if (!normalized) return null;

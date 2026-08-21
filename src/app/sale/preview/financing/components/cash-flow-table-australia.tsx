@@ -16,6 +16,8 @@ export type MonthlyRow = {
   lockedInSales: number;
   cumuLockedInSales: number;
   cumuTrustAccount: number;
+  depositToTrust: number;
+  balancePayment: number;
   trustAccountInterest: number;
   trustAccountFees: number;
   trustAccountReleases: number;
@@ -163,6 +165,12 @@ export function CashFlowTableAustralia({
                 formatCurrency={formatCurrency}
               />
               <TableRow
+                label="Deposit to Trust"
+                data={data}
+                getValue={(r) => r.depositToTrust}
+                formatCurrency={formatCurrency}
+              />
+              <TableRow
                 label="Cumu. Trust Account"
                 data={data}
                 getValue={(r) => r.cumuTrustAccount}
@@ -181,6 +189,12 @@ export function CashFlowTableAustralia({
                 getValue={(r) => r.trustAccountFees}
                 formatCurrency={formatCurrency}
                 isNegative
+              />
+              <TableRow
+                label="Balance Payment"
+                data={data}
+                getValue={(r) => r.balancePayment}
+                formatCurrency={formatCurrency}
               />
               <TableRow
                 label="Trust Account Releases"

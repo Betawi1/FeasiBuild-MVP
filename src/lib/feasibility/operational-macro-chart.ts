@@ -148,14 +148,23 @@ export async function generateOperationalMacroChartData(
     if (fromNormalized) return fromNormalized;
   }
 
-  const result = await aiProvider.generateChartData(prompt, {
-    cacheKey,
-    forceRegenerate,
-  });
+  try {
+    const result = await aiProvider.generateChartData(prompt, {
+      cacheKey,
+      forceRegenerate,
+    });
+    if (!result) return null;
 
-  const chart = normalizeOperationalMacroChart(result, macroType);
-  if (!chart) return null;
+    const chart = normalizeOperationalMacroChart(result, macroType);
+    if (!chart) return null;
 
-  await setCachedContent(normalizedCacheKey, chart);
-  return chart;
+    await setCachedContent(normalizedCacheKey, chart);
+    return chart;
+  } catch (e) {
+    console.warn(
+      "[generateChartData] chart JSON unavailable — skipping chart.",
+      e
+    );
+    return null;
+  }
 }

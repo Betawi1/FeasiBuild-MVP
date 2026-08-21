@@ -6,6 +6,14 @@ import type {
 import {
   generateFinancingCashFlow,
 } from "@/lib/financing-engine/generate-cash-flow";
+import {
+  ESCROW_RULE_HORIZON_OFFSET,
+  isDubaiCity,
+  isAustraliaLocation,
+  isMalaysiaLocation,
+  resolveEscrowRule,
+  type EscrowRuleId,
+} from "@/lib/financing-engine/escrow-rules";
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
 import { computeReimbursementMilestones } from "@/lib/milestone-drawdown";
 import type {
@@ -25,13 +33,20 @@ export function resolveFinancingEngineJurisdiction(projectInfo: ProjectInfo): Ju
   const code = projectInfo.countryCode?.toUpperCase() ?? "";
   const c = projectInfo.country?.toLowerCase() ?? "";
 
-  // The 4 Specific Countries
-  if (code === "AE" || c.includes("uae") || c.includes("emirates")) return "UAE_SA";
-  if (code === "SA" || c.includes("saudi") || c.includes("ksa")) return "UAE_SA";
-  if (code === "MY" || c.includes("malaysia")) return "MALAYSIA";
-  if (code === "AU" || c.includes("australia")) return "AUSTRALIA";
+  if (isMalaysiaLocation(projectInfo.country, projectInfo.countryCode) || code === "MY" || c.includes("malaysia")) {
+    return "MALAYSIA";
+  }
+  if (isAustraliaLocation(projectInfo.country, projectInfo.countryCode) || code === "AU" || c.includes("australia")) {
+    return "AUSTRALIA";
+  }
+  // Legacy jurisdiction enum is Dubai-only for UAE_SA. KSA and other emirates are OTHER.
+  if (
+    (code === "AE" || c.includes("uae") || c.includes("emirates")) &&
+    isDubaiCity(projectInfo.city)
+  ) {
+    return "UAE_SA";
+  }
 
-  // EVERYTHING ELSE is "OTHER"
   return "OTHER";
 }
 
@@ -47,66 +62,44 @@ export type FinancingEngineTimelineOptions = {
   projectType?: string;
 };
 
-/** Post–construction tail (months) after last construction month index, per engine. */
+/** Post–construction tail (months) after last construction month index, per selected rule. */
 export function financingEnginePostExtensionMonths(
   jurisdiction: Jurisdiction,
   options?: FinancingEngineTimelineOptions
 ): number {
   const cp = options?.constructionPeriodMonths ?? 30;
 
-  // CRITICAL: Explicitly check withdrawal mode first
   if (options?.sale) {
-    const mode = (options?.withdrawalMode || options?.escrowWithdrawalMode)?.toLowerCase();
+    const mode = options?.withdrawalMode || options?.escrowWithdrawalMode;
+    const rule = resolveEscrowRule({
+      withdrawalMode: mode,
+      jurisdiction,
+    });
 
     if (process.env.NODE_ENV === "development") {
       // eslint-disable-next-line no-console
-      console.log("🔍 [Engine] Detected withdrawal mode:", {
+      console.log("🔍 [Engine] Detected withdrawal rule:", {
         mode,
+        rule,
         jurisdiction,
         constructionPeriod: cp,
+        offset: ESCROW_RULE_HORIZON_OFFSET[rule],
       });
     }
 
-    // 4. No Escrow: Construction Period + 6 months
-    if (mode === "none") {
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log("✅ [Engine] Using No Escrow: +6 months");
-      }
-      return 6;
-    }
-
-    // 2. Malaysia HDA: Construction Period + 24 months
-    if (mode === "malaysia") {
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log("✅ [Engine] Using Malaysia: +24 months");
-      }
-      return 24;
-    }
-
-    // 3. Australia 10/90: Construction Period + 12 months
-    if (mode === "australia") {
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.log("✅ [Engine] Using Australia: +12 months");
-      }
-      return 12;
-    }
-
-    // 1. UAE/SA (Default fallback): Construction Period + 12 months
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("✅ [Engine] Using UAE/SA: +12 months");
-    }
-    return 12;
+    return ESCROW_RULE_HORIZON_OFFSET[rule];
   }
 
-  // Commercial stream fallback
   if (options?.commercial) return 6;
 
-  // Operational stream fallback
   return jurisdiction === "MALAYSIA" ? 24 : 12;
+}
+
+export function resolvePreviewEscrowRule(
+  withdrawalMode: string | undefined | null,
+  jurisdiction: Jurisdiction
+): EscrowRuleId {
+  return resolveEscrowRule({ withdrawalMode, jurisdiction });
 }
 
 /** Sale stream: residential = escrow/trust; commercial = direct sales sweep (Component 1 sub-type). */
@@ -537,11 +530,14 @@ export function buildFinancingEnginePreview(params: {
       Math.round(
         Number(
           financing.certificationInterval ??
+            financing.escrowConfig?.uaeSa?.certificationInterval ??
             financingConfig?.certificationIntervalMonths ??
             6
         )
       )
     ),
+    retentionPercent:
+      financing.escrowConfig?.uaeSa?.retentionPercentage ?? 5,
     hdaDepositEnabled:
       financing.hdaDepositEnabled ??
       financing.escrowConfig?.malaysia?.hdaDepositEnabled ??
@@ -552,10 +548,7 @@ export function buildFinancingEnginePreview(params: {
       3,
     totalConstructionCosts,
     projectedGDV,
-    malaysiaPropertyType:
-      jurisdiction === "MALAYSIA"
-        ? resolveMalaysiaPropertyType(projectInfo, financing)
-        : undefined,
+    malaysiaPropertyType: resolveMalaysiaPropertyType(projectInfo, financing),
     trustAccountFeePct: (financing as { trustAccountFeePct?: number }).trustAccountFeePct ?? 0.002,
     trustAccountDepositRatePct:
       (financing as { trustAccountDepositRatePct?: number }).trustAccountDepositRatePct ?? 0.005,

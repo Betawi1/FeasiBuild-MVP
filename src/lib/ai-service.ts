@@ -367,7 +367,7 @@ async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
 async function chatWithPuter(
   puter: NonNullable<typeof window.puter>,
   prompt: string,
-  extras?: { jsonMode?: boolean }
+  extras?: { jsonMode?: boolean; maxTokens?: number }
 ): Promise<string> {
   const model = await getPreferredModel();
   const claude = isClaudeModel(model);
@@ -391,7 +391,7 @@ async function chatWithPuter(
       model,
       stream,
       temperature,
-      max_tokens: AI_MODEL_CONFIG.MAX_TOKENS,
+      max_tokens: extras?.maxTokens ?? AI_MODEL_CONFIG.MAX_TOKENS,
       ...(extras?.jsonMode
         ? { response_format: { type: "json_object" as const } }
         : {}),
@@ -619,12 +619,23 @@ class PuterAIProvider implements AIProvider {
         throw new Error("Puter.js is not loaded");
       }
 
-      const chartPrompt = `${prompt}\n\nReturn ONLY valid JSON. No markdown formatting, no reasoning text, no code fences. The response must start with { or [.`;
+      const chartPrompt = `${prompt}\n\nRespond with compact raw JSON only. Do NOT wrap the JSON in quotation marks. Do NOT use markdown fences. Keep the reply under 3,500 tokens. The response must start with { or [.`;
       const content = await chatWithPuter(puter, chartPrompt, {
         jsonMode: true,
+        maxTokens: 8000,
       });
 
-      const parsed = extractJsonFromClaudeResponse(content);
+      let parsed: unknown;
+      try {
+        parsed = extractJsonFromClaudeResponse(content);
+      } catch (e) {
+        console.warn(
+          "[generateChartData] chart JSON unavailable — skipping chart.",
+          e
+        );
+        return null;
+      }
+
       console.log(`[AI Service] Chart data parsed for: ${logKey}`);
 
       if (chartCacheKey && parsed) {
@@ -633,11 +644,10 @@ class PuterAIProvider implements AIProvider {
 
       return parsed;
     } catch (error) {
-      console.error(`[AI Service] ERROR:`, error);
-      void sendOpsAlert(error instanceof Error ? error : String(error), {
-        source: "Feasibility AI Service",
-        cacheKey: logKey,
-      });
+      console.warn(
+        "[generateChartData] chart JSON unavailable — skipping chart.",
+        error
+      );
       return null;
     }
   }

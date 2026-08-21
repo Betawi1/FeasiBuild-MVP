@@ -185,20 +185,24 @@ async function enrichOperationalMacroCharts(
         if (idx < 0) return;
 
         const cacheKey = buildOperationalMacroChartCacheKey(country, macroType);
-        const chart = await generateOperationalMacroChartData(
-          macroType,
-          country,
-          cacheKey,
-          forceRegenerate
-        );
-
-        // Fallback: keep original static charts from buildMacroSlides / macro-data.ts
-        if (!chart) return;
-
-        enriched[idx] = {
-          ...enriched[idx]!,
-          charts: [chart],
-        };
+        try {
+          const chart = await generateOperationalMacroChartData(
+            macroType,
+            country,
+            cacheKey,
+            forceRegenerate
+          );
+          if (!chart) return;
+          enriched[idx] = {
+            ...enriched[idx]!,
+            charts: [chart],
+          };
+        } catch (e) {
+          console.warn(
+            "[generateChartData] chart JSON unavailable — skipping chart.",
+            e
+          );
+        }
       }
     )
   );
@@ -232,13 +236,22 @@ async function enrichOperationalMarketCharts(
   if (idx < 0) return slides;
 
   const cacheKey = buildOperationalMarketChartCacheKey(marketAssetType, location);
-  const result = await generateOperationalMarketChartData(
-    marketAssetType,
-    location,
-    projectContext,
-    cacheKey,
-    forceRegenerate
-  );
+  let result: Awaited<ReturnType<typeof generateOperationalMarketChartData>> = null;
+  try {
+    result = await generateOperationalMarketChartData(
+      marketAssetType,
+      location,
+      projectContext,
+      cacheKey,
+      forceRegenerate
+    );
+  } catch (e) {
+    console.warn(
+      "[generateChartData] chart JSON unavailable — skipping chart.",
+      e
+    );
+    return slides;
+  }
 
   // Fallback: keep existing static charts / RetailMarketMetricsData
   if (!result) return slides;
@@ -301,13 +314,24 @@ async function enrichOperationalSupplyPipeline(
     marketAssetType,
     location
   );
-  const result = await generateOperationalSupplyPipelineData(
-    marketAssetType,
-    location,
-    projectContext,
-    cacheKey,
-    forceRegenerate
-  );
+  let result: Awaited<
+    ReturnType<typeof generateOperationalSupplyPipelineData>
+  > = null;
+  try {
+    result = await generateOperationalSupplyPipelineData(
+      marketAssetType,
+      location,
+      projectContext,
+      cacheKey,
+      forceRegenerate
+    );
+  } catch (e) {
+    console.warn(
+      "[generateChartData] chart JSON unavailable — skipping chart.",
+      e
+    );
+    return slides;
+  }
 
   // Fallback: keep existing static RetailSupplyPipelineData charts
   if (!result) return slides;
@@ -393,13 +417,24 @@ async function enrichOperationalTenantProfile(
     marketAssetType,
     location
   );
-  const result = await generateOperationalTenantProfileData(
-    marketAssetType,
-    location,
-    projectContext,
-    cacheKey,
-    forceRegenerate
-  );
+  let result: Awaited<
+    ReturnType<typeof generateOperationalTenantProfileData>
+  > = null;
+  try {
+    result = await generateOperationalTenantProfileData(
+      marketAssetType,
+      location,
+      projectContext,
+      cacheKey,
+      forceRegenerate
+    );
+  } catch (e) {
+    console.warn(
+      "[generateChartData] chart JSON unavailable — skipping chart.",
+      e
+    );
+    return slides;
+  }
 
   if (!result) return slides;
 

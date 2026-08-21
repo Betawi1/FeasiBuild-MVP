@@ -258,54 +258,73 @@ export default function SaleComponent4Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Escrow Withdrawal Configuration</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Configure escrow withdrawal rules based on your project&apos;s jurisdiction. The system provides pre-configured templates for major markets. The configuration is presented as four tabs with rule-based titles (no country association) — 10/90 Rule, HDA Progress Withdrawals, Certification Intervals, and No Escrow Rules. Users in jurisdictions outside the three template markets may select any method, including No Escrow Rules.
+            Choose the withdrawal mechanism that matches the project&apos;s legal framework. Four options are always available: 10/90 Rule, Progress Drawdown Rule, Staged Escrow Rule, and No Escrow Rules. Location only pre-selects a default; it never locks you into a country-named template.
+          </p>
+          <p className="text-sm text-slate-400 leading-relaxed mb-4">
+            These four options are withdrawal mechanisms, not country labels — each market adopts one by regulation or convention; the project&apos;s location only pre-selects a default.
           </p>
 
+          <div className="mb-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
+            <h4 className="text-white font-medium mb-2">Location defaults (pre-select only)</h4>
+            <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
+              <li><strong className="text-white">10/90 Rule:</strong> Australia.</li>
+              <li><strong className="text-white">Staged Escrow Rule:</strong> Dubai, United Arab Emirates only.</li>
+              <li><strong className="text-white">Progress Drawdown Rule:</strong> Malaysia.</li>
+              <li>
+                <strong className="text-white">No Escrow Rules:</strong> every other location — including KSA and the other emirates (Abu Dhabi, Ras Al Khaimah, Sharjah, Ajman, Fujairah), Thailand, China, and similar markets — with all four options still selectable.
+              </li>
+            </ul>
+          </div>
+
           <div className="space-y-4">
-            {/* UAE */}
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-              <h4 className="text-emerald-400 font-medium mb-2">🇦🇪 UAE — RERA (Certification Intervals)</h4>
-              <p className="text-sm text-slate-400 mb-2">
-                Used for projects in the UAE. Withdrawals are based on certification intervals and retention percentages.
-              </p>
-              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
-                <li><strong>Certification Interval:</strong> Progress withdrawals occur at each certification milestone (e.g., Every 3 Months).</li>
-                <li><strong>Retention Percentage:</strong> A percentage (e.g., 5%) is held until project completion.</li>
-                <li><strong>Release Timing:</strong> Retention is typically released 12 months post-completion.</li>
-              </ul>
-            </div>
-
-            {/* Malaysia */}
-            <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-4">
-              <h4 className="text-purple-400 font-medium mb-2">🇲🇾 Malaysia — GDV Escrow (HDA Progress Withdrawals)</h4>
-              <p className="text-sm text-slate-400 mb-2">
-                Used for Malaysian projects under the Housing Development Act (HDA). Withdrawals are strictly tied to construction milestones and S-Curve triggers.
-              </p>
-              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
-                <li><strong>HDA Deposit:</strong> A deposit percentage (e.g., 3% of construction costs) is lodged into escrow at M0.</li>
-                <li><strong>Milestone Schedule:</strong> Withdrawals trigger when the construction S-curve reaches specific thresholds (e.g., 10% at SPA Signing, 10% at Foundation Works ≥15%, 15% at RC Framework ≥30%, up to 100% at Strata Title Application).</li>
-                <li><strong>Retention Release:</strong> 50% released 8 months after VP (Vacant Possession), final 50% released 24 months after VP.</li>
-              </ul>
-            </div>
-
-            {/* Australia */}
             <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
-              <h4 className="text-blue-400 font-medium mb-2">🇦🇺 Australia — State Regimes (10/90 Rule)</h4>
+              <h4 className="text-blue-400 font-medium mb-1">10/90 Rule</h4>
+              <p className="text-xs text-slate-500 mb-2">10/90 Rule Configuration</p>
               <p className="text-sm text-slate-400 mb-2">
-                Used for Australian projects. Follows the standard 10/90 withdrawal rule.
+                Deposit held in trust at lock; balance paid at settlement. Default for Australian projects; selectable anywhere.
               </p>
               <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
-                <li><strong>Purchase Deposit (10%):</strong> Typically 10% of sales proceeds held in trust until units are delivered.</li>
-                <li><strong>Balance Payment (90%):</strong> The remaining 90% of the sales price is paid when the project is completed.</li>
-                <li><strong>Retention:</strong> 5% GDV retention held for 12 months post-completion.</li>
+                <li><strong>Purchase Deposit %:</strong> user-editable (default 10). Lodged to trust at every lock month — during and after the construction period.</li>
+                <li><strong>Balance Payment %:</strong> user-editable (default 90). Paid when units settle. Deposit and balance must sum to 100.</li>
+                <li><strong>Settlement timing:</strong> units locked during the construction period settle at handover; post-completion locks settle in the same month.</li>
+                <li><strong>Trust release:</strong> the deposit for units settling in a month is released at settlement. Any residual trust is fully swept by CP+12 (never later).</li>
+                <li><strong>Trust interest:</strong> earned on the prior month&apos;s trust balance (1-month offset).</li>
+                <li><strong>Actual Sales Proceeds:</strong> balance payment plus trust releases. Conservation: proceeds equal total locked sales plus net trust interest minus fees. Horizon is CP+12.</li>
               </ul>
             </div>
 
-            {/* No Escrow */}
+            <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-4">
+              <h4 className="text-purple-400 font-medium mb-1">Progress Drawdown Rule</h4>
+              <p className="text-xs text-slate-500 mb-2">Progress Drawdown Rule Configuration</p>
+              <p className="text-sm text-slate-400 mb-2">
+                Milestone and S-curve-linked drawdowns against actual sales collected, with post-VP retention through VP+24. Default for Malaysia. HDA is the Malaysian regime that uses this rule — not a country label on the tab.
+              </p>
+              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
+                <li><strong>Construction deposit:</strong> a percentage of construction costs (e.g. 3%) is lodged at M0 and held through the post-completion tail.</li>
+                <li><strong>Milestone schedule:</strong> withdrawals trigger when the construction S-curve reaches staged thresholds (SPA signing, foundation, framework, and later completion / title stages).</li>
+                <li><strong>Retention:</strong> post-VP schedule through VP+24 (first 50% at VP+8, final 50% at VP+24 under the HDA-style tail).</li>
+                <li><strong>Horizon:</strong> CP+24.</li>
+              </ul>
+            </div>
+
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+              <h4 className="text-emerald-400 font-medium mb-1">Staged Escrow Rule</h4>
+              <p className="text-xs text-slate-500 mb-2">Staged Escrow Rule Configuration</p>
+              <p className="text-sm text-slate-400 mb-2">
+                Certification-based staged withdrawals. Default only for Dubai, United Arab Emirates; selectable in any other market.
+              </p>
+              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
+                <li><strong>Certification Interval:</strong> progress withdrawals at each certification (e.g. every 3 months), with cash drawn the following month (1-month offset).</li>
+                <li><strong>Retention Percentage:</strong> user-editable input (default 5), held until practical completion plus defect liability.</li>
+                <li><strong>Release timing:</strong> retention released at practical completion + defect liability. Residual trust is swept by CP+12.</li>
+                <li><strong>Horizon:</strong> CP+12.</li>
+              </ul>
+            </div>
+
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
               <h4 className="text-white font-medium mb-2">No Escrow Rules</h4>
               <p className="text-sm text-slate-400 mb-3">
-                Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply — standard commercial waterfall rules apply.
+                Default for every location that does not map to the three mechanisms above (including KSA and UAE emirates other than Dubai). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply — standard commercial waterfall rules apply. Horizon is CP+6.
               </p>
               <p className="text-sm text-slate-400">
                 Optional toggle: <strong className="text-white">Sales reduce equity need (optional)</strong>.
@@ -315,7 +334,7 @@ export default function SaleComponent4Docs() {
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Escrow Account Fees</h4>
             <p className="text-sm text-slate-400 mb-2">
-              This panel is shown only on the three escrow tabs (10/90 Rule, HDA Progress Withdrawals, and Certification Intervals). It is hidden when No Escrow Rules is selected.
+              Shown on the three escrow options (10/90 Rule, Progress Drawdown Rule, and Staged Escrow Rule). Hidden when No Escrow Rules is selected.
             </p>
             <p className="text-sm text-slate-400 mb-2">
               <strong className="text-white">Setup fee (flat amount)</strong> — one-time setup fee, e.g. 5,000.
@@ -324,6 +343,9 @@ export default function SaleComponent4Docs() {
               <strong className="text-white">Management fee (% p.a.)</strong> — annual management fee, e.g. 0.03–0.08% p.a. on average balance.
             </p>
           </div>
+          <p className="mt-4 text-sm text-slate-400 leading-relaxed">
+            The feasibility report&apos;s escrow slide is titled by the selected rule name (e.g. &quot;Staged Escrow Rule Configuration&quot;) and never by a country regulator for projects outside that regulator&apos;s market.
+          </p>
         </div>
 
         {/* Step 6 */}

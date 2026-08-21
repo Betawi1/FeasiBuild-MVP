@@ -1755,9 +1755,16 @@ export type PreferenceShares = {
 /** Default redeemable preference tenor (months); matches first dense monthly grid in `/preview/financing` (`monthlyMax` 36). */
 export const DEFAULT_PREFERENCE_TENOR_MONTHS = 36;
 
-/** Escrow withdrawal settings (Component 4 Step 5 — jurisdiction-specific). */
+/** Escrow withdrawal settings (Component 4 Step 5 — rule ids; legacy mode strings still accepted). */
 export type FinancingEscrowConfig = {
-  withdrawalMode?: "malaysia" | "uae" | "australia" | "none";
+  withdrawalMode?:
+    | "ten_ninety"
+    | "staged"
+    | "progress"
+    | "none"
+    | "malaysia"
+    | "uae"
+    | "australia";
   malaysia?: {
     propertyType: "HIGH_RISE" | "LANDED";
     retentionFirstReleaseMonths: number;

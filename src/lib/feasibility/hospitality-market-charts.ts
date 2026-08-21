@@ -1122,10 +1122,20 @@ export async function generateHospitalityChartData(
   }
 
   const prompt = buildHospitalityChartPrompt(typed, location, projectContext);
-  const result = await aiProvider.generateChartData(prompt, {
-    cacheKey,
-    forceRegenerate,
-  });
+  let result: unknown;
+  try {
+    result = await aiProvider.generateChartData(prompt, {
+      cacheKey,
+      forceRegenerate,
+    });
+  } catch (e) {
+    console.warn(
+      "[generateChartData] chart JSON unavailable — skipping chart.",
+      e
+    );
+    return null;
+  }
+  if (!result) return null;
 
   const normalized = normalizeHospitalityCharts(result, typed);
   if (!normalized) return null;
@@ -1181,31 +1191,38 @@ export async function enrichHospitalityMarketCharts(
         if (idx < 0) return;
 
         const cacheKey = buildHospitalityChartCacheKey(chartType, location);
-        const result = await generateHospitalityChartData(
-          chartType,
-          location,
-          projectContext,
-          cacheKey,
-          forceRegenerate
-        );
+        try {
+          const result = await generateHospitalityChartData(
+            chartType,
+            location,
+            projectContext,
+            cacheKey,
+            forceRegenerate
+          );
 
-        if (!result) return;
+          if (!result) return;
 
-        const prev = enriched[idx]!;
-        const dataPayload =
-          result.travelTourismDemandData ??
-          result.annualRevenuesData ??
-          result.historicalGuestsData ??
-          result.lengthOfStayData;
+          const prev = enriched[idx]!;
+          const dataPayload =
+            result.travelTourismDemandData ??
+            result.annualRevenuesData ??
+            result.historicalGuestsData ??
+            result.lengthOfStayData;
 
-        enriched[idx] = {
-          ...prev,
-          charts: result.charts,
-          paragraphs: result.commentary,
-          bulletPoints: result.commentary,
-          ...(result.tables ? { tables: result.tables } : {}),
-          ...(dataPayload ? { data: dataPayload } : {}),
-        };
+          enriched[idx] = {
+            ...prev,
+            charts: result.charts,
+            paragraphs: result.commentary,
+            bulletPoints: result.commentary,
+            ...(result.tables ? { tables: result.tables } : {}),
+            ...(dataPayload ? { data: dataPayload } : {}),
+          };
+        } catch (e) {
+          console.warn(
+            "[generateChartData] chart JSON unavailable — skipping chart.",
+            e
+          );
+        }
       }
     )
   );

@@ -34,6 +34,7 @@ import { exportToCSV } from "@/lib/downloads/exportToCSV";
 import { exportToExcel } from "@/lib/downloads/exportToExcel";
 import { buildFinancingCashFlowExportRows } from "@/app/sale/preview/financing/build-financing-cash-flow-export";
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
+import { resolveEscrowRule, ESCROW_RULE_HORIZON_OFFSET } from "@/lib/financing-engine/escrow-rules";
 import {
   streamKeyFromPrefix,
   useStreamPrefix,
@@ -3294,7 +3295,14 @@ function FinancingPreviewPageContent({
       });
       if (process.env.NODE_ENV === "development" && bundle) {
         const inp = bundle.inputs;
-        const lastIdx = inp.constructionPeriodMonths + (inp.jurisdiction === "MALAYSIA" ? 24 : 12);
+        const lastIdx =
+          inp.constructionPeriodMonths +
+          ESCROW_RULE_HORIZON_OFFSET[
+            resolveEscrowRule({
+              withdrawalMode: inp.escrowWithdrawalMode || inp.withdrawalMethod,
+              jurisdiction: inp.jurisdiction,
+            })
+          ];
         // eslint-disable-next-line no-console
         console.log("📦 [Engine Inputs Being Sent]:", {
           landLoanEnabled: inp.landLoanEnabled,
@@ -3641,6 +3649,7 @@ function FinancingPreviewPageContent({
     return buildFinancingCashFlowExportRows({
       rows: financingEnginePreview.rows,
       jurisdiction: financingEnginePreview.jurisdiction,
+      withdrawalMode,
       hideEscrowRows: !showEscrowSection,
       showFfe: isSaleWarehouseProduct,
       projectLabel: `Project: ${projectInfo.city || "—"}, ${projectInfo.country || "—"} • Currency: ${projectInfo.currency || "AED"}`,
@@ -3691,70 +3700,41 @@ function FinancingPreviewPageContent({
         <h3 className="text-lg font-bold text-white mb-4">Monthly Cash Flow Projection</h3>
         {financingEnginePreview && financingEnginePreview.rows.length > 0 ? (
           <>
-            {financingEnginePreview.inputs.jurisdiction === "UAE_SA" && (
-              <CashFlowTableUaeSa
-                data={mapEngineRowsToUae(financingEnginePreview.rows)}
-                formatCurrency={formatCurrency}
-                hideEscrowRows={!showEscrowSection}
-                showFfe={isSaleWarehouseProduct}
-              />
-            )}
-            {financingEnginePreview.inputs.jurisdiction === "MALAYSIA" && (
-              <CashFlowTableMalaysia
-                data={mapEngineRowsToMalaysia(financingEnginePreview.rows)}
-                formatCurrency={formatCurrency}
-                hideEscrowRows={!showEscrowSection}
-                showFfe={isSaleWarehouseProduct}
-              />
-            )}
-            {financingEnginePreview.inputs.jurisdiction === "AUSTRALIA" && (
-              <CashFlowTableAustralia
-                data={mapEngineRowsToAustralia(financingEnginePreview.rows)}
-                formatCurrency={formatCurrency}
-                hideEscrowRows={!showEscrowSection}
-                showFfe={isSaleWarehouseProduct}
-              />
-            )}
-
-            {/* Handle "OTHER" jurisdictions based on C4S5 selection */}
-            {financingEnginePreview.inputs.jurisdiction === "OTHER" && (
-              <>
-                {withdrawalMode === "malaysia" && (
+            {(() => {
+              const previewRule = resolveEscrowRule({
+                withdrawalMode,
+                jurisdiction: financingEnginePreview.inputs.jurisdiction,
+              });
+              const hideEscrow = !showEscrowSection || previewRule === "none" || isCommercialPreview;
+              if (previewRule === "progress") {
+                return (
                   <CashFlowTableMalaysia
                     data={mapEngineRowsToMalaysia(financingEnginePreview.rows)}
                     formatCurrency={formatCurrency}
-                    hideEscrowRows={false}
+                    hideEscrowRows={hideEscrow}
                     showFfe={isSaleWarehouseProduct}
                   />
-                )}
-                {withdrawalMode === "australia" && (
+                );
+              }
+              if (previewRule === "ten_ninety") {
+                return (
                   <CashFlowTableAustralia
                     data={mapEngineRowsToAustralia(financingEnginePreview.rows)}
                     formatCurrency={formatCurrency}
-                    hideEscrowRows={false}
+                    hideEscrowRows={hideEscrow}
                     showFfe={isSaleWarehouseProduct}
                   />
-                )}
-                {/* For Non-Escrow (Commercial OR "Other" Residential selecting "none"), use UAE table with escrow rows hidden */}
-                {(withdrawalMode === "none" || isCommercialPreview) && (
-                  <CashFlowTableUaeSa
-                    data={mapEngineRowsToUae(financingEnginePreview.rows)}
-                    formatCurrency={formatCurrency}
-                    hideEscrowRows={true}
-                    showFfe={isSaleWarehouseProduct}
-                  />
-                )}
-                {/* Fallback for UAE/KSA selection in "Other" country */}
-                {withdrawalMode === "uae" && (
-                  <CashFlowTableUaeSa
-                    data={mapEngineRowsToUae(financingEnginePreview.rows)}
-                    formatCurrency={formatCurrency}
-                    hideEscrowRows={false}
-                    showFfe={isSaleWarehouseProduct}
-                  />
-                )}
-              </>
-            )}
+                );
+              }
+              return (
+                <CashFlowTableUaeSa
+                  data={mapEngineRowsToUae(financingEnginePreview.rows)}
+                  formatCurrency={formatCurrency}
+                  hideEscrowRows={hideEscrow}
+                  showFfe={isSaleWarehouseProduct}
+                />
+              );
+            })()}
           </>
         ) : (
           <div className="p-8 text-center text-slate-500 rounded-xl border border-slate-800 bg-slate-900/40">
