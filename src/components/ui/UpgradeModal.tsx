@@ -38,7 +38,52 @@ const CREDIT_NOTES: Record<string, string> = {
   credit_100: "Save 59% + Logo Branding",
 };
 
-const SDK_SRC = `https://www.paypal.com/sdk/js?client-id=${process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID}&vault=true&intent=capture,subscription&components=buttons`;
+function removePaypalScripts() {
+  document
+    .querySelectorAll('script[src*="paypal.com/sdk/js"]')
+    .forEach((el) => el.remove());
+  const paypalWindow = window as Window & { paypal?: unknown };
+  try {
+    delete paypalWindow.paypal;
+  } catch {
+    paypalWindow.paypal = undefined;
+  }
+}
+
+function loadPaypalSdk(onReady: () => void, onError: (message: string) => void) {
+  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+  console.log(
+    "[PayPal] client id:",
+    clientId ? `${clientId.slice(0, 6)}...` : "MISSING"
+  );
+
+  if (!clientId) {
+    onError("PayPal client ID missing from environment variables.");
+    return;
+  }
+
+  if (window.paypal) {
+    console.log("[PayPal] SDK already present");
+    onReady();
+    return;
+  }
+
+  const url = `https://www.paypal.com/sdk/js?client-id=${clientId}&vault=true&intent=capture,subscription&components=buttons&currency=USD`;
+  console.log("[PayPal] loading SDK:", url);
+
+  const script = document.createElement("script");
+  script.src = url;
+  script.async = true;
+  script.onload = () => {
+    console.log("[PayPal] SDK loaded OK");
+    onReady();
+  };
+  script.onerror = (e) => {
+    console.error("[PayPal] SDK failed to load", e);
+    onError("Failed to load PayPal. Try again.");
+  };
+  document.head.appendChild(script);
+}
 
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const { ready, visible } = usePaypalCheckoutVisible();
@@ -51,6 +96,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const [sdkReady, setSdkReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sdkLoadKey, setSdkLoadKey] = useState(0);
   const buttonHostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -59,25 +105,18 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
   useEffect(() => {
     if (!open || !visible) return;
-    if (window.paypal) {
-      setSdkReady(true);
-      return;
-    }
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[src*="paypal.com/sdk/js"]'
+    loadPaypalSdk(
+      () => setSdkReady(true),
+      (message) => setError(message)
     );
-    if (existing) {
-      if (window.paypal) setSdkReady(true);
-      else existing.addEventListener("load", () => setSdkReady(true), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = SDK_SRC;
-    script.async = true;
-    script.onload = () => setSdkReady(true);
-    script.onerror = () => setError("Failed to load PayPal. Try again.");
-    document.body.appendChild(script);
-  }, [open, visible]);
+  }, [open, visible, sdkLoadKey]);
+
+  const retryPaypalSdk = () => {
+    removePaypalScripts();
+    setError(null);
+    setSdkReady(false);
+    setSdkLoadKey((n) => n + 1);
+  };
 
   const finishPurchase = useCallback(async () => {
     await getToken({ skipCache: true }).catch(() => undefined);
@@ -203,27 +242,29 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
   if (!visible) {
     return (
-      <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4">
-        <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200">
-          <h2 className="text-lg font-semibold text-white">Upgrade</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Paid checkout is not available on this domain while PayPal is in
-            sandbox. See pricing, or use a preview deployment to purchase.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <a
-              href="/#pricing"
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-            >
-              See Pricing
-            </a>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
-            >
-              Close
-            </button>
+      <div className="fixed inset-0 z-[300] overflow-y-auto bg-black/70">
+        <div className="flex min-h-full items-center justify-center p-4">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200">
+            <h2 className="text-lg font-semibold text-white">Upgrade</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Paid checkout is not available on this domain while PayPal is in
+              sandbox. See pricing, or use a preview deployment to purchase.
+            </p>
+            <div className="mt-4 flex gap-3">
+              <a
+                href="/#pricing"
+                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                See Pricing
+              </a>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -238,160 +279,171 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
     !(CREDIT_PRODUCT_KEYS.includes(selected as ProductKey) && creditsLocked);
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/70 p-4">
-      <div className="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200 shadow-2xl">
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-4 top-4 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
-          aria-label="Close"
-        >
-          ✕
-        </button>
-
-        <h2 className="pr-8 text-2xl font-bold text-white">Upgrade FeasiBuild</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          Lifetime access, report credits, or unlimited Advisory.
-        </p>
-
-        <section className="mt-6">
-          <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
-            Professional — $99 lifetime
-          </h3>
+    <div className="fixed inset-0 z-[300] overflow-y-auto bg-black/70">
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200 shadow-2xl">
           <button
             type="button"
-            onClick={() => setSelected("professional")}
-            disabled={lifetime}
-            className={`mt-3 w-full rounded-xl border p-4 text-left transition ${
-              selected === "professional"
-                ? "border-emerald-500 bg-emerald-500/10"
-                : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
-            } ${lifetime ? "cursor-default opacity-70" : ""}`}
+            onClick={onClose}
+            className="absolute right-4 top-4 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            aria-label="Close"
           >
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="font-semibold text-white">
-                {ONE_TIME_PRODUCTS.professional.label}
-              </span>
-              <span className="text-xl font-bold text-white">
-                {formatUsd(ONE_TIME_PRODUCTS.professional.amount)}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-slate-400">
-              One-time · unlocks clean reports via credit packs
-            </p>
-            {lifetime ? (
-              <p className="mt-2 text-xs font-semibold text-emerald-400">
-                Already purchased
-              </p>
-            ) : null}
+            ✕
           </button>
-        </section>
 
-        <section className="mt-8">
-          <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
-            Report Credits
-          </h3>
-          {creditsLocked ? (
-            <p className="mt-2 text-sm text-amber-300">
-              Requires Professional — buy lifetime access first.
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-slate-400">
-              One credit = one clean, unwatermarked feasibility report.
-            </p>
-          )}
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {CREDIT_PRODUCT_KEYS.map((key) => {
-              const product = ONE_TIME_PRODUCTS[key];
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  disabled={creditsLocked}
-                  onClick={() => setSelected(key)}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    selected === key
-                      ? "border-emerald-500 bg-emerald-500/10"
-                      : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
-                  } ${creditsLocked ? "cursor-not-allowed opacity-40" : ""}`}
-                >
-                  <p className="text-sm font-medium text-slate-300">
-                    {product.label}
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-white">
-                    {formatUsd(product.amount)}
-                  </p>
-                  <p className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
-                    {CREDIT_NOTES[key]}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+          <h2 className="pr-8 text-2xl font-bold text-white">Upgrade FeasiBuild</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Lifetime access, report credits, or unlimited Advisory.
+          </p>
 
-        <section className="mt-8">
-          <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
-            Advisory — $2,889/yr
-          </h3>
-          <button
-            type="button"
-            onClick={() => setSelected("advisory")}
-            disabled={advisoryActive}
-            className={`mt-3 w-full rounded-xl border p-4 text-left transition ${
-              selected === "advisory"
-                ? "border-emerald-500 bg-emerald-500/10"
-                : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
-            } ${advisoryActive ? "cursor-default opacity-70" : ""}`}
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="font-semibold text-white">
-                Advisory — unlimited clean reports
-              </span>
-              <span className="text-xl font-bold text-white">
-                {formatUsd(ADVISORY_ANNUAL_PRICE)}
-                <span className="ml-1 text-sm font-medium text-slate-400">
-                  /yr
-                </span>
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-slate-400">
-              White-label logo branding included
-            </p>
-            {advisoryActive ? (
-              <p className="mt-2 text-xs font-semibold text-emerald-400">
-                Active subscription
-              </p>
-            ) : null}
-          </button>
-        </section>
-
-        <div className="mt-8 min-h-[52px] rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          {!isSignedIn ? (
-            <a
-              href="/sign-in"
-              className="block rounded-lg bg-emerald-500 px-4 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+          <section className="mt-6">
+            <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
+              Professional — $99 lifetime
+            </h3>
+            <button
+              type="button"
+              onClick={() => setSelected("professional")}
+              disabled={lifetime}
+              className={`mt-3 w-full rounded-xl border p-4 text-left transition ${
+                selected === "professional"
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
+              } ${lifetime ? "cursor-default opacity-70" : ""}`}
             >
-              Sign in to purchase
-            </a>
-          ) : busy ? (
-            <p className="text-center text-sm text-slate-300">
-              Completing purchase…
-            </p>
-          ) : showPayPal ? (
-            <div ref={buttonHostRef} />
-          ) : (
-            <p className="text-center text-sm text-slate-400">
-              {selected === "professional" && lifetime
-                ? "Professional lifetime access is already on this account."
-                : selected === "advisory" && advisoryActive
-                  ? "Advisory is already active."
-                  : "Select Professional first to buy report credits."}
-            </p>
-          )}
-          {error ? (
-            <p className="mt-3 text-center text-sm text-rose-400">{error}</p>
-          ) : null}
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-semibold text-white">
+                  {ONE_TIME_PRODUCTS.professional.label}
+                </span>
+                <span className="text-xl font-bold text-white">
+                  {formatUsd(ONE_TIME_PRODUCTS.professional.amount)}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-slate-400">
+                One-time · unlocks clean reports via credit packs
+              </p>
+              {lifetime ? (
+                <p className="mt-2 text-xs font-semibold text-emerald-400">
+                  Already purchased
+                </p>
+              ) : null}
+            </button>
+          </section>
+
+          <section className="mt-8">
+            <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
+              Report Credits
+            </h3>
+            {creditsLocked ? (
+              <p className="mt-2 text-sm text-amber-300">
+                Requires Professional — buy lifetime access first.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-slate-400">
+                One credit = one clean, unwatermarked feasibility report.
+              </p>
+            )}
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {CREDIT_PRODUCT_KEYS.map((key) => {
+                const product = ONE_TIME_PRODUCTS[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={creditsLocked}
+                    onClick={() => setSelected(key)}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      selected === key
+                        ? "border-emerald-500 bg-emerald-500/10"
+                        : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
+                    } ${creditsLocked ? "cursor-not-allowed opacity-40" : ""}`}
+                  >
+                    <p className="text-sm font-medium text-slate-300">
+                      {product.label}
+                    </p>
+                    <p className="mt-1 text-2xl font-bold text-white">
+                      {formatUsd(product.amount)}
+                    </p>
+                    <p className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+                      {CREDIT_NOTES[key]}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="mt-8">
+            <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
+              Advisory — $2,889/yr
+            </h3>
+            <button
+              type="button"
+              onClick={() => setSelected("advisory")}
+              disabled={advisoryActive}
+              className={`mt-3 w-full rounded-xl border p-4 text-left transition ${
+                selected === "advisory"
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
+              } ${advisoryActive ? "cursor-default opacity-70" : ""}`}
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-semibold text-white">
+                  Advisory — unlimited clean reports
+                </span>
+                <span className="text-xl font-bold text-white">
+                  {formatUsd(ADVISORY_ANNUAL_PRICE)}
+                  <span className="ml-1 text-sm font-medium text-slate-400">
+                    /yr
+                  </span>
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-slate-400">
+                White-label logo branding included
+              </p>
+              {advisoryActive ? (
+                <p className="mt-2 text-xs font-semibold text-emerald-400">
+                  Active subscription
+                </p>
+              ) : null}
+            </button>
+          </section>
+
+          <div className="mt-8 min-h-[52px] rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+            {!isSignedIn ? (
+              <a
+                href="/sign-in"
+                className="block rounded-lg bg-emerald-500 px-4 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Sign in to purchase
+              </a>
+            ) : busy ? (
+              <p className="text-center text-sm text-slate-300">
+                Completing purchase…
+              </p>
+            ) : showPayPal ? (
+              <div ref={buttonHostRef} />
+            ) : (
+              <p className="text-center text-sm text-slate-400">
+                {selected === "professional" && lifetime
+                  ? "Professional lifetime access is already on this account."
+                  : selected === "advisory" && advisoryActive
+                    ? "Advisory is already active."
+                    : "Select Professional first to buy report credits."}
+              </p>
+            )}
+            {error ? (
+              <div className="mt-3 flex flex-col items-center gap-2">
+                <p className="text-center text-sm text-rose-400">{error}</p>
+                <button
+                  type="button"
+                  onClick={retryPaypalSdk}
+                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
