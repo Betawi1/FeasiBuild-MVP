@@ -28,16 +28,7 @@ function formatUsd(amount: string): string {
 }
 
 function usePaypalCheckoutVisible() {
-  const [state, setState] = useState<{ ready: boolean; visible: boolean }>(
-    () => {
-      const live = process.env.NEXT_PUBLIC_PAYPAL_MODE === "live";
-      return { ready: live, visible: live };
-    }
-  );
-  useEffect(() => {
-    setState({ ready: true, visible: paypalVisible() });
-  }, []);
-  return state;
+  return { ready: true, visible: paypalVisible() };
 }
 
 const CREDIT_NOTES: Record<string, string> = {
@@ -436,19 +427,16 @@ export function UpgradeModalTrigger({
 }
 
 export function UpgradeNavControl({ compact = false }: { compact?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const { ready, visible } = usePaypalCheckoutVisible();
   const { isSignedIn } = useUser();
   const {
     plan,
     lifetime,
     advisoryActive,
-    isPro,
     reportCredits,
     isLoading,
   } = useSubscription();
 
-  if (isLoading || !isSignedIn || !ready) return null;
+  if (isLoading || !isSignedIn) return null;
 
   const badge = advisoryActive
     ? "Advisory · Unlimited"
@@ -456,27 +444,13 @@ export function UpgradeNavControl({ compact = false }: { compact?: boolean }) {
       ? `Pro • ${reportCredits} credit${reportCredits === 1 ? "" : "s"}`
       : "Explorer";
 
-  const showUpgrade = visible && !(isPro && advisoryActive);
-
   return (
-    <>
-      <span
-        className={`rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-200 ${
-          compact ? "hidden sm:inline-flex" : "inline-flex"
-        }`}
-      >
-        {badge}
-      </span>
-      {showUpgrade ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 sm:px-4 sm:py-2 sm:text-sm"
-        >
-          Upgrade to Pro
-        </button>
-      ) : null}
-      <UpgradeModal open={open} onClose={() => setOpen(false)} />
-    </>
+    <span
+      className={`rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-200 ${
+        compact ? "hidden sm:inline-flex" : "inline-flex"
+      }`}
+    >
+      {badge}
+    </span>
   );
 }
