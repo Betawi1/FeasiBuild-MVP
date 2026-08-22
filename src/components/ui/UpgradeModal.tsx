@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useUser } from "@clerk/nextjs";
 import { paypalVisible } from "@/lib/paypal-gate";
 import {
@@ -132,10 +133,16 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const creditsLocked = !isPro;
   const busy = Boolean(redirecting);
 
-  return (
-    <div className="fixed inset-0 z-[300] overflow-y-auto bg-black/70">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/70"
+      style={{ position: "fixed", inset: 0, overflowY: "auto" }}
+    >
       <div className="flex min-h-full items-center justify-center p-4">
-        <div className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200 shadow-2xl">
+        <div
+          className="relative w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200"
+          style={{ maxHeight: "85vh", overflowY: "auto" }}
+        >
           <button
             type="button"
             onClick={onClose}
@@ -302,7 +309,8 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
           ) : null}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
