@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import { paypalVisible } from "@/lib/paypal-gate";
 import {
   ADVISORY_ANNUAL_PRICE,
@@ -15,8 +15,6 @@ export interface UpgradeModalProps {
   open: boolean;
   onClose: () => void;
 }
-
-type Selectable = ProductKey | "advisory";
 
 function formatUsd(amount: string): string {
   const n = Number(amount);
@@ -38,205 +36,65 @@ const CREDIT_NOTES: Record<string, string> = {
   credit_100: "Save 59% + Logo Branding",
 };
 
-function removePaypalScripts() {
-  document
-    .querySelectorAll('script[src*="paypal.com/sdk/js"]')
-    .forEach((el) => el.remove());
-  const paypalWindow = window as Window & { paypal?: unknown };
-  try {
-    delete paypalWindow.paypal;
-  } catch {
-    paypalWindow.paypal = undefined;
-  }
-}
-
-function loadPaypalSdk(onReady: () => void, onError: (message: string) => void) {
-  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
-  console.log(
-    "[PayPal] client id:",
-    clientId ? `${clientId.slice(0, 6)}...` : "MISSING"
-  );
-
-  if (!clientId) {
-    onError("PayPal client ID missing from environment variables.");
-    return;
-  }
-
-  if (window.paypal) {
-    console.log("[PayPal] SDK already present");
-    onReady();
-    return;
-  }
-
-  const url = `https://www.paypal.com/sdk/js?client-id=${clientId}&vault=true&intent=capture,subscription&components=buttons&currency=USD`;
-  console.log("[PayPal] loading SDK:", url);
-
-  const script = document.createElement("script");
-  script.src = url;
-  script.async = true;
-  script.onload = () => {
-    console.log("[PayPal] SDK loaded OK");
-    onReady();
-  };
-  script.onerror = (e) => {
-    console.error("[PayPal] SDK failed to load", e);
-    onError("Failed to load PayPal. Try again.");
-  };
-  document.head.appendChild(script);
-}
-
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const { ready, visible } = usePaypalCheckoutVisible();
-  const { user, isSignedIn } = useUser();
-  const { getToken } = useAuth();
+  const { isSignedIn } = useUser();
   const { isPro, lifetime, advisoryActive } = useSubscription();
-  const [selected, setSelected] = useState<Selectable>(
-    lifetime ? "credit_1" : "professional"
-  );
-  const [sdkReady, setSdkReady] = useState(false);
+  const [redirecting, setRedirecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [sdkLoadKey, setSdkLoadKey] = useState(0);
-  const buttonHostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (lifetime && selected === "professional") setSelected("credit_1");
-  }, [lifetime, selected]);
+    if (!open) {
+      setRedirecting(null);
+      setError(null);
+    }
+  }, [open]);
 
-  useEffect(() => {
-    if (!open || !visible) return;
-    loadPaypalSdk(
-      () => setSdkReady(true),
-      (message) => setError(message)
-    );
-  }, [open, visible, sdkLoadKey]);
-
-  const retryPaypalSdk = () => {
-    removePaypalScripts();
+  async function startOneTime(productKey: ProductKey) {
+    if (redirecting) return;
     setError(null);
-    setSdkReady(false);
-    setSdkLoadKey((n) => n + 1);
-  };
+    setRedirecting(ONE_TIME_PRODUCTS[productKey].label);
+    try {
+      const res = await fetch("/api/paypal/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productKey }),
+      });
+      const body = (await res.json()) as {
+        approveUrl?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.approveUrl) {
+        throw new Error(body.error || "Could not start PayPal checkout");
+      }
+      window.location.href = body.approveUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Checkout failed");
+      setRedirecting(null);
+    }
+  }
 
-  const finishPurchase = useCallback(async () => {
-    await getToken({ skipCache: true }).catch(() => undefined);
-    await user?.reload();
-    window.location.reload();
-  }, [getToken, user]);
-
-  useEffect(() => {
-    if (!open || !visible || !sdkReady || !isSignedIn || !window.paypal) return;
-    const host = buttonHostRef.current;
-    if (!host) return;
-
-    const creditsLocked = CREDIT_PRODUCT_KEYS.includes(selected as ProductKey) && !isPro;
-    const professionalOwned = selected === "professional" && lifetime;
-    const advisoryOwned = selected === "advisory" && advisoryActive;
-    if (creditsLocked || professionalOwned || advisoryOwned) return;
-
+  async function startAdvisory() {
+    if (redirecting) return;
     setError(null);
-    host.innerHTML = "";
-
-    const buttons =
-      selected === "advisory"
-        ? window.paypal.Buttons({
-            style: { layout: "vertical", color: "gold", shape: "rect", label: "paypal" },
-            createSubscription: (_data, actions) => {
-              const planId = process.env.NEXT_PUBLIC_PAYPAL_ADVISORY_PLAN_ID;
-              if (!planId || !user?.id) {
-                return Promise.reject(new Error("Missing plan or user"));
-              }
-              return actions.subscription.create({
-                plan_id: planId,
-                custom_id: user.id,
-              });
-            },
-            onApprove: async (data) => {
-              setBusy(true);
-              try {
-                const res = await fetch("/api/subscription/activate", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ subscriptionId: data.subscriptionID }),
-                });
-                if (!res.ok) {
-                  const body = (await res.json().catch(() => ({}))) as {
-                    error?: string;
-                  };
-                  throw new Error(body.error || "Activation failed");
-                }
-                await finishPurchase();
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Activation failed");
-                setBusy(false);
-              }
-            },
-            onError: (err) => {
-              console.error("[PayPal] subscription error", err);
-              setError("PayPal subscription failed. Try again.");
-            },
-          })
-        : window.paypal.Buttons({
-            style: { layout: "vertical", color: "gold", shape: "rect", label: "paypal" },
-            createOrder: async () => {
-              const res = await fetch("/api/paypal/create-order", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ productKey: selected }),
-              });
-              const body = (await res.json()) as {
-                orderID?: string;
-                error?: string;
-              };
-              if (!res.ok || !body.orderID) {
-                throw new Error(body.error || "Order creation failed");
-              }
-              return body.orderID;
-            },
-            onApprove: async (data) => {
-              setBusy(true);
-              try {
-                const res = await fetch("/api/paypal/capture-order", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ orderID: data.orderID }),
-                });
-                const body = (await res.json()) as { error?: string };
-                if (!res.ok) {
-                  throw new Error(body.error || "Capture failed");
-                }
-                await finishPurchase();
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Capture failed");
-                setBusy(false);
-              }
-            },
-            onError: (err) => {
-              console.error("[PayPal] order error", err);
-              setError("PayPal checkout failed. Try again.");
-            },
-          });
-
-    void buttons.render(host).catch((err) => {
-      console.error("[PayPal] render failed", err);
-      setError("Could not render PayPal button.");
-    });
-
-    return () => {
-      void buttons.close().catch(() => undefined);
-    };
-  }, [
-    open,
-    visible,
-    sdkReady,
-    isSignedIn,
-    selected,
-    isPro,
-    lifetime,
-    advisoryActive,
-    user?.id,
-    finishPurchase,
-  ]);
+    setRedirecting("Advisory");
+    try {
+      const res = await fetch("/api/paypal/create-subscription", {
+        method: "POST",
+      });
+      const body = (await res.json()) as {
+        approveUrl?: string;
+        error?: string;
+      };
+      if (!res.ok || !body.approveUrl) {
+        throw new Error(body.error || "Could not start PayPal checkout");
+      }
+      window.location.href = body.approveUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Checkout failed");
+      setRedirecting(null);
+    }
+  }
 
   if (!open || !ready) return null;
 
@@ -272,11 +130,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   }
 
   const creditsLocked = !isPro;
-  const showPayPal =
-    isSignedIn &&
-    !(selected === "professional" && lifetime) &&
-    !(selected === "advisory" && advisoryActive) &&
-    !(CREDIT_PRODUCT_KEYS.includes(selected as ProductKey) && creditsLocked);
+  const busy = Boolean(redirecting);
 
   return (
     <div className="fixed inset-0 z-[300] overflow-y-auto bg-black/70">
@@ -285,7 +139,8 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-4 top-4 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            disabled={busy}
+            className="absolute right-4 top-4 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-40"
             aria-label="Close"
           >
             ✕
@@ -296,19 +151,31 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             Lifetime access, report credits, or unlimited Advisory.
           </p>
 
+          {!isSignedIn ? (
+            <a
+              href="/sign-in"
+              className="mt-6 block rounded-lg bg-emerald-500 px-4 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+            >
+              Sign in to purchase
+            </a>
+          ) : null}
+
+          {busy ? (
+            <p className="mt-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-300">
+              Redirecting to PayPal…
+            </p>
+          ) : null}
+
           <section className="mt-6">
             <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
               Professional — $99 lifetime
             </h3>
-            <button
-              type="button"
-              onClick={() => setSelected("professional")}
-              disabled={lifetime}
-              className={`mt-3 w-full rounded-xl border p-4 text-left transition ${
-                selected === "professional"
-                  ? "border-emerald-500 bg-emerald-500/10"
-                  : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
-              } ${lifetime ? "cursor-default opacity-70" : ""}`}
+            <div
+              className={`mt-3 w-full rounded-xl border p-4 ${
+                lifetime
+                  ? "border-slate-700 bg-slate-900/50 opacity-70"
+                  : "border-emerald-500 bg-emerald-500/10"
+              }`}
             >
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-semibold text-white">
@@ -325,8 +192,17 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 <p className="mt-2 text-xs font-semibold text-emerald-400">
                   Already purchased
                 </p>
+              ) : isSignedIn ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void startOneTime("professional")}
+                  className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+                >
+                  Pay with PayPal
+                </button>
               ) : null}
-            </button>
+            </div>
           </section>
 
           <section className="mt-8">
@@ -346,16 +222,13 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               {CREDIT_PRODUCT_KEYS.map((key) => {
                 const product = ONE_TIME_PRODUCTS[key];
                 return (
-                  <button
+                  <div
                     key={key}
-                    type="button"
-                    disabled={creditsLocked}
-                    onClick={() => setSelected(key)}
-                    className={`rounded-xl border p-4 text-left transition ${
-                      selected === key
-                        ? "border-emerald-500 bg-emerald-500/10"
-                        : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
-                    } ${creditsLocked ? "cursor-not-allowed opacity-40" : ""}`}
+                    className={`rounded-xl border p-4 ${
+                      creditsLocked
+                        ? "border-slate-700 bg-slate-900/50 opacity-40"
+                        : "border-slate-700 bg-slate-900/50"
+                    }`}
                   >
                     <p className="text-sm font-medium text-slate-300">
                       {product.label}
@@ -366,7 +239,17 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                     <p className="mt-2 inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-400">
                       {CREDIT_NOTES[key]}
                     </p>
-                  </button>
+                    {!creditsLocked && isSignedIn ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void startOneTime(key)}
+                        className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+                      >
+                        Pay with PayPal
+                      </button>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -376,15 +259,12 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
               Advisory — $2,889/yr
             </h3>
-            <button
-              type="button"
-              onClick={() => setSelected("advisory")}
-              disabled={advisoryActive}
-              className={`mt-3 w-full rounded-xl border p-4 text-left transition ${
-                selected === "advisory"
-                  ? "border-emerald-500 bg-emerald-500/10"
-                  : "border-slate-700 bg-slate-900/50 hover:border-slate-500"
-              } ${advisoryActive ? "cursor-default opacity-70" : ""}`}
+            <div
+              className={`mt-3 w-full rounded-xl border p-4 ${
+                advisoryActive
+                  ? "border-slate-700 bg-slate-900/50 opacity-70"
+                  : "border-slate-700 bg-slate-900/50"
+              }`}
             >
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-semibold text-white">
@@ -404,46 +284,22 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 <p className="mt-2 text-xs font-semibold text-emerald-400">
                   Active subscription
                 </p>
-              ) : null}
-            </button>
-          </section>
-
-          <div className="mt-8 min-h-[52px] rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            {!isSignedIn ? (
-              <a
-                href="/sign-in"
-                className="block rounded-lg bg-emerald-500 px-4 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-              >
-                Sign in to purchase
-              </a>
-            ) : busy ? (
-              <p className="text-center text-sm text-slate-300">
-                Completing purchase…
-              </p>
-            ) : showPayPal ? (
-              <div ref={buttonHostRef} />
-            ) : (
-              <p className="text-center text-sm text-slate-400">
-                {selected === "professional" && lifetime
-                  ? "Professional lifetime access is already on this account."
-                  : selected === "advisory" && advisoryActive
-                    ? "Advisory is already active."
-                    : "Select Professional first to buy report credits."}
-              </p>
-            )}
-            {error ? (
-              <div className="mt-3 flex flex-col items-center gap-2">
-                <p className="text-center text-sm text-rose-400">{error}</p>
+              ) : isSignedIn ? (
                 <button
                   type="button"
-                  onClick={retryPaypalSdk}
-                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
+                  disabled={busy}
+                  onClick={() => void startAdvisory()}
+                  className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
                 >
-                  Try again
+                  Subscribe with PayPal
                 </button>
-              </div>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          </section>
+
+          {error ? (
+            <p className="mt-6 text-center text-sm text-rose-400">{error}</p>
+          ) : null}
         </div>
       </div>
     </div>

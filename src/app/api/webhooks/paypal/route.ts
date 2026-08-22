@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { verifyPayPalWebhook } from "@/lib/paypal";
-import { getSubMeta, setSubMeta } from "@/lib/subscription-metadata";
+import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
+import {
+  getSubMeta,
+  grantOneTimeProduct,
+  hasProcessedId,
+  pushProcessedIds,
+  setSubMeta,
+} from "@/lib/subscription-metadata";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,11 +24,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function extractUserId(resource: unknown): string | null {
+function extractCustomId(resource: unknown): string | null {
   if (!isRecord(resource)) return null;
   const customId = resource.custom_id;
   if (typeof customId !== "string" || !customId) return null;
-  return customId.includes("|") ? customId.split("|")[0] : customId;
+  return customId;
 }
 
 export async function POST(req: Request) {
@@ -40,13 +47,33 @@ export async function POST(req: Request) {
   }
 
   const eventType = event.event_type ?? "";
+  const resource = isRecord(event.resource) ? event.resource : {};
+  const customId = extractCustomId(resource);
 
   if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
-    console.log(
-      `${LOG_PREFIX} PAYMENT.CAPTURE.COMPLETED ignored (granted by capture-order)`,
-      isRecord(event.resource) ? event.resource.id : undefined
-    );
-    return NextResponse.json({ received: true, ignored: true });
+    const captureId = typeof resource.id === "string" ? resource.id : "";
+    if (!customId || !customId.includes("|") || !captureId) {
+      console.warn(`${LOG_PREFIX} capture missing custom_id or id`);
+      return NextResponse.json({ received: true, skipped: "no_custom_id" });
+    }
+    const [userId, productKey] = customId.split("|");
+    if (!ONE_TIME_PRODUCTS[productKey as ProductKey]) {
+      return NextResponse.json({ received: true, skipped: "unknown_product" });
+    }
+    try {
+      const meta = await getSubMeta(userId);
+      if (hasProcessedId(meta, captureId)) {
+        return NextResponse.json({ received: true, skipped: "already_granted" });
+      }
+      grantOneTimeProduct(meta, productKey as ProductKey);
+      pushProcessedIds(meta, [captureId]);
+      await setSubMeta(userId, meta);
+      console.log(`${LOG_PREFIX} capture granted`, userId, productKey, captureId);
+    } catch (err) {
+      console.error(`${LOG_PREFIX} capture grant failed`, userId, err);
+      return NextResponse.json({ error: "User update failed" }, { status: 500 });
+    }
+    return NextResponse.json({ received: true });
   }
 
   if (
@@ -57,13 +84,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   }
 
-  const userId = extractUserId(event.resource);
+  const userId = customId && !customId.includes("|") ? customId : customId?.split("|")[0];
   if (!userId) {
     console.warn(`${LOG_PREFIX} missing custom_id`, eventType);
     return NextResponse.json({ received: true, skipped: "no_custom_id" });
   }
 
-  const resource = isRecord(event.resource) ? event.resource : {};
   const subscriptionId =
     typeof resource.id === "string" ? resource.id : undefined;
 
@@ -71,6 +97,12 @@ export async function POST(req: Request) {
     const meta = await getSubMeta(userId);
 
     if (eventType === "BILLING.SUBSCRIPTION.ACTIVATED") {
+      if (
+        meta.paypalSubscriptionId === subscriptionId &&
+        meta.advisoryStatus === "active"
+      ) {
+        return NextResponse.json({ received: true, skipped: "already_active" });
+      }
       meta.plan = "advisory";
       meta.advisoryStatus = "active";
       if (subscriptionId) meta.paypalSubscriptionId = subscriptionId;

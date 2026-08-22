@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { getCustomerTier } from "@/lib/entitlements";
+import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
 
 export interface SubscriptionMeta {
   plan: "explorer" | "professional" | "advisory";
@@ -8,6 +9,7 @@ export interface SubscriptionMeta {
   reportCredits: number;
   whiteLabel: boolean;
   paypalSubscriptionId?: string;
+  processedOrderIds?: string[];
   updatedAt: string;
 }
 
@@ -17,6 +19,7 @@ const DEFAULT_META: SubscriptionMeta = {
   advisoryStatus: "none",
   reportCredits: 0,
   whiteLabel: false,
+  processedOrderIds: [],
   updatedAt: "",
 };
 
@@ -94,4 +97,32 @@ export async function markOrderGranted(userId: string, orderId: string) {
   await client.users.updateUserMetadata(userId, {
     privateMetadata: { paypalGrantedOrders: [...granted, orderId] },
   });
+}
+
+export function hasProcessedId(meta: SubscriptionMeta, id: string): boolean {
+  return (meta.processedOrderIds ?? []).includes(id);
+}
+
+export function pushProcessedIds(meta: SubscriptionMeta, ids: string[]) {
+  const next = [...(meta.processedOrderIds ?? [])];
+  for (const id of ids) {
+    if (id && !next.includes(id)) next.push(id);
+  }
+  meta.processedOrderIds = next.slice(-10);
+}
+
+export function grantOneTimeProduct(
+  meta: SubscriptionMeta,
+  productKey: ProductKey
+): boolean {
+  const product = ONE_TIME_PRODUCTS[productKey];
+  if (!product) return false;
+  if (productKey === "professional") {
+    meta.lifetime = true;
+    if (meta.plan !== "advisory") meta.plan = "professional";
+  } else {
+    meta.reportCredits += product.credits;
+    if (product.whiteLabel) meta.whiteLabel = true;
+  }
+  return true;
 }

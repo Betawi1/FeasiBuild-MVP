@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getPayPalAccessToken, baseUrl } from "@/lib/paypal";
+import {
+  getPayPalAccessToken,
+  baseUrl,
+  findApproveUrl,
+  PAYPAL_RETURN_URL,
+  PAYPAL_CANCEL_URL,
+} from "@/lib/paypal";
 import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
 
 export const runtime = "nodejs";
@@ -34,14 +40,30 @@ export async function POST(req: Request) {
           custom_id: `${userId}|${productKey}`,
         },
       ],
+      application_context: {
+        return_url: PAYPAL_RETURN_URL,
+        cancel_url: PAYPAL_CANCEL_URL,
+        brand_name: "FeasiBuild",
+        user_action: "PAY_NOW",
+      },
     }),
   });
-  const order = (await res.json()) as { id?: string };
+  const order = (await res.json()) as {
+    id?: string;
+    links?: unknown;
+  };
   if (!order.id) {
     return NextResponse.json(
       { error: "Order creation failed", details: order },
       { status: 502 }
     );
   }
-  return NextResponse.json({ orderID: order.id });
+  const approveUrl = findApproveUrl(order.links);
+  if (!approveUrl) {
+    return NextResponse.json(
+      { error: "No PayPal approve URL", details: order },
+      { status: 502 }
+    );
+  }
+  return NextResponse.json({ orderID: order.id, approveUrl });
 }

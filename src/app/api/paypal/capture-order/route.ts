@@ -4,9 +4,10 @@ import { capturePayPalOrder, getOrderDetails } from "@/lib/paypal";
 import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
 import {
   getSubMeta,
-  markOrderGranted,
+  grantOneTimeProduct,
+  hasProcessedId,
+  pushProcessedIds,
   setSubMeta,
-  wasOrderGranted,
 } from "@/lib/subscription-metadata";
 
 export const runtime = "nodejs";
@@ -29,6 +30,17 @@ function orderStatus(order: unknown): string {
     : "";
 }
 
+function collectCaptureIds(order: unknown): string[] {
+  if (!isRecord(order) || !Array.isArray(order.purchase_units)) return [];
+  const unit = order.purchase_units[0];
+  if (!isRecord(unit) || !isRecord(unit.payments)) return [];
+  const captures = unit.payments.captures;
+  if (!Array.isArray(captures)) return [];
+  return captures
+    .map((c) => (isRecord(c) && typeof c.id === "string" ? c.id : null))
+    .filter((id): id is string => Boolean(id));
+}
+
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) {
@@ -40,18 +52,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing orderID" }, { status: 400 });
   }
 
-  if (await wasOrderGranted(userId, orderID)) {
-    const meta = await getSubMeta(userId);
-    return NextResponse.json({ success: true, meta });
+  const existing = await getSubMeta(userId);
+  if (hasProcessedId(existing, orderID)) {
+    return NextResponse.json({ success: true, meta: existing });
   }
 
-  const captured = await capturePayPalOrder(orderID);
-  let order = captured as unknown;
-  if (orderStatus(order) !== "COMPLETED") {
-    order = await getOrderDetails(orderID);
-  }
+  await capturePayPalOrder(orderID);
+  const order = await getOrderDetails(orderID);
   if (orderStatus(order) !== "COMPLETED") {
     return NextResponse.json({ error: "Payment not completed" }, { status: 402 });
+  }
+
+  const captureIds = collectCaptureIds(order);
+  const meta = await getSubMeta(userId);
+  if (
+    hasProcessedId(meta, orderID) ||
+    captureIds.some((id) => hasProcessedId(meta, id))
+  ) {
+    return NextResponse.json({ success: true, meta });
   }
 
   const customId = purchaseCustomId(order);
@@ -63,21 +81,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const product = ONE_TIME_PRODUCTS[productKey as ProductKey];
-  if (!product) {
+  if (!ONE_TIME_PRODUCTS[productKey as ProductKey]) {
+    return NextResponse.json({ error: "Unknown product" }, { status: 400 });
+  }
+  if (!grantOneTimeProduct(meta, productKey as ProductKey)) {
     return NextResponse.json({ error: "Unknown product" }, { status: 400 });
   }
 
-  const meta = await getSubMeta(userId);
-  if (productKey === "professional") {
-    meta.lifetime = true;
-    if (meta.plan !== "advisory") meta.plan = "professional";
-  } else {
-    meta.reportCredits += product.credits;
-    if (product.whiteLabel) meta.whiteLabel = true;
-  }
+  pushProcessedIds(meta, [orderID, ...captureIds]);
   await setSubMeta(userId, meta);
-  await markOrderGranted(userId, orderID);
 
   return NextResponse.json({ success: true, meta });
 }

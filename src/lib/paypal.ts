@@ -1,3 +1,6 @@
+export const PAYPAL_RETURN_URL = "https://feasibuild.app/checkout/success";
+export const PAYPAL_CANCEL_URL = "https://feasibuild.app/checkout/cancel";
+
 export function baseUrl(): string {
   const mode =
     process.env.NEXT_PUBLIC_PAYPAL_MODE || process.env.PAYPAL_MODE;
@@ -104,4 +107,16 @@ export async function verifyPayPalWebhook(
   );
   const data = (await res.json()) as { verification_status?: string };
   return data.verification_status === "SUCCESS";
+}
+
+export function findApproveUrl(links: unknown): string | undefined {
+  if (!Array.isArray(links)) return undefined;
+  const approve = links.find(
+    (l) =>
+      typeof l === "object" &&
+      l !== null &&
+      "rel" in l &&
+      (l as { rel?: string }).rel === "approve"
+  ) as { href?: string } | undefined;
+  return typeof approve?.href === "string" ? approve.href : undefined;
 }
