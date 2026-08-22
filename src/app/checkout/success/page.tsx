@@ -8,13 +8,13 @@ import { useUser } from "@clerk/nextjs";
 function CheckoutSuccessInner() {
   const params = useSearchParams();
   const router = useRouter();
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const started = useRef(false);
   const [status, setStatus] = useState<"working" | "ok" | "error">("working");
   const [message, setMessage] = useState("Completing your purchase…");
 
   useEffect(() => {
-    if (started.current) return;
+    if (!isLoaded || started.current) return;
     started.current = true;
 
     const token = params.get("token");
@@ -55,7 +55,7 @@ function CheckoutSuccessInner() {
         setMessage("✅ Purchase complete! Updating your account…");
         window.setTimeout(() => {
           router.replace("/dashboard");
-        }, 2500);
+        }, 1000);
       } catch (err) {
         setStatus("error");
         setMessage(
@@ -63,7 +63,7 @@ function CheckoutSuccessInner() {
         );
       }
     })();
-  }, [params, router, user]);
+  }, [isLoaded, params, router, user]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
