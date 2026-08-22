@@ -7,15 +7,13 @@ import UpgradeModal from "@/components/ui/UpgradeModal";
 
 export default function UpgradeTrigger() {
   const [open, setOpen] = useState(false);
-  const { isPro, isLoading } = useSubscription();
+  const { isPro, advisoryActive, isLoading } = useSubscription();
 
-  console.log("[UpgradeTrigger]", {
-    isPro,
-    isLoading,
-    visible: paypalVisible(),
-  });
+  if (isLoading) return null;
+  if (advisoryActive) return null;
+  if (!paypalVisible()) return null;
 
-  if (isLoading || isPro || !paypalVisible()) return null;
+  const label = isPro ? "➕ Buy Report Credits" : "⚡ Upgrade to Pro";
 
   return (
     <>
@@ -24,7 +22,7 @@ export default function UpgradeTrigger() {
         onClick={() => setOpen(true)}
         className="rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
       >
-        ⚡ Upgrade to Pro
+        {label}
       </button>
       <UpgradeModal open={open} onClose={() => setOpen(false)} />
     </>

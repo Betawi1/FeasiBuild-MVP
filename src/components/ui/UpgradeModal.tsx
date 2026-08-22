@@ -195,10 +195,10 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               <p className="mt-1 text-sm text-slate-400">
                 One-time · unlocks clean reports via credit packs
               </p>
-              {lifetime ? (
-                <p className="mt-2 text-xs font-semibold text-emerald-400">
-                  Already purchased
-                </p>
+              {isPro || lifetime ? (
+                <span className="mt-3 inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
+                  ✓ Owned
+                </span>
               ) : isSignedIn ? (
                 <button
                   type="button"
@@ -321,9 +321,12 @@ export function UpgradeModalTrigger({
 }) {
   const [open, setOpen] = useState(false);
   const { ready, visible } = usePaypalCheckoutVisible();
-  const { isPro, isLoading } = useSubscription();
+  const { isPro, advisoryActive, isLoading } = useSubscription();
 
-  if (isLoading || !ready || !visible || isPro) return null;
+  if (isLoading || !ready || !visible) return null;
+  if (advisoryActive) return null;
+
+  const label = isPro ? "➕ Buy Report Credits" : "⚡ Upgrade to Pro";
 
   return (
     <>
@@ -335,7 +338,7 @@ export function UpgradeModalTrigger({
           "rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
         }
       >
-        ⚡ Upgrade to Pro
+        {label}
       </button>
       <UpgradeModal open={open} onClose={() => setOpen(false)} />
     </>
