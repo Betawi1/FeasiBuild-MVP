@@ -1,9 +1,17 @@
 /**
- * Customer support entitlements.
- * V1: hardcoded allowlist. Will later be replaced by PayPal webhook lookups.
+ * Customer entitlements.
+ * PayPal/Clerk publicMetadata.subscription is the source of truth for paid
+ * plans. The email allowlist remains as a founder/support fallback.
  */
 
 export type CustomerTier = "explorer" | "pro" | "advisory";
+
+export interface SubscriptionLike {
+  plan?: string;
+  lifetime?: boolean;
+  advisoryStatus?: string;
+  whiteLabel?: boolean;
+}
 
 const TIER_ALLOWLIST = new Map<string, CustomerTier>([
   ["pro@example.com", "pro"],
@@ -12,7 +20,28 @@ const TIER_ALLOWLIST = new Map<string, CustomerTier>([
   ["rashdan.ibrahim@gmail.com", "advisory"],
 ]);
 
-export function getCustomerTier(email: string): CustomerTier {
+function tierFromSubscription(
+  subscription?: SubscriptionLike | null
+): CustomerTier | null {
+  if (!subscription) return null;
+  if (
+    subscription.plan === "advisory" &&
+    subscription.advisoryStatus === "active"
+  ) {
+    return "advisory";
+  }
+  if (subscription.lifetime || subscription.plan === "professional") {
+    return "pro";
+  }
+  return null;
+}
+
+export function getCustomerTier(
+  email: string,
+  subscription?: SubscriptionLike | null
+): CustomerTier {
+  const fromSub = tierFromSubscription(subscription);
+  if (fromSub) return fromSub;
   const key = email.trim().toLowerCase();
   if (!key) return "explorer";
   return TIER_ALLOWLIST.get(key) ?? "explorer";
@@ -24,9 +53,19 @@ const PRO_LOGO_PACK_ALLOWLIST: string[] = [
 ];
 
 /** Advisory = always; Professional (`pro`) = only with 100-Pack; Explorer = never. */
-export function hasWhiteLabelAccess(email: string | null | undefined): boolean {
+export function hasWhiteLabelAccess(
+  email: string | null | undefined,
+  subscription?: SubscriptionLike | null
+): boolean {
+  if (subscription?.whiteLabel) return true;
+  if (
+    subscription?.plan === "advisory" &&
+    subscription.advisoryStatus === "active"
+  ) {
+    return true;
+  }
   const normalized = (email ?? "").trim().toLowerCase();
-  const tier = getCustomerTier(normalized);
+  const tier = getCustomerTier(normalized, subscription);
   if (tier === "advisory") return true;
   if (tier === "pro") {
     return PRO_LOGO_PACK_ALLOWLIST.includes(normalized);

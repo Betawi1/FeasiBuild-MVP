@@ -47,6 +47,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function subscriptionFromUser(user: {
+  publicMetadata?: Record<string, unknown>;
+} | null | undefined) {
+  return (user?.publicMetadata as { subscription?: Record<string, unknown> } | undefined)
+    ?.subscription;
+}
+
 async function syncToVault(
   input: BuildProjectSaveInput,
   options?: { skipLocalStatus?: boolean }
@@ -97,11 +104,15 @@ export async function beginOptimisticSave(input: Omit<
 }): Promise<SaveProjectResult> {
   const userId = resolveSaveUserId(input.userId);
   const email = input.email?.trim() || "";
+  const subscription = input.subscription ?? undefined;
   const existingId = input.projectId?.trim() || undefined;
   const isNewProject = !existingId;
 
   if (isNewProject) {
-    const ok = await canCreateProject(getCustomerTier(email), userId);
+    const ok = await canCreateProject(
+      getCustomerTier(email, subscription),
+      userId
+    );
     if (!ok) {
       throw new Error(
         "Free tier limit reached. Upgrade to start new projects."
@@ -114,6 +125,7 @@ export async function beginOptimisticSave(input: Omit<
     ...input,
     userId,
     email,
+    subscription,
     projectId,
   };
 
@@ -148,6 +160,7 @@ export async function ensureProjectAutoSaved(options: {
   stream: FinModelStreamKey;
   clerkUserId?: string | null;
   email?: string;
+  subscription?: BuildProjectSaveInput["subscription"];
   showToast?: AutoSaveToastFn;
 }): Promise<string | null> {
   if (ensureInFlight) return ensureInFlight;
@@ -160,7 +173,10 @@ export async function ensureProjectAutoSaved(options: {
 
     const userId = resolveSaveUserId(options.clerkUserId);
     const email = options.email?.trim() || "";
-    const ok = await canCreateProject(getCustomerTier(email), userId);
+    const ok = await canCreateProject(
+      getCustomerTier(email, options.subscription),
+      userId
+    );
     if (!ok) {
       console.log(
         "[ProjectSave] Auto-save skipped — Explorer new-project lock"
@@ -175,6 +191,7 @@ export async function ensureProjectAutoSaved(options: {
         stream: options.stream,
         userId,
         email,
+        subscription: options.subscription,
       });
 
       if (wasUnsaved && result.projectId) {
@@ -226,9 +243,11 @@ export function useOptimisticProjectSave() {
           input.email?.trim() ||
           user?.primaryEmailAddress?.emailAddress ||
           "",
+        subscription:
+          input.subscription ?? subscriptionFromUser(user) ?? undefined,
       });
     },
-    [user?.id, user?.primaryEmailAddress?.emailAddress]
+    [user]
   );
 
   useEffect(() => {
@@ -259,6 +278,7 @@ export function useOptimisticProjectSave() {
         ...last,
         userId: clerkId,
         email: user?.primaryEmailAddress?.emailAddress || last.email || "",
+        subscription: subscriptionFromUser(user) ?? last.subscription,
       };
       void syncToVault(payload, { skipLocalStatus: true }).catch(
         () => undefined

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useUser, UserButton } from "@clerk/nextjs";
+import { UpgradeNavControl } from "@/components/ui/UpgradeModal";
 
 export default function Navbar() {
   const { user, isLoaded } = useUser();
@@ -82,6 +83,7 @@ export default function Navbar() {
                   </svg>
                   Dashboard
                 </Link>
+                <UpgradeNavControl />
                 <UserButton
                   appearance={{
                     variables: { colorPrimary: "#10b981" },
@@ -197,7 +199,8 @@ export default function Navbar() {
               {!isLoaded ? (
                 <div className="h-10 animate-pulse rounded bg-slate-800" />
               ) : user ? (
-                <div className="flex justify-center py-2">
+                <div className="flex flex-col items-center gap-3 py-2">
+                  <UpgradeNavControl />
                   <UserButton
                     appearance={{
                       variables: { colorPrimary: "#10b981" },

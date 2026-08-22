@@ -3,6 +3,7 @@
 import { UserButton } from "@clerk/nextjs";
 import { usePathname } from "next/navigation";
 import AIModelSelector from "@/components/settings/AIModelSelector";
+import { UpgradeNavControl } from "@/components/ui/UpgradeModal";
 
 export default function Header() {
   const pathname = usePathname();
@@ -17,6 +18,7 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-4">
+        <UpgradeNavControl compact />
         <AIModelSelector variant="inline" />
         <UserButton />
       </div>

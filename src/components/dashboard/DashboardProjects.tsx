@@ -8,6 +8,8 @@ import {
 import type { ProjectIndexEntry } from "@/types/project";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import { useCanCreateProject } from "@/hooks/useCanCreateProject";
+import UpgradeModal from "@/components/ui/UpgradeModal";
+import { paypalVisible } from "@/lib/paypal-gate";
 
 interface DashboardProjectsProps {
   userId?: string;
@@ -18,6 +20,12 @@ export default function DashboardProjects({ userId }: DashboardProjectsProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { canCreate } = useCanCreateProject();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [checkoutVisible, setCheckoutVisible] = useState(false);
+
+  useEffect(() => {
+    setCheckoutVisible(paypalVisible());
+  }, []);
 
   const loadProjects = async () => {
     try {
@@ -60,19 +68,34 @@ export default function DashboardProjects({ userId }: DashboardProjectsProps) {
     }
   };
 
-  const lockBanner = !canCreate ? (
-    <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
-      You&apos;ve used your free report, so new projects are locked on the Free
-      tier. Your existing project stays available. Upgrade to Professional for
-      new projects + clean reports, or Advisory for unlimited + your own logo.
-      <a
-        href="/#pricing"
-        className="ml-2 font-semibold text-emerald-400 underline"
-      >
-        See Pricing
-      </a>
-    </div>
-  ) : null;
+  const lockBanner = (
+    <>
+      {!canCreate ? (
+        <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
+          You&apos;ve used your free report, so new projects are locked on the Free
+          tier. Your existing project stays available. Upgrade to Professional for
+          new projects + clean reports, or Advisory for unlimited + your own logo.
+          {checkoutVisible ? (
+            <button
+              type="button"
+              onClick={() => setUpgradeOpen(true)}
+              className="ml-2 font-semibold text-emerald-400 underline"
+            >
+              Upgrade
+            </button>
+          ) : (
+            <a
+              href="/#pricing"
+              className="ml-2 font-semibold text-emerald-400 underline"
+            >
+              See Pricing
+            </a>
+          )}
+        </div>
+      ) : null}
+      <UpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+    </>
+  );
 
   if (isLoading) {
     return (

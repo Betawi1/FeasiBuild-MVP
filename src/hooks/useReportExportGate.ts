@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { getCustomerTier } from "@/lib/entitlements";
+import { useSubscription } from "@/hooks/useSubscription";
 import {
   evaluateExport,
   getUsedReportExports,
@@ -13,7 +14,18 @@ import useFinModelStore from "@/store/useFinModelStore";
 export function useReportExportGate(projectId: string | null) {
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
-  const tier = getCustomerTier(email);
+  const {
+    isPro,
+    hasUnlimitedReports,
+    lifetime,
+    advisoryActive,
+    reportCredits,
+    isLoading,
+  } = useSubscription();
+  const sub = (
+    user?.publicMetadata as { subscription?: Record<string, unknown> } | undefined
+  )?.subscription;
+  const tier = getCustomerTier(email, sub);
   const [usedExports, setUsedExports] = useState(0);
   const [showUpgrade, setShowUpgrade] = useState(false);
 
@@ -28,20 +40,48 @@ export function useReportExportGate(projectId: string | null) {
     };
   }, [user?.id]);
 
-  const downloadLabel =
-    tier !== "explorer"
+  const downloadLabel = !isPro
+    ? usedExports === 0
+      ? "Download PDF (Free · Watermarked)"
+      : "Upgrade to Export"
+    : hasUnlimitedReports
       ? "Download PDF"
-      : usedExports === 0
-        ? "Download PDF (Free · Watermarked)"
-        : "Upgrade to Export";
+      : reportCredits <= 0
+        ? "Buy Credits to Export"
+        : "Download PDF";
 
   async function allowOrPrompt(): Promise<boolean> {
-    const decision = await evaluateExport(tier, projectId, user?.id);
-    if (!decision.allowed) {
-      setShowUpgrade(true);
-      return false;
+    if (isLoading) return false;
+
+    if (!isPro) {
+      const decision = await evaluateExport("explorer", projectId, user?.id);
+      if (!decision.allowed) {
+        setShowUpgrade(true);
+        return false;
+      }
+      return true;
     }
-    return true;
+
+    if (hasUnlimitedReports) return true;
+
+    const decision = await evaluateExport("pro", projectId, user?.id);
+    if (decision.allowed && !decision.consumesReport) {
+      return true;
+    }
+
+    const res = await fetch("/api/subscription/consume-credit", {
+      method: "POST",
+    });
+    const data = (await res.json()) as {
+      allowed?: boolean;
+      reason?: string;
+    };
+    if (data.allowed) {
+      await user?.reload();
+      return true;
+    }
+    setShowUpgrade(true);
+    return false;
   }
 
   async function recordSuccessfulExport(
@@ -66,5 +106,8 @@ export function useReportExportGate(projectId: string | null) {
     downloadLabel,
     allowOrPrompt,
     recordSuccessfulExport,
+    lifetime,
+    advisoryActive,
+    reportCredits,
   };
 }

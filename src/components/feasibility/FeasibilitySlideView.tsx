@@ -180,8 +180,11 @@ interface InnerProps extends Props {
 export default function FeasibilitySlideView(props: Props) {
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
-  const canWhiteLabel = hasWhiteLabelAccess(email);
-  const watermark = shouldWatermark(getCustomerTier(email));
+  const sub = (
+    user?.publicMetadata as { subscription?: Record<string, unknown> } | undefined
+  )?.subscription;
+  const canWhiteLabel = hasWhiteLabelAccess(email, sub);
+  const watermark = shouldWatermark(getCustomerTier(email, sub));
 
   const [logo, setLogo] = useState<string | null>(null);
   const [logoHeight, setLogoHeight] = useState(DEFAULT_LOGO_HEIGHT);

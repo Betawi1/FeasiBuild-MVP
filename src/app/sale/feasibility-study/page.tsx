@@ -9,7 +9,7 @@ import { exportToPDF } from "@/lib/pdf-export";
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import FeasibilitySlideView from "@/components/feasibility/FeasibilitySlideView";
 import { SlideErrorBoundary } from "@/components/feasibility/SlideErrorBoundary";
-import ReportUpgradeModal from "@/components/feasibility/ReportUpgradeModal";
+import UpgradeModal from "@/components/ui/UpgradeModal";
 import { useReportExportGate } from "@/hooks/useReportExportGate";
 import { SlideCaptureProvider } from "@/components/feasibility/SlideContainer";
 import { generateSaleSlidesWithPuter } from "@/lib/feasibility/sale/enrich-sale-slides-puter";
@@ -65,8 +65,6 @@ export default function SaleFeasibilityStudyPage() {
   const [projectBundle, setProjectBundle] =
     useState<FeasibilityProjectBundle | null>(null);
   const {
-    tier,
-    usedExports,
     showUpgrade,
     setShowUpgrade,
     downloadLabel,
@@ -129,6 +127,9 @@ export default function SaleFeasibilityStudyPage() {
             stream: "sale",
             clerkUserId: user?.id,
             email: user?.primaryEmailAddress?.emailAddress,
+            subscription: (
+              user?.publicMetadata as { subscription?: Record<string, unknown> }
+            )?.subscription,
             showToast,
           });
           const projectId =
@@ -183,6 +184,9 @@ export default function SaleFeasibilityStudyPage() {
       stream: "sale",
       clerkUserId: user?.id,
       email: user?.primaryEmailAddress?.emailAddress,
+      subscription: (
+        user?.publicMetadata as { subscription?: Record<string, unknown> }
+      )?.subscription,
       showToast,
     });
 
@@ -397,10 +401,8 @@ export default function SaleFeasibilityStudyPage() {
           </div>
         </div>
       </div>
-      <ReportUpgradeModal
+      <UpgradeModal
         open={showUpgrade}
-        usedExports={usedExports}
-        tier={tier}
         onClose={() => setShowUpgrade(false)}
       />
     </div>

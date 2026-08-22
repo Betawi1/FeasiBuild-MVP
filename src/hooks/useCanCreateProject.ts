@@ -11,7 +11,10 @@ const LOCKED_HINT =
 export function useCanCreateProject() {
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
-  const tier = getCustomerTier(email);
+  const sub = (
+    user?.publicMetadata as { subscription?: Record<string, unknown> } | undefined
+  )?.subscription;
+  const tier = getCustomerTier(email, sub);
   const [canCreate, setCanCreate] = useState(true);
 
   useEffect(() => {

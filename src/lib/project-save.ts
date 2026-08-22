@@ -28,7 +28,7 @@ import {
 } from "@/lib/puter-storage";
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import { sanitizeForStorage } from "@/lib/sanitize";
-import { getCustomerTier } from "@/lib/entitlements";
+import { getCustomerTier, type SubscriptionLike } from "@/lib/entitlements";
 import { canCreateProject } from "@/lib/report-entitlements";
 import { getSecureKvUserId } from "@/lib/secure-puter-kv";
 import type {
@@ -581,6 +581,8 @@ export interface BuildProjectSaveInput {
   userId: string;
   /** Clerk primary email — used to enforce Explorer new-project lock. */
   email?: string;
+  /** Clerk publicMetadata.subscription — PayPal plan, used with email fallback. */
+  subscription?: SubscriptionLike | null;
   /** When set, updates an existing project instead of creating a duplicate. */
   projectId?: string;
 }
@@ -595,7 +597,7 @@ export async function buildAndSaveProject(
   const isNewProject = !input.projectId?.trim();
   if (isNewProject) {
     const ok = await canCreateProject(
-      getCustomerTier(input.email ?? ""),
+      getCustomerTier(input.email ?? "", input.subscription),
       input.userId
     );
     if (!ok) {

@@ -8,6 +8,7 @@ import AIAnalystDrawer from "@/components/ai-analyst/AIAnalystDrawer";
 import WizardSupportButton from "@/components/support/WizardSupportButton";
 import SaveProjectButton from "@/components/header/SaveProjectButton";
 import BackToDashboardButton from "@/components/ui/BackToDashboardButton";
+import { UpgradeNavControl } from "@/components/ui/UpgradeModal";
 import { studyToolbarResetBtn, studyToolbarSecondaryBtn } from "@/components/ui/studyToolbarStyles";
 import { ProjectHydrationLoader } from "@/hooks/useProjectHydration";
 
@@ -34,6 +35,7 @@ export default function OperationalLayout({
         <ProjectHydrationLoader stream="operational" />
       </Suspense>
       <div className="fixed right-4 top-4 z-[200] flex items-center gap-2">
+        <UpgradeNavControl compact />
         <BackToDashboardButton />
         <Suspense fallback={null}>
           <WizardSupportButton />
