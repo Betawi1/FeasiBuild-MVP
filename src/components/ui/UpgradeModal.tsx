@@ -407,6 +407,34 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   );
 }
 
+export function UpgradeModalTrigger({
+  className,
+}: {
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const { ready, visible } = usePaypalCheckoutVisible();
+  const { isPro, isLoading } = useSubscription();
+
+  if (isLoading || !ready || !visible || isPro) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={
+          className ??
+          "rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+        }
+      >
+        ⚡ Upgrade to Pro
+      </button>
+      <UpgradeModal open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 export function UpgradeNavControl({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const { ready, visible } = usePaypalCheckoutVisible();

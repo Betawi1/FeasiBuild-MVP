@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useUser, UserButton } from "@clerk/nextjs";
-import { UpgradeNavControl } from "@/components/ui/UpgradeModal";
+import {
+  SignInButton,
+  SignUpButton,
+  UserButton,
+  Show,
+  ClerkLoading,
+} from "@clerk/react";
+import { UpgradeModalTrigger } from "@/components/ui/UpgradeModal";
+
+const clerkAppearance = { variables: { colorPrimary: "#10b981" } };
 
 export default function Navbar() {
-  const { user, isLoaded } = useUser();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
@@ -59,11 +66,32 @@ export default function Navbar() {
             </Link>
           </div>
 
-          <div className="hidden items-center space-x-4 md:flex">
-            {!isLoaded ? (
-              <div className="h-8 w-20 animate-pulse rounded bg-slate-800" />
-            ) : user ? (
-              <>
+          <div className="hidden items-center gap-4 md:flex">
+            <ClerkLoading>
+              <div className="h-8 w-36 animate-pulse rounded bg-slate-800" />
+            </ClerkLoading>
+            <Show when="signed-out">
+              <div className="flex items-center gap-4">
+                <SignInButton mode="modal">
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-white transition-colors hover:text-emerald-400"
+                  >
+                    Sign In
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button
+                    type="button"
+                    className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/20 transition-colors hover:bg-emerald-400"
+                  >
+                    Get Started
+                  </button>
+                </SignUpButton>
+              </div>
+            </Show>
+            <Show when="signed-in">
+              <div className="flex items-center gap-4">
                 <Link
                   href="/dashboard"
                   className="hidden items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 sm:flex"
@@ -83,29 +111,10 @@ export default function Navbar() {
                   </svg>
                   Dashboard
                 </Link>
-                <UpgradeNavControl />
-                <UserButton
-                  appearance={{
-                    variables: { colorPrimary: "#10b981" },
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                <Link
-                  href="/sign-in"
-                  className="text-sm font-medium text-slate-300 transition hover:text-white"
-                >
-                  Log In
-                </Link>
-                <Link
-                  href="/sign-up"
-                  className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600"
-                >
-                  Get Started
-                </Link>
-              </>
-            )}
+                <UpgradeModalTrigger />
+                <UserButton appearance={clerkAppearance} />
+              </div>
+            </Show>
           </div>
 
           <div className="md:hidden">
@@ -196,35 +205,39 @@ export default function Navbar() {
             </Link>
 
             <div className="space-y-3 border-t border-slate-800 pt-4">
-              {!isLoaded ? (
-                <div className="h-10 animate-pulse rounded bg-slate-800" />
-              ) : user ? (
-                <div className="flex flex-col items-center gap-3 py-2">
-                  <UpgradeNavControl />
-                  <UserButton
-                    appearance={{
-                      variables: { colorPrimary: "#10b981" },
-                    }}
-                  />
-                </div>
-              ) : (
-                <>
-                  <Link
-                    href="/sign-in"
-                    className="block w-full rounded-lg border border-slate-700 px-4 py-2 text-center text-slate-300 transition hover:border-slate-600 hover:text-white"
+              <Show when="signed-out">
+                <SignInButton mode="modal">
+                  <button
+                    type="button"
+                    className="block w-full rounded-lg border border-slate-700 px-4 py-2 text-center text-white transition hover:border-slate-600 hover:text-emerald-400"
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
-                    Log In
-                  </Link>
-                  <Link
-                    href="/sign-up"
-                    className="block w-full rounded-lg bg-emerald-500 px-4 py-2 text-center font-bold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-600"
+                    Sign In
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button
+                    type="button"
+                    className="block w-full rounded-lg bg-emerald-500 px-4 py-2 text-center font-medium text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400"
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
                     Get Started
+                  </button>
+                </SignUpButton>
+              </Show>
+              <Show when="signed-in">
+                <div className="flex flex-col items-center gap-3 py-2">
+                  <Link
+                    href="/dashboard"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-center text-sm font-medium text-white transition hover:bg-slate-700"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    Dashboard
                   </Link>
-                </>
-              )}
+                  <UpgradeModalTrigger className="w-full rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90" />
+                  <UserButton appearance={clerkAppearance} />
+                </div>
+              </Show>
             </div>
           </div>
         </div>
