@@ -3652,12 +3652,16 @@ function FinancingPreviewPageContent({
       withdrawalMode,
       hideEscrowRows: !showEscrowSection,
       showFfe: isSaleWarehouseProduct,
+      showHdaDeposit:
+        isResidentialPreview &&
+        financingEnginePreview.jurisdiction === "MALAYSIA",
       projectLabel: `Project: ${projectInfo.city || "—"}, ${projectInfo.country || "—"} • Currency: ${projectInfo.currency || "AED"}`,
     });
   }, [
     financingEnginePreview,
     showEscrowSection,
     isSaleWarehouseProduct,
+    isResidentialPreview,
     projectInfo.city,
     projectInfo.country,
     projectInfo.currency,
@@ -3713,6 +3717,10 @@ function FinancingPreviewPageContent({
                     formatCurrency={formatCurrency}
                     hideEscrowRows={hideEscrow}
                     showFfe={isSaleWarehouseProduct}
+                    showHdaDeposit={
+                      isResidentialPreview &&
+                      financingEnginePreview.jurisdiction === "MALAYSIA"
+                    }
                   />
                 );
               }

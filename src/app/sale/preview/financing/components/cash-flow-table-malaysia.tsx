@@ -63,6 +63,8 @@ export type CashFlowTableMalaysiaProps = {
   hideEscrowRows?: boolean;
   /** Sale warehouse only — show FF&E between Construction and Soft costs. */
   showFfe?: boolean;
+  /** HDA construction deposit — Malaysian residential for-sale only. */
+  showHdaDeposit?: boolean;
 };
 
 export function CashFlowTableMalaysia({
@@ -70,12 +72,17 @@ export function CashFlowTableMalaysia({
   formatCurrency,
   hideEscrowRows = false,
   showFfe = false,
+  showHdaDeposit,
 }: CashFlowTableMalaysiaProps) {
   if (!data || data.length === 0) {
     return (
       <div className="p-8 text-center text-slate-400">No cash flow data available.</div>
     );
   }
+
+  const includeHdaDeposit =
+    showHdaDeposit ??
+    data.some((r) => Math.abs(r.capitalHdaDeposit) > 1e-6);
 
   const colCount = data.length + 2;
 
@@ -312,13 +319,15 @@ export function CashFlowTableMalaysia({
           />
 
           <SectionHeader colSpan={colCount} label="EQUITY CAPITAL" />
-          <TableRow
-            label="Capital—HDA deposit"
-            data={data}
-            getValue={(r) => r.capitalHdaDeposit}
-            formatCurrency={formatCurrency}
-            isHighlight
-          />
+          {includeHdaDeposit && (
+            <TableRow
+              label="Capital—HDA deposit"
+              data={data}
+              getValue={(r) => r.capitalHdaDeposit}
+              formatCurrency={formatCurrency}
+              isHighlight
+            />
+          )}
           <TableRow
             label="Capital—land injection"
             data={data}

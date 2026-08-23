@@ -64,6 +64,23 @@ function filterMalaysiaMilestonesForPropertyType(
   });
 }
 
+/**
+ * Statutory HDA construction deposit (Schedule G/H) applies only to Malaysian
+ * residential for-sale projects. Warehouse, retail, office, hotel, and data
+ * centre are not HDA-regulated even when the progress-drawdown rule is selected.
+ */
+function hdaDepositApplies(
+  inputs: FinancingInputs,
+  selectedRule: string
+): boolean {
+  return (
+    selectedRule === "progress" &&
+    inputs.jurisdiction === "MALAYSIA" &&
+    inputs.financingModel !== "commercial" &&
+    inputs.hdaDepositEnabled !== false
+  );
+}
+
 export type FinancingStream = "sale" | "operational";
 
 export type FinancingInputs = {
@@ -722,7 +739,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       ? inputs.totalConstructionCosts
       : totalConstructionCosts;
 
-  if (selectedRule === "progress" && inputs.hdaDepositEnabled !== false) {
+  if (hdaDepositApplies(inputs, selectedRule)) {
     const hdaPctPoints = inputs.hdaDepositPct ?? 3;
     const hdaPctDecimal = hdaPctPoints > 1 ? hdaPctPoints / 100 : hdaPctPoints;
     state.hdaDepositAmount = constructionCostTotal * hdaPctDecimal;
@@ -895,8 +912,9 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         inputs.prefSharesEnabled ? Math.max(0, inputs.prefSharesAmount || 0) : 0;
       const requiredCash = inputs.cashEquityRequired || 0;
       row.capitalCash = Math.max(0, requiredCash - prefAmount);
-      row.capitalHdaDeposit =
-        selectedRule === "progress" ? state.hdaDepositAmount : 0;
+      row.capitalHdaDeposit = hdaDepositApplies(inputs, selectedRule)
+        ? state.hdaDepositAmount
+        : 0;
       state.cumulativeEquity = row.capitalLand + row.capitalCash;
       row.prefDrawdown = inputs.prefSharesEnabled ? Math.max(0, inputs.prefSharesAmount) : 0;
       state.prefSharesBalance = row.prefDrawdown;

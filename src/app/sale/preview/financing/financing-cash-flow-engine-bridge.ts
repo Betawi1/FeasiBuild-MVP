@@ -537,9 +537,11 @@ export function buildFinancingEnginePreview(params: {
     retentionPercent:
       financing.escrowConfig?.uaeSa?.retentionPercentage ?? 5,
     hdaDepositEnabled:
-      financing.hdaDepositEnabled ??
-      financing.escrowConfig?.malaysia?.hdaDepositEnabled ??
-      true,
+      jurisdiction === "MALAYSIA" &&
+      isResidentialSaleProject(projectInfo) &&
+      (financing.hdaDepositEnabled ??
+        financing.escrowConfig?.malaysia?.hdaDepositEnabled ??
+        true),
     hdaDepositPct:
       financing.hdaDepositPct ??
       financing.escrowConfig?.malaysia?.hdaDepositPct ??

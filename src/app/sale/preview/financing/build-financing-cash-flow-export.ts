@@ -16,6 +16,8 @@ export type FinancingCashFlowExportOpts = {
   hideEscrowRows?: boolean;
   /** Sale warehouse — include FF&E between Construction and Soft costs. */
   showFfe?: boolean;
+  /** HDA construction deposit row — Malaysian residential for-sale only. */
+  showHdaDeposit?: boolean;
   projectLabel?: string;
 };
 
@@ -171,7 +173,11 @@ function uaeSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
   return specs;
 }
 
-function malaysiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
+function malaysiaSpecs(
+  hideEscrow: boolean,
+  showFfe: boolean,
+  showHdaDeposit: boolean
+): ExportRowSpec[] {
   const specs: ExportRowSpec[] = [
     { section: "CASH INFLOWS", label: "Sales proceeds", get: (r) => r.salesProceeds },
   ];
@@ -222,9 +228,21 @@ function malaysiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] {
     { label: "Commitment fee", get: (r) => r.constLoanCommitmentFee },
     { section: "PREF. SHARES / MEZZANINE CAPITAL", label: "Pref. drawdown", get: (r) => r.prefDrawdown },
     { label: "Pref. dividend", get: (r) => r.prefDividend },
-    { label: "Pref. repayment", get: (r) => r.prefRepayment },
-    { section: "EQUITY CAPITAL", label: "Capital—HDA deposit", get: (r) => r.capitalHdaDeposit },
-    { label: "Capital—land injection", get: (r) => r.capitalLand },
+    { label: "Pref. repayment", get: (r) => r.prefRepayment }
+  );
+  if (showHdaDeposit) {
+    specs.push({
+      section: "EQUITY CAPITAL",
+      label: "Capital—HDA deposit",
+      get: (r) => r.capitalHdaDeposit,
+    });
+  }
+  specs.push(
+    {
+      section: showHdaDeposit ? undefined : "EQUITY CAPITAL",
+      label: "Capital—land injection",
+      get: (r) => r.capitalLand,
+    },
     { label: "Capital—cash injection", get: (r) => r.capitalCash },
     {
       label: "Cumulative capital",
@@ -353,9 +371,10 @@ function australiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] 
 function specsForEscrowRule(
   rule: EscrowRuleId,
   hideEscrowRows: boolean,
-  showFfe: boolean
+  showFfe: boolean,
+  showHdaDeposit: boolean
 ): ExportRowSpec[] {
-  if (rule === "progress") return malaysiaSpecs(hideEscrowRows, showFfe);
+  if (rule === "progress") return malaysiaSpecs(hideEscrowRows, showFfe, showHdaDeposit);
   if (rule === "ten_ninety") return australiaSpecs(hideEscrowRows, showFfe);
   return uaeSpecs(hideEscrowRows, showFfe);
 }
@@ -371,6 +390,7 @@ export function buildFinancingCashFlowExportRows(
     withdrawalMode,
     hideEscrowRows = false,
     showFfe = false,
+    showHdaDeposit,
     projectLabel,
   } = opts;
   if (!rows.length) {
@@ -409,7 +429,16 @@ export function buildFinancingCashFlowExportRows(
     jurisdiction,
   });
 
-  for (const spec of specsForEscrowRule(rule, hideEscrowRows, showFfe)) {
+  const includeHdaDeposit =
+    showHdaDeposit ??
+    dataRows.some((r) => Math.abs(r.capitalHdaDeposit ?? 0) > 1e-6);
+
+  for (const spec of specsForEscrowRule(
+    rule,
+    hideEscrowRows,
+    showFfe,
+    includeHdaDeposit
+  )) {
     pushSection(out, spec, dataRows);
   }
 
