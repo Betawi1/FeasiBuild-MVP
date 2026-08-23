@@ -3,6 +3,7 @@ export const PACK_VALIDITY_MONTHS = 12;
 export function isWithinValidity(purchasedAt: string | null | undefined): boolean {
   if (!purchasedAt) return false;
   const start = new Date(purchasedAt);
+  if (Number.isNaN(start.getTime())) return false;
   const expiry = new Date(start);
   expiry.setMonth(expiry.getMonth() + PACK_VALIDITY_MONTHS);
   return new Date() < expiry;
@@ -15,9 +16,9 @@ export function effectiveCredits(meta: {
   return isWithinValidity(meta.packPurchasedAt) ? meta.reportCredits : 0;
 }
 
-export function isUnlimitedActive(meta?: {
+export function isUnlimitedActive(meta: {
   unlimited?: boolean;
   unlimitedPurchasedAt?: string | null;
-} | null): boolean {
-  return !!meta?.unlimited && isWithinValidity(meta.unlimitedPurchasedAt);
+}): boolean {
+  return !!meta.unlimited && isWithinValidity(meta.unlimitedPurchasedAt);
 }

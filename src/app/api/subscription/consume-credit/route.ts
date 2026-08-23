@@ -17,20 +17,22 @@ export async function POST() {
   if (isUnlimitedActive(meta)) {
     return NextResponse.json({ allowed: true, unlimited: true });
   }
+
+  if (effectiveCredits(meta) > 0) {
+    meta.reportCredits -= 1;
+    await setSubMeta(userId, meta);
+    return NextResponse.json({
+      allowed: true,
+      remaining: effectiveCredits(meta),
+    });
+  }
+
   if (!meta.lifetime) {
     return NextResponse.json({
       allowed: false,
       reason: "professional_required",
     });
   }
-  if (effectiveCredits(meta) <= 0) {
-    return NextResponse.json({ allowed: false, reason: "no_credits" });
-  }
 
-  meta.reportCredits -= 1;
-  await setSubMeta(userId, meta);
-  return NextResponse.json({
-    allowed: true,
-    remaining: effectiveCredits(meta),
-  });
+  return NextResponse.json({ allowed: false, reason: "no_credits" });
 }

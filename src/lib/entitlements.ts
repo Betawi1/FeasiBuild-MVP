@@ -1,9 +1,3 @@
-/**
- * Customer entitlements.
- * PayPal/Clerk publicMetadata.subscription is the source of truth for paid
- * plans. The email allowlist remains as a founder/support fallback.
- */
-
 import { isUnlimitedActive } from "@/lib/validity";
 
 export type CustomerTier = "explorer" | "pro" | "advisory";
@@ -13,6 +7,7 @@ export interface SubscriptionLike {
   lifetime?: boolean;
   unlimited?: boolean;
   unlimitedPurchasedAt?: string | null;
+  packPurchasedAt?: string | null;
   advisoryStatus?: string;
   whiteLabel?: boolean;
 }
@@ -59,7 +54,7 @@ export function hasWhiteLabelAccess(
   subscription?: SubscriptionLike | null
 ): boolean {
   if (subscription?.whiteLabel) return true;
-  if (isUnlimitedActive(subscription)) {
+  if (subscription && isUnlimitedActive(subscription)) {
     return true;
   }
   const normalized = (email ?? "").trim().toLowerCase();

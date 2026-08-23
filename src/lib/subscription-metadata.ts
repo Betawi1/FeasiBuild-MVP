@@ -1,7 +1,7 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { getCustomerTier } from "@/lib/entitlements";
 import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
-import { isUnlimitedActive, isWithinValidity } from "@/lib/validity";
+import { isUnlimitedActive } from "@/lib/validity";
 
 export interface SubscriptionMeta {
   plan: "explorer" | "professional" | "advisory";
@@ -57,7 +57,7 @@ function applyAllowlistOverlay(
       meta.unlimited = true;
       meta.whiteLabel = true;
       meta.lifetime = true;
-      if (!isWithinValidity(meta.unlimitedPurchasedAt)) {
+      if (!isUnlimitedActive(meta)) {
         meta.unlimitedPurchasedAt = new Date().toISOString();
       }
     } else if (tier === "pro") {
@@ -74,16 +74,6 @@ export async function getSubMeta(userId: string): Promise<SubscriptionMeta> {
   const m = (user.publicMetadata as Record<string, unknown> | undefined)
     ?.subscription as Partial<SubscriptionMeta> | undefined;
   const meta = m ? { ...DEFAULT_META, ...m } : { ...DEFAULT_META };
-  if (
-    (meta.unlimited ||
-      meta.plan === "advisory" ||
-      meta.advisoryStatus === "active") &&
-    !meta.unlimitedPurchasedAt
-  ) {
-    meta.unlimited = true;
-    meta.whiteLabel = true;
-    meta.unlimitedPurchasedAt = meta.updatedAt || new Date().toISOString();
-  }
   return applyAllowlistOverlay(meta, userEmails(user));
 }
 
@@ -136,25 +126,24 @@ export function grantOneTimeProduct(
 ): boolean {
   const product = ONE_TIME_PRODUCTS[productKey];
   if (!product) return false;
-  const now = new Date().toISOString();
 
   if (productKey === "professional") {
     meta.lifetime = true;
-    if (!isUnlimitedActive(meta)) meta.plan = "professional";
+    meta.plan = "professional";
     return true;
   }
 
   if (product.unlimited || productKey === "unlimited") {
     meta.unlimited = true;
-    meta.lifetime = true;
-    meta.plan = "advisory";
     meta.whiteLabel = true;
-    meta.unlimitedPurchasedAt = now;
+    meta.plan = "advisory";
+    meta.lifetime = true;
+    meta.unlimitedPurchasedAt = new Date().toISOString();
     return true;
   }
 
   meta.reportCredits += product.credits;
   if (product.whiteLabel) meta.whiteLabel = true;
-  meta.packPurchasedAt = now;
+  meta.packPurchasedAt = new Date().toISOString();
   return true;
 }

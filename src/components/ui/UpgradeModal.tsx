@@ -136,7 +136,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
           <h2 className="pr-8 text-2xl font-bold text-white">Upgrade FeasiBuild</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Lifetime access, report credits (12 months), or the Unlimited Pack.
+            Lifetime access, report credits, or the Unlimited Pack.
           </p>
 
           {!isSignedIn ? (
@@ -174,7 +174,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-400">
-                One-time · unlocks clean reports via credit packs
+                One-time · unlocks clean reports via 12-month credit packs
               </p>
               {isPro || lifetime ? (
                 <span className="mt-3 inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
@@ -203,8 +203,8 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               </p>
             ) : (
               <p className="mt-2 text-sm text-slate-400">
-                One credit = one clean, unwatermarked feasibility report.
-                Packs are valid for 12 months from purchase.
+                One credit = one clean report. Packs are valid for 12 months
+                from purchase.
               </p>
             )}
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -264,7 +264,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-400">
-                12 months unlimited clean reports · white-label included
+                12 months of unlimited clean reports · white-label included
               </p>
               {hasUnlimitedReports ? (
                 <span className="mt-3 inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">

@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
   if (productKey !== "professional") {
     const meta = await getSubMeta(userId);
-    if (!meta.lifetime && !meta.unlimited) {
+    if (!meta.lifetime) {
       return NextResponse.json(
         { error: "Professional required" },
         { status: 403 }

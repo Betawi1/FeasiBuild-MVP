@@ -72,10 +72,10 @@ export default function DashboardProjects({ userId }: DashboardProjectsProps) {
     <>
       {!canCreate ? (
         <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300">
-          You&apos;ve used your free report, so new projects are locked on Explorer.
-          Your existing project stays available. Upgrade to Professional for
-          new projects + clean reports, or the Unlimited Pack for 12 months
-          unlimited + your own logo.
+          You&apos;ve used your free report, so new projects are locked on the Free
+          tier. Your existing project stays available. Upgrade to Professional for
+          new projects + clean reports, or the Unlimited Pack for 12 months of
+          unlimited reports with your own logo.
           {checkoutVisible ? (
             <button
               type="button"

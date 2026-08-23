@@ -39,16 +39,18 @@ function CheckoutSuccessInner() {
 
         await user?.reload();
         setStatus("ok");
-        if (body.productKey === "professional") {
-          setMessage(
-            "Professional activated! Add the Unlimited Pack anytime from your dashboard."
-          );
-        } else {
-          setMessage("✅ Purchase complete! Updating your account…");
-        }
-        window.setTimeout(() => {
-          router.replace("/dashboard");
-        }, body.productKey === "professional" ? 2500 : 1000);
+        const isProfessional = body.productKey === "professional";
+        setMessage(
+          isProfessional
+            ? "Professional activated! Add the Unlimited Pack anytime from your dashboard."
+            : "✅ Purchase complete! Updating your account…"
+        );
+        window.setTimeout(
+          () => {
+            router.replace("/dashboard");
+          },
+          isProfessional ? 2500 : 1000
+        );
       } catch (err) {
         setStatus("error");
         setMessage(

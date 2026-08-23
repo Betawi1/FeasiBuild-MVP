@@ -115,13 +115,13 @@ const tiers = [
   {
     name: "Advisory",
     price: formatUsd(unlimitedPack.amount),
-    priceNote: "12 months unlimited reports • requires Professional",
+    priceNote: "12 months • requires Professional",
     tagline: "For firms that resell institutional reports.",
     cta: "Get Unlimited Pack",
     highlight: false,
     features: [
       "Everything in Professional",
-      "12 months unlimited clean reports",
+      "Unlimited clean reports for 12 months",
       "White-label logo branding included",
       "Advanced custom shock parameters",
       "Direct founder / human escalation",
@@ -162,7 +162,7 @@ const comparison: {
       { label: "Live AI Market Research", values: [true, true, true] },
       {
         label: "AI Feasibility Study Generation",
-        values: ["1 watermarked (one-time)", "Clean per credit", "12 months unlimited"],
+        values: ["1 watermarked (one-time)", "Clean per credit", "Unlimited clean (12 mo)"],
       },
     ],
   },
@@ -337,9 +337,9 @@ export default function PricingSection() {
 
         <p className="mt-8 text-center text-sm text-slate-500">
           FeasiBuild never stores your data. Projects are encrypted in your own
-          Puter cloud (BYO-Infrastructure). Report packs and the Unlimited Pack
-          are valid for 12 months from purchase. Unlimited Pack requires
-          Professional.
+          Puter cloud (BYO-Infrastructure). Credit packs and the Unlimited Pack
+          are valid for 12 months from purchase and require Professional.
+          Professional is lifetime platform access with no expiry.
         </p>
       </div>
     </section>

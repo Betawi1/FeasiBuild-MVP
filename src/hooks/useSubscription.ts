@@ -18,22 +18,24 @@ export function useSubscription() {
       : fallbackTier === "pro"
         ? "professional"
         : "explorer");
-  const lifetime =
-    !!sub?.lifetime || fallbackTier === "pro" || fallbackTier === "advisory";
+
+  const packPurchasedAt =
+    typeof sub?.packPurchasedAt === "string" ? sub.packPurchasedAt : null;
+  const unlimitedPurchasedAt =
+    typeof sub?.unlimitedPurchasedAt === "string"
+      ? sub.unlimitedPurchasedAt
+      : null;
+  const rawCredits =
+    typeof sub?.reportCredits === "number" ? sub.reportCredits : 0;
+
   const unlimitedActive =
     isUnlimitedActive({
       unlimited: !!sub?.unlimited,
-      unlimitedPurchasedAt:
-        typeof sub?.unlimitedPurchasedAt === "string"
-          ? sub.unlimitedPurchasedAt
-          : null,
+      unlimitedPurchasedAt,
     }) || fallbackTier === "advisory";
-  const reportCredits = effectiveCredits({
-    reportCredits:
-      typeof sub?.reportCredits === "number" ? sub.reportCredits : 0,
-    packPurchasedAt:
-      typeof sub?.packPurchasedAt === "string" ? sub.packPurchasedAt : null,
-  });
+
+  const lifetime =
+    !!sub?.lifetime || fallbackTier === "pro" || fallbackTier === "advisory";
 
   return {
     plan,
@@ -41,7 +43,10 @@ export function useSubscription() {
     whiteLabel: hasWhiteLabelAccess(email, sub),
     isPro: lifetime || unlimitedActive,
     hasUnlimitedReports: unlimitedActive,
-    reportCredits,
+    reportCredits: effectiveCredits({
+      reportCredits: rawCredits,
+      packPurchasedAt,
+    }),
     isLoading: !isLoaded,
   };
 }

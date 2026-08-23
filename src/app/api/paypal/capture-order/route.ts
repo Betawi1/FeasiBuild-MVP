@@ -64,16 +64,16 @@ export async function POST(req: Request) {
   }
 
   const captureIds = collectCaptureIds(order);
-  const customId = purchaseCustomId(order);
-  const [ownerId, productKey] = customId.split("|");
   const meta = await getSubMeta(userId);
   if (
     hasProcessedId(meta, orderID) ||
     captureIds.some((id) => hasProcessedId(meta, id))
   ) {
-    return NextResponse.json({ success: true, meta, productKey });
+    return NextResponse.json({ success: true, meta });
   }
 
+  const customId = purchaseCustomId(order);
+  const [ownerId, productKey] = customId.split("|");
   if (ownerId !== userId) {
     return NextResponse.json(
       { error: "Order does not belong to user" },
