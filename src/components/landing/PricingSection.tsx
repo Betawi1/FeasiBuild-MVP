@@ -80,18 +80,18 @@ const tiers = [
   {
     name: "Explorer",
     price: "$0",
-    priceNote: "One watermarked report",
+    priceNote: "Free forever",
     tagline: "Test the full engine before you commit.",
     cta: "Start Free",
     highlight: false,
     features: [
-      "Full platform access",
+      "Lifetime platform access",
       "Both streams: Operational & Sale",
       "All asset classes (incl. Data Centre & Warehouse)",
       "Pin-drop location intelligence",
       "Live AI market research",
       "Standard scenario analysis + Tornado chart",
-      "1 watermarked feasibility report (one-time)",
+      "1 watermarked feasibility report",
       "24/7 AI Support Concierge (Telegram)",
     ],
   },
@@ -114,8 +114,8 @@ const tiers = [
   },
   {
     name: "Advisory",
-    price: formatUsd(unlimitedPack.amount),
-    priceNote: "12 months • requires Professional",
+    price: `${formatUsd(professional.amount)} + ${formatUsd(unlimitedPack.amount)}`,
+    priceNote: "One-time • Lifetime access + 12-month Unlimited Pack",
     tagline: "For firms that resell institutional reports.",
     cta: "Get Unlimited Pack",
     highlight: false,
@@ -162,7 +162,7 @@ const comparison: {
       { label: "Live AI Market Research", values: [true, true, true] },
       {
         label: "AI Feasibility Study Generation",
-        values: ["1 watermarked (one-time)", "Clean per credit", "Unlimited clean (12 mo)"],
+        values: ["1 watermarked", "Clean per credit", "Unlimited clean (12 months)"],
       },
     ],
   },
@@ -336,10 +336,10 @@ export default function PricingSection() {
         </div>
 
         <p className="mt-8 text-center text-sm text-slate-500">
-          FeasiBuild never stores your data. Projects are encrypted in your own
-          Puter cloud (BYO-Infrastructure). Credit packs and the Unlimited Pack
-          are valid for 12 months from purchase and require Professional.
-          Professional is lifetime platform access with no expiry.
+          Report packs and the Unlimited Pack expire 12 months after purchase.
+          Professional lifetime access never expires. FeasiBuild never stores
+          your data — projects live encrypted in your own Puter cloud
+          (BYO-Infrastructure).
         </p>
       </div>
     </section>
