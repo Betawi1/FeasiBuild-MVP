@@ -80,18 +80,18 @@ const tiers = [
   {
     name: "Explorer",
     price: "$0",
-    priceNote: "Free forever",
+    priceNote: "One watermarked report",
     tagline: "Test the full engine before you commit.",
     cta: "Start Free",
     highlight: false,
     features: [
-      "Lifetime platform access",
+      "Full platform access",
       "Both streams: Operational & Sale",
       "All asset classes (incl. Data Centre & Warehouse)",
       "Pin-drop location intelligence",
       "Live AI market research",
       "Standard scenario analysis + Tornado chart",
-      "1 watermarked feasibility report",
+      "1 watermarked feasibility report (one-time)",
       "24/7 AI Support Concierge (Telegram)",
     ],
   },
@@ -138,8 +138,8 @@ const comparison: {
     group: "Platform & Architecture",
     rows: [
       { label: "Zero-Knowledge BYO Infrastructure", values: [true, true, true] },
-      { label: "BYO-AI Integration (Qwen via Puter)", values: [true, true, true] },
-      { label: "Lifetime Platform Access", values: [true, true, true] },
+      { label: "BYO-AI Integration (Qwen, Claude, OpenAI, Deepseek via Puter)", values: [true, true, true] },
+      { label: "Full Platform Access", values: [true, true, true] },
     ],
   },
   {
@@ -211,8 +211,9 @@ export default function PricingSection() {
             Pay Only for What You Deliver
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-400">
-            One-time lifetime access. Then pay per feasibility report — or buy
-            the Unlimited Pack. Your data never leaves your own cloud.
+            Professional is one-time $99 lifetime access. Then pay per
+            feasibility report — or buy the Unlimited Pack. Your data never
+            leaves your own cloud.
           </p>
         </div>
 
