@@ -1,12 +1,14 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { getCustomerTier } from "@/lib/entitlements";
 import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
+import { isUnlimitedActive, isWithinValidity } from "@/lib/validity";
 
 export interface SubscriptionMeta {
   plan: "explorer" | "professional" | "advisory";
   lifetime: boolean;
   unlimited: boolean;
   packPurchasedAt: string | null;
+  unlimitedPurchasedAt: string | null;
   advisoryStatus: "active" | "cancelled" | "none";
   reportCredits: number;
   whiteLabel: boolean;
@@ -20,6 +22,7 @@ const DEFAULT_META: SubscriptionMeta = {
   lifetime: false,
   unlimited: false,
   packPurchasedAt: null,
+  unlimitedPurchasedAt: null,
   advisoryStatus: "none",
   reportCredits: 0,
   whiteLabel: false,
@@ -53,6 +56,10 @@ function applyAllowlistOverlay(
       meta.plan = "advisory";
       meta.unlimited = true;
       meta.whiteLabel = true;
+      meta.lifetime = true;
+      if (!isWithinValidity(meta.unlimitedPurchasedAt)) {
+        meta.unlimitedPurchasedAt = new Date().toISOString();
+      }
     } else if (tier === "pro") {
       meta.lifetime = true;
       if (meta.plan === "explorer") meta.plan = "professional";
@@ -67,9 +74,15 @@ export async function getSubMeta(userId: string): Promise<SubscriptionMeta> {
   const m = (user.publicMetadata as Record<string, unknown> | undefined)
     ?.subscription as Partial<SubscriptionMeta> | undefined;
   const meta = m ? { ...DEFAULT_META, ...m } : { ...DEFAULT_META };
-  if (meta.plan === "advisory" || meta.advisoryStatus === "active") {
+  if (
+    (meta.unlimited ||
+      meta.plan === "advisory" ||
+      meta.advisoryStatus === "active") &&
+    !meta.unlimitedPurchasedAt
+  ) {
     meta.unlimited = true;
     meta.whiteLabel = true;
+    meta.unlimitedPurchasedAt = meta.updatedAt || new Date().toISOString();
   }
   return applyAllowlistOverlay(meta, userEmails(user));
 }
@@ -123,10 +136,11 @@ export function grantOneTimeProduct(
 ): boolean {
   const product = ONE_TIME_PRODUCTS[productKey];
   if (!product) return false;
+  const now = new Date().toISOString();
 
   if (productKey === "professional") {
     meta.lifetime = true;
-    if (!meta.unlimited) meta.plan = "professional";
+    if (!isUnlimitedActive(meta)) meta.plan = "professional";
     return true;
   }
 
@@ -135,12 +149,12 @@ export function grantOneTimeProduct(
     meta.lifetime = true;
     meta.plan = "advisory";
     meta.whiteLabel = true;
-    meta.packPurchasedAt = null;
+    meta.unlimitedPurchasedAt = now;
     return true;
   }
 
   meta.reportCredits += product.credits;
   if (product.whiteLabel) meta.whiteLabel = true;
-  meta.packPurchasedAt = new Date().toISOString();
+  meta.packPurchasedAt = now;
   return true;
 }

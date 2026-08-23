@@ -39,7 +39,7 @@ const CREDIT_NOTES: Record<string, string> = {
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const { ready, visible } = usePaypalCheckoutVisible();
   const { isSignedIn } = useUser();
-  const { isPro, lifetime, unlimited } = useSubscription();
+  const { isPro, lifetime, hasUnlimitedReports } = useSubscription();
   const [redirecting, setRedirecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,7 +136,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
           <h2 className="pr-8 text-2xl font-bold text-white">Upgrade FeasiBuild</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Lifetime access, report credits, or the Unlimited Pack.
+            Lifetime access, report credits (12 months), or the Unlimited Pack.
           </p>
 
           {!isSignedIn ? (
@@ -204,6 +204,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             ) : (
               <p className="mt-2 text-sm text-slate-400">
                 One credit = one clean, unwatermarked feasibility report.
+                Packs are valid for 12 months from purchase.
               </p>
             )}
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -245,11 +246,11 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
           <section className="mt-8">
             <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
-              Unlimited Pack — {formatUsd(unlimitedPack.amount)} one-time
+              Unlimited Pack — {formatUsd(unlimitedPack.amount)} · 12 months
             </h3>
             <div
               className={`mt-3 w-full rounded-xl border p-4 ${
-                unlimited || unlimitedLocked
+                hasUnlimitedReports || unlimitedLocked
                   ? "border-slate-700 bg-slate-900/50 opacity-70"
                   : "border-emerald-500 bg-emerald-500/10"
               }`}
@@ -263,9 +264,9 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-400">
-                One-time · white-label logo branding included
+                12 months unlimited clean reports · white-label included
               </p>
-              {unlimited ? (
+              {hasUnlimitedReports ? (
                 <span className="mt-3 inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
                   ✓ Owned
                 </span>
@@ -303,10 +304,10 @@ export function UpgradeModalTrigger({
 }) {
   const [open, setOpen] = useState(false);
   const { ready, visible } = usePaypalCheckoutVisible();
-  const { isPro, unlimited, isLoading } = useSubscription();
+  const { isPro, hasUnlimitedReports, isLoading } = useSubscription();
 
   if (isLoading || !ready || !visible) return null;
-  if (unlimited) return null;
+  if (hasUnlimitedReports) return null;
 
   const label = isPro ? "➕ Buy Report Credits" : "⚡ Upgrade to Pro";
 
@@ -332,14 +333,14 @@ export function UpgradeNavControl({ compact = false }: { compact?: boolean }) {
   const {
     plan,
     lifetime,
-    unlimited,
+    hasUnlimitedReports,
     reportCredits,
     isLoading,
   } = useSubscription();
 
   if (isLoading || !isSignedIn) return null;
 
-  const badge = unlimited
+  const badge = hasUnlimitedReports
     ? "Advisory • Unlimited"
     : lifetime || plan === "professional"
       ? `Pro • ${reportCredits} credit${reportCredits === 1 ? "" : "s"}`

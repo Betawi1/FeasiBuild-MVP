@@ -29,19 +29,26 @@ function CheckoutSuccessInner() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderID: token }),
         });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          productKey?: string;
+        };
         if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
           throw new Error(body.error || "Could not capture payment");
         }
 
         await user?.reload();
         setStatus("ok");
-        setMessage("✅ Purchase complete! Updating your account…");
+        if (body.productKey === "professional") {
+          setMessage(
+            "Professional activated! Add the Unlimited Pack anytime from your dashboard."
+          );
+        } else {
+          setMessage("✅ Purchase complete! Updating your account…");
+        }
         window.setTimeout(() => {
           router.replace("/dashboard");
-        }, 1000);
+        }, body.productKey === "professional" ? 2500 : 1000);
       } catch (err) {
         setStatus("error");
         setMessage(

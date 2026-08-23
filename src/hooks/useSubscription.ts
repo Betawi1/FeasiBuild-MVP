@@ -2,6 +2,7 @@
 
 import { useUser } from "@clerk/nextjs";
 import { getCustomerTier, hasWhiteLabelAccess } from "@/lib/entitlements";
+import { effectiveCredits, isUnlimitedActive } from "@/lib/validity";
 
 export function useSubscription() {
   const { user, isLoaded } = useUser();
@@ -17,19 +18,30 @@ export function useSubscription() {
       : fallbackTier === "pro"
         ? "professional"
         : "explorer");
-  const unlimited =
-    !!sub?.unlimited || fallbackTier === "advisory" || plan === "advisory";
   const lifetime =
-    !!sub?.lifetime || unlimited || fallbackTier === "pro";
+    !!sub?.lifetime || fallbackTier === "pro" || fallbackTier === "advisory";
+  const unlimitedActive =
+    isUnlimitedActive({
+      unlimited: !!sub?.unlimited,
+      unlimitedPurchasedAt:
+        typeof sub?.unlimitedPurchasedAt === "string"
+          ? sub.unlimitedPurchasedAt
+          : null,
+    }) || fallbackTier === "advisory";
+  const reportCredits = effectiveCredits({
+    reportCredits:
+      typeof sub?.reportCredits === "number" ? sub.reportCredits : 0,
+    packPurchasedAt:
+      typeof sub?.packPurchasedAt === "string" ? sub.packPurchasedAt : null,
+  });
 
   return {
     plan,
     lifetime,
-    unlimited,
-    hasUnlimitedReports: unlimited,
-    isPro: lifetime || unlimited,
-    reportCredits: typeof sub?.reportCredits === "number" ? sub.reportCredits : 0,
     whiteLabel: hasWhiteLabelAccess(email, sub),
+    isPro: lifetime || unlimitedActive,
+    hasUnlimitedReports: unlimitedActive,
+    reportCredits,
     isLoading: !isLoaded,
   };
 }

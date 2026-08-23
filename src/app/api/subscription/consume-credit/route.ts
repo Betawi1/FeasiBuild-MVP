@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getSubMeta, setSubMeta } from "@/lib/subscription-metadata";
+import { effectiveCredits, isUnlimitedActive } from "@/lib/validity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function POST() {
 
   const meta = await getSubMeta(userId);
 
-  if (meta.unlimited) {
+  if (isUnlimitedActive(meta)) {
     return NextResponse.json({ allowed: true, unlimited: true });
   }
   if (!meta.lifetime) {
@@ -22,11 +23,14 @@ export async function POST() {
       reason: "professional_required",
     });
   }
-  if (meta.reportCredits <= 0) {
+  if (effectiveCredits(meta) <= 0) {
     return NextResponse.json({ allowed: false, reason: "no_credits" });
   }
 
   meta.reportCredits -= 1;
   await setSubMeta(userId, meta);
-  return NextResponse.json({ allowed: true, remaining: meta.reportCredits });
+  return NextResponse.json({
+    allowed: true,
+    remaining: effectiveCredits(meta),
+  });
 }

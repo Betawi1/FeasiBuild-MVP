@@ -4,12 +4,15 @@
  * plans. The email allowlist remains as a founder/support fallback.
  */
 
+import { isUnlimitedActive } from "@/lib/validity";
+
 export type CustomerTier = "explorer" | "pro" | "advisory";
 
 export interface SubscriptionLike {
   plan?: string;
   lifetime?: boolean;
   unlimited?: boolean;
+  unlimitedPurchasedAt?: string | null;
   advisoryStatus?: string;
   whiteLabel?: boolean;
 }
@@ -25,10 +28,7 @@ function tierFromSubscription(
   subscription?: SubscriptionLike | null
 ): CustomerTier | null {
   if (!subscription) return null;
-  if (
-    subscription.unlimited ||
-    subscription.plan === "advisory"
-  ) {
+  if (isUnlimitedActive(subscription)) {
     return "advisory";
   }
   if (subscription.lifetime || subscription.plan === "professional") {
@@ -59,7 +59,7 @@ export function hasWhiteLabelAccess(
   subscription?: SubscriptionLike | null
 ): boolean {
   if (subscription?.whiteLabel) return true;
-  if (subscription?.unlimited || subscription?.plan === "advisory") {
+  if (isUnlimitedActive(subscription)) {
     return true;
   }
   const normalized = (email ?? "").trim().toLowerCase();

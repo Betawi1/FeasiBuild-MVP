@@ -80,18 +80,18 @@ const tiers = [
   {
     name: "Explorer",
     price: "$0",
-    priceNote: "Free forever",
+    priceNote: "One watermarked report",
     tagline: "Test the full engine before you commit.",
     cta: "Start Free",
     highlight: false,
     features: [
-      "Lifetime platform access",
+      "Full platform access",
       "Both streams: Operational & Sale",
       "All asset classes (incl. Data Centre & Warehouse)",
       "Pin-drop location intelligence",
       "Live AI market research",
       "Standard scenario analysis + Tornado chart",
-      "1 watermarked feasibility report",
+      "1 watermarked feasibility report (one-time)",
       "24/7 AI Support Concierge (Telegram)",
     ],
   },
@@ -115,13 +115,13 @@ const tiers = [
   {
     name: "Advisory",
     price: formatUsd(unlimitedPack.amount),
-    priceNote: "One-time Unlimited Pack • requires Professional",
+    priceNote: "12 months unlimited reports • requires Professional",
     tagline: "For firms that resell institutional reports.",
     cta: "Get Unlimited Pack",
     highlight: false,
     features: [
       "Everything in Professional",
-      "Unlimited clean reports",
+      "12 months unlimited clean reports",
       "White-label logo branding included",
       "Advanced custom shock parameters",
       "Direct founder / human escalation",
@@ -162,7 +162,7 @@ const comparison: {
       { label: "Live AI Market Research", values: [true, true, true] },
       {
         label: "AI Feasibility Study Generation",
-        values: ["1 watermarked", "Clean per credit", "Unlimited clean"],
+        values: ["1 watermarked (one-time)", "Clean per credit", "12 months unlimited"],
       },
     ],
   },
@@ -337,8 +337,8 @@ export default function PricingSection() {
 
         <p className="mt-8 text-center text-sm text-slate-500">
           FeasiBuild never stores your data. Projects are encrypted in your own
-          Puter cloud (BYO-Infrastructure). Report packs expire 12 months after
-          purchase. Unlimited Pack is a one-time purchase and requires
+          Puter cloud (BYO-Infrastructure). Report packs and the Unlimited Pack
+          are valid for 12 months from purchase. Unlimited Pack requires
           Professional.
         </p>
       </div>

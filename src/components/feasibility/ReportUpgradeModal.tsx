@@ -23,12 +23,12 @@ export default function ReportUpgradeModal({
         <h3 className="text-lg font-semibold text-white">
           {usedExports > 0 && tier === "explorer"
             ? "You've used your free report"
-            : "Unlock clean, unlimited reports"}
+            : "Unlock clean reports"}
         </h3>
         <p className="mt-2 text-sm text-slate-400">
-          The Free tier includes one watermarked feasibility report. Upgrade to
-          Professional ($99 lifetime + pay-per-report) for clean unlimited
-          reports — or Advisory for unlimited reports with your own logo.
+          Explorer includes one watermarked feasibility report. Upgrade to
+          Professional ($99 lifetime) and buy report credits — or add the
+          Unlimited Pack for 12 months of clean reports with your own logo.
         </p>
         <div className="mt-4 flex gap-3">
           <a

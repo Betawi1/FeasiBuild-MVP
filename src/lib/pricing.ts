@@ -43,7 +43,7 @@ export const ONE_TIME_PRODUCTS: Record<
     whiteLabel: true,
   },
   unlimited: {
-    label: "Unlimited Pack - Lifetime unlimited clean reports",
+    label: "Unlimited Pack - 12 months unlimited clean reports",
     amount: "2400.00",
     credits: 0,
     unlimited: true,

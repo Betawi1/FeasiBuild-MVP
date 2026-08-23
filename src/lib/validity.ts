@@ -1,0 +1,23 @@
+export const PACK_VALIDITY_MONTHS = 12;
+
+export function isWithinValidity(purchasedAt: string | null | undefined): boolean {
+  if (!purchasedAt) return false;
+  const start = new Date(purchasedAt);
+  const expiry = new Date(start);
+  expiry.setMonth(expiry.getMonth() + PACK_VALIDITY_MONTHS);
+  return new Date() < expiry;
+}
+
+export function effectiveCredits(meta: {
+  reportCredits: number;
+  packPurchasedAt?: string | null;
+}): number {
+  return isWithinValidity(meta.packPurchasedAt) ? meta.reportCredits : 0;
+}
+
+export function isUnlimitedActive(meta?: {
+  unlimited?: boolean;
+  unlimitedPurchasedAt?: string | null;
+} | null): boolean {
+  return !!meta?.unlimited && isWithinValidity(meta.unlimitedPurchasedAt);
+}
