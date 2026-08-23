@@ -9,6 +9,7 @@ import {
 } from "@/lib/paypal";
 import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
 import { getSubMeta } from "@/lib/subscription-metadata";
+import { effectiveCredits } from "@/lib/validity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,15 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Professional required" },
         { status: 403 }
+      );
+    }
+    const effCredits = effectiveCredits(meta);
+    if (effCredits > 0) {
+      return NextResponse.json(
+        {
+          error: `You still have ${effCredits} credits remaining. You can purchase a new pack when your balance reaches 0 or your current pack expires.`,
+        },
+        { status: 400 }
       );
     }
   }

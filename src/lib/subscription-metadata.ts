@@ -142,7 +142,8 @@ export function grantOneTimeProduct(
     return true;
   }
 
-  meta.reportCredits += product.credits;
+  // Strict repurchase: packs never stack. Expired leftovers must not revive.
+  meta.reportCredits = product.credits;
   if (product.whiteLabel) meta.whiteLabel = true;
   meta.packPurchasedAt = new Date().toISOString();
   return true;

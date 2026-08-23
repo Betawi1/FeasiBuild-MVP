@@ -2,7 +2,11 @@
 
 import { useUser } from "@clerk/nextjs";
 import { getCustomerTier, hasWhiteLabelAccess } from "@/lib/entitlements";
-import { effectiveCredits, isUnlimitedActive } from "@/lib/validity";
+import {
+  effectiveCredits,
+  expiryDateFromPurchase,
+  isUnlimitedActive,
+} from "@/lib/validity";
 
 export function useSubscription() {
   const { user, isLoaded } = useUser();
@@ -47,6 +51,8 @@ export function useSubscription() {
       reportCredits: rawCredits,
       packPurchasedAt,
     }),
+    packExpiresAt: expiryDateFromPurchase(packPurchasedAt),
+    unlimitedExpiresAt: expiryDateFromPurchase(unlimitedPurchasedAt),
     isLoading: !isLoaded,
   };
 }

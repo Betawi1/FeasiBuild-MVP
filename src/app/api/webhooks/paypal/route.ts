@@ -8,6 +8,7 @@ import {
   pushProcessedIds,
   setSubMeta,
 } from "@/lib/subscription-metadata";
+import { effectiveCredits } from "@/lib/validity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +59,20 @@ export async function POST(req: Request) {
       const meta = await getSubMeta(userId);
       if (hasProcessedId(meta, captureId)) {
         return NextResponse.json({ received: true, skipped: "already_granted" });
+      }
+      const isCreditOrUnlimited = productKey !== "professional";
+      const effCredits = effectiveCredits(meta);
+      if (isCreditOrUnlimited && effCredits > 0) {
+        console.warn(
+          `${LOG_PREFIX} skipping grant; user still has ${effCredits} effective credits`,
+          userId,
+          productKey,
+          captureId
+        );
+        return NextResponse.json({
+          received: true,
+          skipped: "active_credits",
+        });
       }
       grantOneTimeProduct(meta, productKey as ProductKey);
       pushProcessedIds(meta, [captureId]);

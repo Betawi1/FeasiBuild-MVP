@@ -9,6 +9,7 @@ import {
   pushProcessedIds,
   setSubMeta,
 } from "@/lib/subscription-metadata";
+import { effectiveCredits } from "@/lib/validity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +85,18 @@ export async function POST(req: Request) {
   if (!ONE_TIME_PRODUCTS[productKey as ProductKey]) {
     return NextResponse.json({ error: "Unknown product" }, { status: 400 });
   }
+
+  const isCreditOrUnlimited = productKey !== "professional";
+  const effCredits = effectiveCredits(meta);
+  if (isCreditOrUnlimited && effCredits > 0) {
+    return NextResponse.json(
+      {
+        error: `You still have ${effCredits} credits remaining. You can purchase a new pack when your balance reaches 0 or your current pack expires.`,
+      },
+      { status: 400 }
+    );
+  }
+
   if (!grantOneTimeProduct(meta, productKey as ProductKey)) {
     return NextResponse.json({ error: "Unknown product" }, { status: 400 });
   }

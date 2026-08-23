@@ -39,9 +39,16 @@ const CREDIT_NOTES: Record<string, string> = {
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const { ready, visible } = usePaypalCheckoutVisible();
   const { isSignedIn } = useUser();
-  const { isPro, lifetime, hasUnlimitedReports } = useSubscription();
+  const {
+    isPro,
+    lifetime,
+    hasUnlimitedReports,
+    reportCredits,
+    packExpiresAt,
+  } = useSubscription();
   const [redirecting, setRedirecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const packsLocked = reportCredits > 0;
 
   const professional = ONE_TIME_PRODUCTS.professional;
   const unlimitedPack = ONE_TIME_PRODUCTS.unlimited;
@@ -55,6 +62,12 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
   async function startOneTime(productKey: ProductKey) {
     if (redirecting) return;
+    if (productKey !== "professional" && packsLocked) {
+      setError(
+        `You still have ${reportCredits} credits remaining. You can purchase a new pack when your balance reaches 0 or your current pack expires.`
+      );
+      return;
+    }
     setError(null);
     setRedirecting(ONE_TIME_PRODUCTS[productKey].label);
     try {
@@ -139,6 +152,19 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             Lifetime access, report credits, or the Unlimited Pack.
           </p>
 
+          {packsLocked ? (
+            <div className="mb-4 mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
+              You have {reportCredits} credit{reportCredits > 1 ? "s" : ""}{" "}
+              remaining. New packs unlock when your balance reaches 0 or your
+              current pack expires.
+              {isPro && packExpiresAt ? (
+                <p className="mt-2 text-amber-200/90">
+                  Current pack expires on: {packExpiresAt.toLocaleDateString()}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {!isSignedIn ? (
             <a
               href="/sign-in"
@@ -214,7 +240,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                   <div
                     key={key}
                     className={`rounded-xl border p-4 ${
-                      creditsLocked
+                      creditsLocked || packsLocked
                         ? "border-slate-700 bg-slate-900/50 opacity-40"
                         : "border-slate-700 bg-slate-900/50"
                     }`}
@@ -231,7 +257,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
                     {!creditsLocked && isSignedIn ? (
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || packsLocked}
                         onClick={() => void startOneTime(key)}
                         className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
                       >
@@ -250,7 +276,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             </h3>
             <div
               className={`mt-3 w-full rounded-xl border p-4 ${
-                hasUnlimitedReports || unlimitedLocked
+                hasUnlimitedReports || unlimitedLocked || packsLocked
                   ? "border-slate-700 bg-slate-900/50 opacity-70"
                   : "border-emerald-500 bg-emerald-500/10"
               }`}
@@ -277,7 +303,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               ) : isSignedIn ? (
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || packsLocked}
                   onClick={() => void startOneTime("unlimited")}
                   className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
                 >

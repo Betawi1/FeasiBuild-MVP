@@ -1,5 +1,6 @@
 import Header from "@/components/dashboard/Header";
 import Sidebar from "@/components/dashboard/Sidebar";
+import LowCreditBanner from "@/components/dashboard/LowCreditBanner";
 
 export default function DashboardLayout({
   children,
@@ -11,7 +12,10 @@ export default function DashboardLayout({
       <Sidebar />
       <Header />
       <main className="ml-64 min-h-screen pt-16">
-        <div className="p-8">{children}</div>
+        <div className="p-8">
+          <LowCreditBanner />
+          {children}
+        </div>
       </main>
     </div>
   );
