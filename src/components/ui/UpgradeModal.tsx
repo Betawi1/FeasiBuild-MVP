@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { useUser } from "@clerk/nextjs";
 import { paypalVisible } from "@/lib/paypal-gate";
 import {
-  ADVISORY_ANNUAL_PRICE,
   CREDIT_PRODUCT_KEYS,
   ONE_TIME_PRODUCTS,
   type ProductKey,
@@ -32,17 +31,20 @@ function usePaypalCheckoutVisible() {
 
 const CREDIT_NOTES: Record<string, string> = {
   credit_1: "Pay as you go",
-  credit_10: "Save 34%",
-  credit_50: "Save 51%",
-  credit_100: "Save 59% + Logo Branding",
+  credit_10: "Save 20%",
+  credit_50: "Save 41%",
+  credit_100: "Save 61% + Logo Branding",
 };
 
 export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const { ready, visible } = usePaypalCheckoutVisible();
   const { isSignedIn } = useUser();
-  const { isPro, lifetime, advisoryActive } = useSubscription();
+  const { isPro, lifetime, unlimited } = useSubscription();
   const [redirecting, setRedirecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const professional = ONE_TIME_PRODUCTS.professional;
+  const unlimitedPack = ONE_TIME_PRODUCTS.unlimited;
 
   useEffect(() => {
     if (!open) {
@@ -60,28 +62,6 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productKey }),
-      });
-      const body = (await res.json()) as {
-        approveUrl?: string;
-        error?: string;
-      };
-      if (!res.ok || !body.approveUrl) {
-        throw new Error(body.error || "Could not start PayPal checkout");
-      }
-      window.location.href = body.approveUrl;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Checkout failed");
-      setRedirecting(null);
-    }
-  }
-
-  async function startAdvisory() {
-    if (redirecting) return;
-    setError(null);
-    setRedirecting("Advisory");
-    try {
-      const res = await fetch("/api/paypal/create-subscription", {
-        method: "POST",
       });
       const body = (await res.json()) as {
         approveUrl?: string;
@@ -131,6 +111,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   }
 
   const creditsLocked = !isPro;
+  const unlimitedLocked = !isPro;
   const busy = Boolean(redirecting);
 
   return createPortal(
@@ -155,7 +136,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
           <h2 className="pr-8 text-2xl font-bold text-white">Upgrade FeasiBuild</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Lifetime access, report credits, or unlimited Advisory.
+            Lifetime access, report credits, or the Unlimited Pack.
           </p>
 
           {!isSignedIn ? (
@@ -175,7 +156,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
           <section className="mt-6">
             <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
-              Professional — $99 lifetime
+              Professional — {formatUsd(professional.amount)} lifetime
             </h3>
             <div
               className={`mt-3 w-full rounded-xl border p-4 ${
@@ -186,10 +167,10 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             >
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-semibold text-white">
-                  {ONE_TIME_PRODUCTS.professional.label}
+                  {professional.label}
                 </span>
                 <span className="text-xl font-bold text-white">
-                  {formatUsd(ONE_TIME_PRODUCTS.professional.amount)}
+                  {formatUsd(professional.amount)}
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-400">
@@ -264,41 +245,42 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
           <section className="mt-8">
             <h3 className="text-sm font-semibold uppercase tracking-widest text-emerald-400">
-              Advisory — $2,889/yr
+              Unlimited Pack — {formatUsd(unlimitedPack.amount)} one-time
             </h3>
             <div
               className={`mt-3 w-full rounded-xl border p-4 ${
-                advisoryActive
+                unlimited || unlimitedLocked
                   ? "border-slate-700 bg-slate-900/50 opacity-70"
-                  : "border-slate-700 bg-slate-900/50"
+                  : "border-emerald-500 bg-emerald-500/10"
               }`}
             >
               <div className="flex items-baseline justify-between gap-3">
                 <span className="font-semibold text-white">
-                  Advisory — unlimited clean reports
+                  {unlimitedPack.label}
                 </span>
                 <span className="text-xl font-bold text-white">
-                  {formatUsd(ADVISORY_ANNUAL_PRICE)}
-                  <span className="ml-1 text-sm font-medium text-slate-400">
-                    /yr
-                  </span>
+                  {formatUsd(unlimitedPack.amount)}
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-400">
-                White-label logo branding included
+                One-time · white-label logo branding included
               </p>
-              {advisoryActive ? (
-                <p className="mt-2 text-xs font-semibold text-emerald-400">
-                  Active subscription
+              {unlimited ? (
+                <span className="mt-3 inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
+                  ✓ Owned
+                </span>
+              ) : unlimitedLocked ? (
+                <p className="mt-3 text-sm font-semibold text-amber-300">
+                  Requires Professional
                 </p>
               ) : isSignedIn ? (
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void startAdvisory()}
+                  onClick={() => void startOneTime("unlimited")}
                   className="mt-4 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
                 >
-                  Subscribe with PayPal
+                  Pay with PayPal
                 </button>
               ) : null}
             </div>
@@ -321,10 +303,10 @@ export function UpgradeModalTrigger({
 }) {
   const [open, setOpen] = useState(false);
   const { ready, visible } = usePaypalCheckoutVisible();
-  const { isPro, advisoryActive, isLoading } = useSubscription();
+  const { isPro, unlimited, isLoading } = useSubscription();
 
   if (isLoading || !ready || !visible) return null;
-  if (advisoryActive) return null;
+  if (unlimited) return null;
 
   const label = isPro ? "➕ Buy Report Credits" : "⚡ Upgrade to Pro";
 
@@ -350,15 +332,15 @@ export function UpgradeNavControl({ compact = false }: { compact?: boolean }) {
   const {
     plan,
     lifetime,
-    advisoryActive,
+    unlimited,
     reportCredits,
     isLoading,
   } = useSubscription();
 
   if (isLoading || !isSignedIn) return null;
 
-  const badge = advisoryActive
-    ? "Advisory · Unlimited"
+  const badge = unlimited
+    ? "Advisory • Unlimited"
     : lifetime || plan === "professional"
       ? `Pro • ${reportCredits} credit${reportCredits === 1 ? "" : "s"}`
       : "Explorer";

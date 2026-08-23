@@ -13,7 +13,7 @@ export async function POST() {
 
   const meta = await getSubMeta(userId);
 
-  if (meta.plan === "advisory" && meta.advisoryStatus === "active") {
+  if (meta.unlimited) {
     return NextResponse.json({ allowed: true, unlimited: true });
   }
   if (!meta.lifetime) {

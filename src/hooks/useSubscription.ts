@@ -17,18 +17,17 @@ export function useSubscription() {
       : fallbackTier === "pro"
         ? "professional"
         : "explorer");
+  const unlimited =
+    !!sub?.unlimited || fallbackTier === "advisory" || plan === "advisory";
   const lifetime =
-    !!sub?.lifetime || fallbackTier === "pro" || fallbackTier === "advisory";
-  const advisoryActive =
-    (plan === "advisory" && sub?.advisoryStatus === "active") ||
-    fallbackTier === "advisory";
+    !!sub?.lifetime || unlimited || fallbackTier === "pro";
 
   return {
     plan,
     lifetime,
-    advisoryActive,
-    isPro: lifetime || advisoryActive,
-    hasUnlimitedReports: advisoryActive,
+    unlimited,
+    hasUnlimitedReports: unlimited,
+    isPro: lifetime || unlimited,
     reportCredits: typeof sub?.reportCredits === "number" ? sub.reportCredits : 0,
     whiteLabel: hasWhiteLabelAccess(email, sub),
     isLoading: !isLoaded,

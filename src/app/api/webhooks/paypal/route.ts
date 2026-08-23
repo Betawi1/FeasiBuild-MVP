@@ -14,12 +14,6 @@ export const dynamic = "force-dynamic";
 
 const LOG_PREFIX = "[PayPal Webhook]";
 
-const CANCEL_EVENTS = new Set([
-  "BILLING.SUBSCRIPTION.CANCELLED",
-  "BILLING.SUBSCRIPTION.SUSPENDED",
-  "BILLING.SUBSCRIPTION.EXPIRED",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -76,47 +70,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   }
 
-  if (
-    eventType !== "BILLING.SUBSCRIPTION.ACTIVATED" &&
-    !CANCEL_EVENTS.has(eventType)
-  ) {
-    console.log(`${LOG_PREFIX} unhandled event`, eventType);
-    return NextResponse.json({ received: true });
-  }
-
-  const userId = customId && !customId.includes("|") ? customId : customId?.split("|")[0];
-  if (!userId) {
-    console.warn(`${LOG_PREFIX} missing custom_id`, eventType);
-    return NextResponse.json({ received: true, skipped: "no_custom_id" });
-  }
-
-  const subscriptionId =
-    typeof resource.id === "string" ? resource.id : undefined;
-
-  try {
-    const meta = await getSubMeta(userId);
-
-    if (eventType === "BILLING.SUBSCRIPTION.ACTIVATED") {
-      if (
-        meta.paypalSubscriptionId === subscriptionId &&
-        meta.advisoryStatus === "active"
-      ) {
-        return NextResponse.json({ received: true, skipped: "already_active" });
-      }
-      meta.plan = "advisory";
-      meta.advisoryStatus = "active";
-      if (subscriptionId) meta.paypalSubscriptionId = subscriptionId;
-    } else {
-      meta.advisoryStatus = "cancelled";
-      meta.plan = meta.lifetime ? "professional" : "explorer";
-    }
-
-    await setSubMeta(userId, meta);
-    console.log(`${LOG_PREFIX} applied`, eventType, userId, meta.plan);
-  } catch (err) {
-    console.error(`${LOG_PREFIX} failed to update user`, userId, err);
-    return NextResponse.json({ error: "User update failed" }, { status: 500 });
-  }
-
+  console.log(`${LOG_PREFIX} unhandled event`, eventType);
   return NextResponse.json({ received: true });
 }

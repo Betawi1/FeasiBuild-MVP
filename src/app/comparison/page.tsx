@@ -71,7 +71,7 @@ export default function ComparisonPage() {
     },
     {
       label: "FeasiBuild",
-      value: "from $24",
+      value: "from $19",
       unit: "per report",
       note: "$99 lifetime access, then pay-as-you-use",
       highlight: true,

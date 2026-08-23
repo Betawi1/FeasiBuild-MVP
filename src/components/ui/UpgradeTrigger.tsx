@@ -7,10 +7,10 @@ import UpgradeModal from "@/components/ui/UpgradeModal";
 
 export default function UpgradeTrigger() {
   const [open, setOpen] = useState(false);
-  const { isPro, advisoryActive, isLoading } = useSubscription();
+  const { isPro, unlimited, isLoading } = useSubscription();
 
   if (isLoading) return null;
-  if (advisoryActive) return null;
+  if (unlimited) return null;
   if (!paypalVisible()) return null;
 
   const label = isPro ? "➕ Buy Report Credits" : "⚡ Upgrade to Pro";

@@ -9,6 +9,7 @@ export type CustomerTier = "explorer" | "pro" | "advisory";
 export interface SubscriptionLike {
   plan?: string;
   lifetime?: boolean;
+  unlimited?: boolean;
   advisoryStatus?: string;
   whiteLabel?: boolean;
 }
@@ -25,8 +26,8 @@ function tierFromSubscription(
 ): CustomerTier | null {
   if (!subscription) return null;
   if (
-    subscription.plan === "advisory" &&
-    subscription.advisoryStatus === "active"
+    subscription.unlimited ||
+    subscription.plan === "advisory"
   ) {
     return "advisory";
   }
@@ -58,10 +59,7 @@ export function hasWhiteLabelAccess(
   subscription?: SubscriptionLike | null
 ): boolean {
   if (subscription?.whiteLabel) return true;
-  if (
-    subscription?.plan === "advisory" &&
-    subscription.advisoryStatus === "active"
-  ) {
+  if (subscription?.unlimited || subscription?.plan === "advisory") {
     return true;
   }
   const normalized = (email ?? "").trim().toLowerCase();

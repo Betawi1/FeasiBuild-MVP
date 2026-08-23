@@ -18,36 +18,22 @@ function CheckoutSuccessInner() {
     started.current = true;
 
     const token = params.get("token");
-    const subscriptionId = params.get("subscription_id");
 
     void (async () => {
       try {
-        if (subscriptionId) {
-          const res = await fetch("/api/subscription/activate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ subscriptionId }),
-          });
-          if (!res.ok) {
-            const body = (await res.json().catch(() => ({}))) as {
-              error?: string;
-            };
-            throw new Error(body.error || "Could not activate subscription");
-          }
-        } else if (token) {
-          const res = await fetch("/api/paypal/capture-order", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ orderID: token }),
-          });
-          if (!res.ok) {
-            const body = (await res.json().catch(() => ({}))) as {
-              error?: string;
-            };
-            throw new Error(body.error || "Could not capture payment");
-          }
-        } else {
-          throw new Error("Missing PayPal order or subscription id");
+        if (!token) {
+          throw new Error("Missing PayPal order token");
+        }
+        const res = await fetch("/api/paypal/capture-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderID: token }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(body.error || "Could not capture payment");
         }
 
         await user?.reload();

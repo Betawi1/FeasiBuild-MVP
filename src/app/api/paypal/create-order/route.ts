@@ -8,6 +8,7 @@ import {
   PAYPAL_CANCEL_URL,
 } from "@/lib/paypal";
 import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
+import { getSubMeta } from "@/lib/subscription-metadata";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,16 @@ export async function POST(req: Request) {
   const product = ONE_TIME_PRODUCTS[productKey as ProductKey];
   if (!product) {
     return NextResponse.json({ error: "Unknown product" }, { status: 400 });
+  }
+
+  if (productKey !== "professional") {
+    const meta = await getSubMeta(userId);
+    if (!meta.lifetime && !meta.unlimited) {
+      return NextResponse.json(
+        { error: "Professional required" },
+        { status: 403 }
+      );
+    }
   }
 
   const token = await getPayPalAccessToken();

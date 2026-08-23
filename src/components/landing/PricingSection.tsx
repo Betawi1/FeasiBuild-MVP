@@ -1,5 +1,9 @@
 import { Fragment } from "react";
 import Link from "next/link";
+import {
+  CREDIT_PRODUCT_KEYS,
+  ONE_TIME_PRODUCTS,
+} from "@/lib/pricing";
 
 const Check = () => (
   <svg
@@ -35,6 +39,43 @@ const Cross = () => (
 
 type Cell = boolean | string;
 
+function formatUsd(amount: string | number): string {
+  const n = typeof amount === "number" ? amount : Number(amount);
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: n % 1 === 0 ? 0 : 2,
+  });
+}
+
+const CREDIT_NOTES: Record<string, string> = {
+  credit_1: "Pay as you go",
+  credit_10: "Save 20%",
+  credit_50: "Save 41%",
+  credit_100: "Save 61% + Logo Branding",
+};
+
+const CREDIT_PACK_NAMES: Record<string, string> = {
+  credit_1: "Single Report",
+  credit_10: "10-Pack",
+  credit_50: "50-Pack",
+  credit_100: "100-Pack",
+};
+
+const professional = ONE_TIME_PRODUCTS.professional;
+const unlimitedPack = ONE_TIME_PRODUCTS.unlimited;
+
+const creditPacks = CREDIT_PRODUCT_KEYS.map((key) => {
+  const product = ONE_TIME_PRODUCTS[key];
+  const per = product.credits > 0 ? Number(product.amount) / product.credits : 0;
+  return {
+    name: CREDIT_PACK_NAMES[key] ?? product.label,
+    price: formatUsd(product.amount),
+    per: `${formatUsd(per)} / report`,
+    note: CREDIT_NOTES[key] ?? "",
+  };
+});
+
 const tiers = [
   {
     name: "Explorer",
@@ -56,7 +97,7 @@ const tiers = [
   },
   {
     name: "Professional",
-    price: "$99",
+    price: formatUsd(professional.amount),
     priceNote: "One-time • Lifetime access",
     tagline: "Pay-as-you-use for working professionals.",
     cta: "Get Lifetime Access",
@@ -73,10 +114,10 @@ const tiers = [
   },
   {
     name: "Advisory",
-    price: "$2,889",
-    priceNote: "per year (+ $99 lifetime)",
+    price: formatUsd(unlimitedPack.amount),
+    priceNote: "One-time Unlimited Pack • requires Professional",
     tagline: "For firms that resell institutional reports.",
-    cta: "Go Unlimited",
+    cta: "Get Unlimited Pack",
     highlight: false,
     features: [
       "Everything in Professional",
@@ -87,13 +128,6 @@ const tiers = [
       "Priority email support (human-reviewed)",
     ],
   },
-];
-
-const creditPacks = [
-  { name: "Single Report", price: "$59", per: "$59 / report", note: "Pay as you go" },
-  { name: "10-Pack", price: "$390", per: "$39 / report", note: "Save 34%" },
-  { name: "50-Pack", price: "$1,450", per: "$29 / report", note: "Save 51%" },
-  { name: "100-Pack", price: "$2,400", per: "$24 / report", note: "Save 59% + Logo Branding" },
 ];
 
 const comparison: {
@@ -177,8 +211,8 @@ export default function PricingSection() {
             Pay Only for What You Deliver
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-400">
-            One-time lifetime access. Then pay per feasibility report — or go
-            unlimited. Your data never leaves your own cloud.
+            One-time lifetime access. Then pay per feasibility report — or buy
+            the Unlimited Pack. Your data never leaves your own cloud.
           </p>
         </div>
 
@@ -304,7 +338,8 @@ export default function PricingSection() {
         <p className="mt-8 text-center text-sm text-slate-500">
           FeasiBuild never stores your data. Projects are encrypted in your own
           Puter cloud (BYO-Infrastructure). Report packs expire 12 months after
-          purchase. Advisory billed annually.
+          purchase. Unlimited Pack is a one-time purchase and requires
+          Professional.
         </p>
       </div>
     </section>

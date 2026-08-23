@@ -3,11 +3,18 @@ export type ProductKey =
   | "credit_1"
   | "credit_10"
   | "credit_50"
-  | "credit_100";
+  | "credit_100"
+  | "unlimited";
 
 export const ONE_TIME_PRODUCTS: Record<
   ProductKey,
-  { label: string; amount: string; credits: number; whiteLabel?: boolean }
+  {
+    label: string;
+    amount: string;
+    credits: number;
+    whiteLabel?: boolean;
+    unlimited?: boolean;
+  }
 > = {
   professional: {
     label: "Professional - Lifetime Access",
@@ -16,7 +23,7 @@ export const ONE_TIME_PRODUCTS: Record<
   },
   credit_1: {
     label: "Single Report Credit",
-    amount: "59.00",
+    amount: "49.00",
     credits: 1,
   },
   credit_10: {
@@ -31,13 +38,19 @@ export const ONE_TIME_PRODUCTS: Record<
   },
   credit_100: {
     label: "100 Report Pack (+ Logo Branding)",
-    amount: "2400.00",
+    amount: "1900.00",
     credits: 100,
+    whiteLabel: true,
+  },
+  unlimited: {
+    label: "Unlimited Pack - Lifetime unlimited clean reports",
+    amount: "2400.00",
+    credits: 0,
+    unlimited: true,
     whiteLabel: true,
   },
 };
 
-export const ADVISORY_ANNUAL_PRICE = "2889.00";
 export const CREDIT_PRODUCT_KEYS: ProductKey[] = [
   "credit_1",
   "credit_10",

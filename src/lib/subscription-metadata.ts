@@ -5,6 +5,8 @@ import { ONE_TIME_PRODUCTS, type ProductKey } from "@/lib/pricing";
 export interface SubscriptionMeta {
   plan: "explorer" | "professional" | "advisory";
   lifetime: boolean;
+  unlimited: boolean;
+  packPurchasedAt: string | null;
   advisoryStatus: "active" | "cancelled" | "none";
   reportCredits: number;
   whiteLabel: boolean;
@@ -16,6 +18,8 @@ export interface SubscriptionMeta {
 const DEFAULT_META: SubscriptionMeta = {
   plan: "explorer",
   lifetime: false,
+  unlimited: false,
+  packPurchasedAt: null,
   advisoryStatus: "none",
   reportCredits: 0,
   whiteLabel: false,
@@ -46,10 +50,8 @@ function applyAllowlistOverlay(
   for (const email of emails) {
     const tier = getCustomerTier(email);
     if (tier === "advisory") {
-      if (meta.advisoryStatus !== "active") {
-        meta.plan = "advisory";
-        meta.advisoryStatus = "active";
-      }
+      meta.plan = "advisory";
+      meta.unlimited = true;
       meta.whiteLabel = true;
     } else if (tier === "pro") {
       meta.lifetime = true;
@@ -65,6 +67,10 @@ export async function getSubMeta(userId: string): Promise<SubscriptionMeta> {
   const m = (user.publicMetadata as Record<string, unknown> | undefined)
     ?.subscription as Partial<SubscriptionMeta> | undefined;
   const meta = m ? { ...DEFAULT_META, ...m } : { ...DEFAULT_META };
+  if (meta.plan === "advisory" || meta.advisoryStatus === "active") {
+    meta.unlimited = true;
+    meta.whiteLabel = true;
+  }
   return applyAllowlistOverlay(meta, userEmails(user));
 }
 
@@ -117,12 +123,24 @@ export function grantOneTimeProduct(
 ): boolean {
   const product = ONE_TIME_PRODUCTS[productKey];
   if (!product) return false;
+
   if (productKey === "professional") {
     meta.lifetime = true;
-    if (meta.plan !== "advisory") meta.plan = "professional";
-  } else {
-    meta.reportCredits += product.credits;
-    if (product.whiteLabel) meta.whiteLabel = true;
+    if (!meta.unlimited) meta.plan = "professional";
+    return true;
   }
+
+  if (product.unlimited || productKey === "unlimited") {
+    meta.unlimited = true;
+    meta.lifetime = true;
+    meta.plan = "advisory";
+    meta.whiteLabel = true;
+    meta.packPurchasedAt = null;
+    return true;
+  }
+
+  meta.reportCredits += product.credits;
+  if (product.whiteLabel) meta.whiteLabel = true;
+  meta.packPurchasedAt = new Date().toISOString();
   return true;
 }

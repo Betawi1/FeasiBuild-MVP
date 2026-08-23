@@ -18,7 +18,7 @@ export function useReportExportGate(projectId: string | null) {
     isPro,
     hasUnlimitedReports,
     lifetime,
-    advisoryActive,
+    unlimited,
     reportCredits,
     isLoading,
   } = useSubscription();
@@ -107,7 +107,7 @@ export function useReportExportGate(projectId: string | null) {
     allowOrPrompt,
     recordSuccessfulExport,
     lifetime,
-    advisoryActive,
+    unlimited,
     reportCredits,
   };
 }
