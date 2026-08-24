@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import { paypalVisible } from "@/lib/paypal-gate";
 import {
@@ -316,6 +317,21 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
           {error ? (
             <p className="mt-6 text-center text-sm text-rose-400">{error}</p>
           ) : null}
+
+          <p className="mt-6 text-center text-xs text-slate-500">
+            By purchasing, you agree to our{" "}
+            <Link href="/terms" className="text-slate-400 underline hover:text-emerald-400">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/refund-policy"
+              className="text-slate-400 underline hover:text-emerald-400"
+            >
+              Refund Policy
+            </Link>
+            .
+          </p>
         </div>
       </div>
     </div>,

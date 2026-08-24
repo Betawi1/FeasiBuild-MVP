@@ -98,13 +98,17 @@ export default function Footer() {
           <p className="text-sm text-slate-500">
             © 2026 FeasiBuild. All rights reserved.
           </p>
-          <div className="mt-4 flex items-center gap-6 text-sm text-slate-400 md:mt-0">
-            <Link href="/privacy-policy" className="hover:text-emerald-400 transition">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-slate-400 md:mt-0">
+            <Link href="/privacy-policy" className="transition hover:text-emerald-400">
               Privacy Policy
             </Link>
             <span>•</span>
-            <Link href="/terms-of-service" className="hover:text-emerald-400 transition">
+            <Link href="/terms" className="transition hover:text-emerald-400">
               Terms of Service
+            </Link>
+            <span>•</span>
+            <Link href="/refund-policy" className="transition hover:text-emerald-400">
+              Refund Policy
             </Link>
           </div>
         </div>
