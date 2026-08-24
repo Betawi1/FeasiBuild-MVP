@@ -73,7 +73,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-2xl font-bold text-emerald-400 mb-4">4. AI and Third-Party Services</h2>
             <p className="text-slate-300 leading-relaxed mb-4">
-              FeasiBuild uses AI services including puter.js and Qwen AI to generate feasibility studies and market research.
+              FeasiBuild uses AI services via puter.js — you choose Qwen (default), Claude, OpenAI, or DeepSeek — to generate feasibility studies and market research.
               When you use these features:
             </p>
             <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">

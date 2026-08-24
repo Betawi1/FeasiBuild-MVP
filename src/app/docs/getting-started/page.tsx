@@ -56,8 +56,8 @@ export default function GettingStarted() {
             <ul className="space-y-2 text-sm text-slate-400 ml-4 list-disc">
               <li>
                 <strong className="text-white">Bring Your Own AI:</strong> You
-                connect your own Puter account to access our AI engine (powered by
-                Qwen).
+                connect your own Puter account to access our AI engine — choose
+                from Qwen (default), Claude, OpenAI, or DeepSeek in your dashboard.
               </li>
               <li>
                 <strong className="text-white">Bring Your Own Database:</strong>{" "}
@@ -74,13 +74,35 @@ export default function GettingStarted() {
           </div>
 
           <div className="rounded-lg border border-slate-700 bg-slate-900 p-5">
-            <h3 className="text-white font-semibold mb-3">What is Qwen AI?</h3>
-            <p className="text-slate-300 text-sm leading-relaxed">
-              Qwen is a state-of-the-art large language model developed by Alibaba
-              Cloud. FeasiBuild uses Qwen to analyze your project inputs, research
-              market conditions, and generate professional-grade feasibility study
-              content. Qwen&apos;s advanced reasoning capabilities ensure accurate,
-              context-aware analysis tailored to your specific project.
+            <h3 className="text-white font-semibold mb-3">
+              Which AI models power FeasiBuild?
+            </h3>
+            <p className="text-slate-300 text-sm leading-relaxed mb-3">
+              FeasiBuild gives you a choice of world-class large language models,
+              all accessed through your own Puter account:
+            </p>
+            <ul className="ml-4 list-disc space-y-2 text-sm text-slate-400">
+              <li>
+                <strong className="text-white">Qwen (Default)</strong> — Alibaba
+                Cloud&apos;s state-of-the-art model, tuned for complex financial
+                reasoning and context-aware feasibility analysis.
+              </li>
+              <li>
+                <strong className="text-white">Claude (Anthropic)</strong> —
+                exceptional at long-form, nuanced institutional commentary.
+              </li>
+              <li>
+                <strong className="text-white">OpenAI (GPT)</strong> —
+                industry-leading general reasoning and market research.
+              </li>
+              <li>
+                <strong className="text-white">DeepSeek (Cost-Effective)</strong>{" "}
+                — high-quality analysis at a fraction of the compute cost.
+              </li>
+            </ul>
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">
+              Switch models anytime from the AI model selector in your dashboard —
+              every project stays under your control.
             </p>
           </div>
 

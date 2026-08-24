@@ -42,7 +42,9 @@ export default function TechnologySection() {
             FeasiBuild runs on{" "}
             <span className="font-semibold text-white">Puter.js</span>—your
             bring-your-own infrastructure layer for both the{" "}
-            <span className="font-semibold text-white">AI Engine (Qwen)</span>{" "}
+            <span className="font-semibold text-white">
+              AI Engine (Qwen, Claude, OpenAI &amp; DeepSeek)
+            </span>{" "}
             and{" "}
             <span className="font-semibold text-white">
               Secure Cloud Storage (KV)
