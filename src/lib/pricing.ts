@@ -23,7 +23,7 @@ export const ONE_TIME_PRODUCTS: Record<
   },
   credit_1: {
     label: "Single Report Credit",
-    amount: "49.00",
+    amount: "4.90",
     credits: 1,
   },
   credit_10: {

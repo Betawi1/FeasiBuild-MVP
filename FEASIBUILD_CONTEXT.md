@@ -105,7 +105,7 @@ Wizard inputs land in Zustand (`useFinModelStore`) and profile builders; preview
 | **1. Costs** | Development / capital outflows (land, construction, soft costs, POWC, FF&E), monthly S-curve | `/operational/preview/cash-outflows` | `/sale/preview/cash-outflows` | Store `buildCashOutflowProfile`; timing helpers `cash-outflow-powc-timing.ts`, `cash-outflow-ffe-timing.ts`; sale `sale-cash-preview-profile.ts` (warehouse CapEx breakdown + FF&E) |
 | **2. Income** | Ops: recurring P&L; Sale: sales proceeds schedule | `/operational/preview/pnl` | `/sale/preview/cash-inflows` | `operational-pnl.ts` + asset P&L tables; sale C2 schedules in store |
 | **3. Pre-financing Project Cash Flows** | Unlevered NCF → Project IRR | `/operational/preview/project-irr` | `/sale/preview/project-irr` (+ graphs on `/sale/project-irr`) | **Single NCF source:** `buildSalePreFinancingCashFlows()` in `sale-cash-preview-profile.ts` (warehouse includes land + CC + soft + POWC + FF&E). Used by cash-inflows preview, project-irr preview, and C3 Step 1 graphs — **do not recalculate NCF separately**. |
-| **4. Post-financing Project Cash Flows** | Debt draws, IDC, equity gap-fill, waterfall, levered equity CF | `/operational/preview/financing` | `/sale/preview/financing` | Ops: `c4.levered.engine.ts` + waterfall libs; Sale: `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, financing bridge. Warehouse sale: optional monthly **`ffe`** in engine `monthlyCosts` + conditional FF&E row in MY/UAE/AU tables. |
+| **4. Post-financing Project Cash Flows** | Debt draws, IDC, equity gap-fill, waterfall, levered equity CF | `/operational/preview/financing` | `/sale/preview/financing` | Ops: `c4.levered.engine.ts` + waterfall libs; Sale: `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, financing bridge. Warehouse sale: optional monthly **`ffe`** in engine `monthlyCosts` + conditional FF&E row in MY/UAE/AU tables. **HDA construction deposit** (`capitalHdaDeposit`) is computed in `generate-cash-flow.ts` and shown on the Malaysia/progress table + Excel export **only** for Malaysian residential for-sale; commercial assets (warehouse, retail, office, hotel, data centre) omit the row and exclude the amount from cumulative capital / M0 IRR. |
 
 Feasibility builders reuse the same series:
 
@@ -142,7 +142,7 @@ Scenario engines:
 | **Ops data centre feasibility** | `src/lib/feasibility/data-centre-context.ts`, `build-data-centre-market-data.ts`, `generate-data-centre-commentary.ts`, `generate-data-centre-report.ts`; slides `src/components/feasibility/slides/DataCentre*.tsx`; enrich router key **`datacentre`** in `enrich-operational-slides-puter.ts` (**resolve DC before BTR** to avoid wrong-asset decks) |
 | **Sale warehouse C1** | `src/app/sale/cash-outflows/steps/SaleWarehouse*.tsx`, `src/types/sale-warehouse-config.ts` |
 | **Sale cash / NCF** | `src/lib/sale-cash-preview-profile.ts` (`buildSaleCashflowDetailProfile`, `buildSalePreFinancingCashFlows`) |
-| **Sale financing UI** | `src/app/sale/preview/financing/` (bridge, MY/UAE/AU tables, export) |
+| **Sale financing UI** | `src/app/sale/preview/financing/` (bridge, MY/UAE/AU tables, export). HDA deposit row is gated in the Malaysia table + Excel export; no new modules. |
 | **Sale feasibility stream config** | `src/lib/feasibility/sale/sale-stream-config.ts` — `SALE_CONFIG` + `SUBTYPE_TO_CONFIG_KEY` (includes **`Commercial-Strata-Warehouse`** ↔ `commercial_strata_warehouse`); drives title, market slide titles, commentary asset label via `getSaleStreamConfig` |
 | **Sale feasibility generators** | `src/lib/feasibility/sale/generate-sale-report.ts`, `enrich-sale-slides-puter.ts`, `create-sale-puter-prompts.ts`, `build-sale-financial-data.ts`, `sale-context.ts` |
 | **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts`, `useAnalystStore.ts` (AI Analyst UI/chat — not financial data) |
@@ -175,6 +175,7 @@ Scenario engines:
 
 - Title / market templates resolve from `buildingSubType` via `sale-stream-config.ts`. Unknown subtypes still default to **Residential-High-Rise** — always map new subtypes explicitly.
 - **`sale-escrow` slide** (“Escrow Withdrawal Configuration”) is included **only** when `buildingSubType` includes `"residential"`. Commercial / warehouse decks skip it. Headings use the selected rule name (not country/RERA labels).
+- **HDA construction deposit (Component 4 table):** `hdaDepositApplies()` in `generate-cash-flow.ts` + `hdaDepositEnabled` in `financing-cash-flow-engine-bridge.ts`. Applies only when rule = `progress` **and** jurisdiction = `MALAYSIA` **and** `financingModel !== "commercial"`. Preview (`cash-flow-table-malaysia.tsx`) and Excel export (`build-financing-cash-flow-export.ts`) hide the **Capital—HDA deposit** row otherwise. Malaysian residential is unchanged.
 - Development Assumptions for warehouse uses CapEx lines from `buildSaleCashflowDetailProfile` → `warehouseCostLines` on `SaleDevelopmentCostsSlide`.
 
 ### 2.7 Customer support (Telegram + priority email)
@@ -393,7 +394,8 @@ Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to sta
 
 ### 5.2 Progress Drawdown Rule (default: Malaysia)
 
-- Milestone/S-curve drawdowns (HDA-style); deposit at M0; post-VP retention through VP+24; HDA deposit interest at **CP+24**. Horizon **CP+24**.
+- Milestone/S-curve drawdowns (HDA-style). Post-VP retention through VP+24 when this rule is selected. Horizon **CP+24**.
+- **HDA construction deposit** (default 3% of construction cost at M0; interest with final release at **CP+24**) is **not** part of the progress-drawdown mechanism for every asset. It applies **only to Malaysian residential for-sale**. Warehouse, retail, office, hotel, and data centre never inject the deposit into equity capital / cumulative capital / M0 IRR, even if Progress Drawdown is selected.
 
 ### 5.3 10/90 Rule (default: Australia)
 
@@ -431,7 +433,19 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **23 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+
+### Just finished (23 Aug 2026) — Sale C4 HDA deposit is Malaysia residential-only
+
+Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Projection).
+
+- **Engine:** `hdaDepositApplies()` in `src/lib/financing-engine/generate-cash-flow.ts` — statutory HDA construction deposit only when `progress` + `MALAYSIA` + not commercial. Zeroes `capitalHdaDeposit` and excludes it from cumulative capital and M0 `irrCashFlow`.
+- **Bridge:** `hdaDepositEnabled` in `financing-cash-flow-engine-bridge.ts` is `false` unless Malaysia **and** `isResidentialSaleProject`.
+- **Preview / Excel:** Malaysia/progress table (`cash-flow-table-malaysia.tsx`) and `build-financing-cash-flow-export.ts` hide **Capital—HDA deposit** when it does not apply; EQUITY CAPITAL still starts at land injection.
+- **PDF:** `sale-escrow` slide was already residential-only; post-financing PDF uses the same engine rows (no separate HDA line).
+- **Unchanged:** Malaysian residential for-sale still lodges the 3% deposit at M0.
+- **No new files.** Existing C4 engine, bridge, Malaysia table, Excel export, and preview page only.
+- **Labu Warehouse check:** HDA row gone; cumulative capital = previous total − HDA (**12,011,423.04 − 428,613.12 = 11,582,809.92**).
 
 ### Just finished (19–20 Aug 2026) — Feasibility chrome, entitlements gating, chart salvage (no engine math)
 
@@ -475,10 +489,11 @@ Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering archite
 
 ### Next steps for tomorrow
 
-1. **DeepSeek chart E2E:** Regenerate a Sale study with DeepSeek V3.2 — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
-2. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
-3. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
-4. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
+1. **HDA regression on Labu Warehouse:** Reload Sale C4 preview — no **Capital—HDA deposit** row; cumulative capital **11,582,809.92**; IRR/NPV M0 outflow excludes 428,613.12. Excel export matches. Then open a **Malaysian residential** sale project and confirm the HDA row, 3% M0 deposit, and cumulative capital are unchanged.
+2. **DeepSeek chart E2E:** Regenerate a Sale study with DeepSeek V3.2 — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
+3. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
+4. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
+5. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
 
 ### Still open / later (not tomorrow’s first jobs)
 
@@ -504,7 +519,7 @@ Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering archite
 5. No location inherits a rule or a land-equity lock by accident; defaults only pre-select; Dubai-only 100% lock. Unset/empty mode → `none` (CP+6). China + staged must not label the slide “UAE — RERA”.  
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
-8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name.  
+8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name. **HDA construction deposit** in C4 (engine + Malaysia table + Excel) is **Malaysia + residential for-sale only** — never warehouse / retail / office / hotel / data centre, even on Progress Drawdown.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
 10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.  
 11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
@@ -523,4 +538,4 @@ Snapshot as of **20 Aug 2026**. Prefer editing this file over scattering archite
 
 ---
 
-*Last updated 21 Aug 2026 (auto-save on study/export; chart salvage v3 quiet + S5 unescape+repair). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 23 Aug 2026 (Sale C4 HDA deposit = Malaysia residential-only). Prefer editing this file over scattering architecture notes across chats.*
