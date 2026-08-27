@@ -35,6 +35,7 @@ FeasiBuild runs **two parallel financial streams**, selected from the dashboard.
 - Dashboard: `src/app/dashboard/` — projects home + **`/dashboard/settings`** (AI model preference + **Get help** Telegram link)
 - Product docs: `src/app/docs/operational-stream/`, `src/app/docs/sale-stream/`
 - Marketing: landing (`src/app/page.tsx`) includes **`#pricing`** (`PricingSection`); comparison is `/comparison` (anonymous category names only — no real competitor brands)
+- Legal: `/terms` (`src/app/terms/page.tsx`), `/refund-policy` (`src/app/refund-policy/page.tsx`), `/privacy-policy`. Legacy `/terms-of-service` **redirects** to `/terms`. Footer + `UpgradeModal` link to Terms and Refund Policy.
 
 ### 2.2 Six Component wizards (data input & selection)
 
@@ -155,7 +156,7 @@ Scenario engines:
 | **Entitlements / report gating** | `src/lib/entitlements.ts` (`getCustomerTier`, `hasWhiteLabelAccess`). Report/export rules: `src/lib/report-entitlements.ts` (`evaluateExport`, `recordExport`, `canCreateProject`). Hooks: `useReportExportGate`, `useCanCreateProject`. |
 | **White-label logo** | `src/lib/brand-logo.ts` (Secure KV `brand_logo` + `brand_logo_height`, 40–200px default 64). UI: `LogoUploadControl.tsx` on the title slide (Advisory always; Professional only with 100-Pack allowlist). |
 | **Feasibility chrome** | `SlideHeader.tsx` (page numbers via `SlidePaginationProvider`); `SlideWatermark.tsx` (Explorer only); `ReportUpgradeModal.tsx`; PDF capture hides upload/upsell via `data-pdf-hide`. |
-| **Landing / pricing / comparison** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing` |
+| **Landing / pricing / comparison / legal** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/components/landing/Footer.tsx`; `src/components/landing/TechnologySection.tsx`; `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing`; legal pages `/terms`, `/refund-policy`, `/privacy-policy`; `UpgradeModal` purchase disclaimer |
 | **Secure Puter KV (Clerk isolation)** | `src/lib/secure-puter-kv.ts` — **only** module that calls `puter.kv.*`. Keys: `feasi_build_{clerkUserId}_{logicalKey}`. Strips legacy `feasibuild_{userId}_` / double prefixes via `toLogicalKvKey`. Retries get/set/del (3×, 1s→2s backoff). `SecureKvUserBinder` + `getSecureKvUserId()` for lib callers. Auth probe: `probePuterKvAccess`. |
 | **KV migration** | `src/lib/migrate-puter-kv.ts` — `migrateOldPuterKeys` + `PuterKvMigrationTrigger` (once per signed-in session). Copies legacy / double-prefixed keys → namespaced, then deletes old. Mounted in `src/app/layout.tsx`. |
 | **Project storage** | `src/lib/puter-storage.ts` (local-first write via `writeLocalKvValue`, then Secure KV), `src/lib/project-save.ts` (`buildAndSaveProject`, `saveProjectToKV`) |
@@ -217,7 +218,7 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 |------|--------|
 | **Hook** | `src/hooks/useAiResearch.ts` → `performResearch()` |
 | **API** | Client `puter.ai.chat` (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`) |
-| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`, `deepseek/deepseek-v3.2`. Unknown / failed KV → default. |
+| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`, `deepseek/deepseek-v3.2`. Unknown / failed KV → default. **Public copy** (docs Getting Started, landing Technology Stack, privacy policy) must describe the four-model picker with Qwen as default — never imply Qwen is the only engine. Comparison-table row “BYO-AI Integration (Qwen, Claude, OpenAI, Deepseek via Puter)” stays as-is. |
 | **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` (Claude **12000**). Claude also sends `response_format: { type: "json_object" }` when Puter forwards it. |
 | **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt(assetType, model?)` appends **Claude-strict JSON rules** when the id contains `claude`; plus `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
 | **JSON parse** | `extractJsonFromClaudeResponse` — strips `<reasoning>`, fenced ```json```, brace-balanced objects. Research **skips `type:"reasoning"` stream chunks** so markdown CoT is not parsed as JSON. Unparseable stream → retry `stream: false`. |
@@ -371,15 +372,17 @@ Canonical rule ids: `EscrowRuleId = 'ten_ninety' | 'staged' | 'progress' | 'none
 Display names: **10/90 Rule**, **Staged Escrow Rule**, **Progress Drawdown Rule**, **No Escrow Rules**.
 
 Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowConfig.tsx`
-(panel titles are rule names). Wizard presets: `residential-wizard.tsx`, `commercial-wizard.tsx`
-(`JURISDICTION_RULES.defaultEscrowRule`). Location only **pre-selects** a default; all four tabs
-remain selectable everywhere.
+(panel titles are rule names). One wizard for every sale asset class: `residential-wizard.tsx`
+(`JURISDICTION_RULES` + `defaultEscrowRuleForLocation`). Location + asset class only **pre-selects**
+a default; all four tabs remain selectable everywhere. The retired commercial-only wizard
+(`commercial-wizard.tsx`) is deleted.
 
-**Location defaults (never hard-linked in the engine)**
+**Location + asset-class defaults (never hard-linked in the engine)**
 
-- Australia → 10/90 Rule (CP+12)
-- Malaysia → Progress Drawdown Rule (CP+24)
-- United Arab Emirates **and city Dubai** → Staged Escrow Rule (CP+12)
+- Dubai/UAE → Staged Escrow Rule (all asset classes) (CP+12)
+- Australia → 10/90 Rule (all asset classes) (CP+12)
+- Malaysia residential → Progress Drawdown Rule (CP+24)
+- Malaysia commercial → No Escrow Rules (CP+6)
 - All other locations (KSA, Abu Dhabi, RAK, Sharjah, Ajman, Fujairah, Thailand, China, …) → No Escrow Rules (CP+6)
 
 **Backward compatibility:** stored modes `uae`/`malaysia`/`australia`/`none` map to the new ids.
@@ -392,7 +395,7 @@ Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to sta
 - Retention % user-editable (default 5), held until practical completion + defect liability; residual sweep at **CP+12**. Horizon **CP+12**.
 - Non-Dubai projects using this rule keep **unlocked** land equity; the land term loan rows (draw, interest, bullet) appear in the monthly projection under this rule like any other.
 
-### 5.2 Progress Drawdown Rule (default: Malaysia)
+### 5.2 Progress Drawdown Rule (default: Malaysia residential)
 
 - Milestone/S-curve drawdowns (HDA-style). Post-VP retention through VP+24 when this rule is selected. Horizon **CP+24**.
 - **HDA construction deposit** (default 3% of construction cost at M0; interest with final release at **CP+24**) is **not** part of the progress-drawdown mechanism for every asset. It applies **only to Malaysian residential for-sale**. Warehouse, retail, office, hotel, and data centre never inject the deposit into equity capital / cumulative capital / M0 IRR, even if Progress Drawdown is selected.
@@ -409,11 +412,11 @@ Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to sta
 
 ### 5.5 Critical bug avoidance — column length & rule fallback
 
-Rules are **mechanisms, not country labels**. Location only pre-selects (AU → 10/90, MY → progress, UAE+Dubai → staged, everyone else incl. KSA/other emirates → none with full choice). Engine routing and horizons follow the **SELECTED** rule. Land-equity **100% lock is Dubai-only**.
+Rules are **mechanisms, not country labels**. Location + asset class only pre-select (AU → 10/90 all classes, MY residential → progress / MY commercial → none, UAE+Dubai → staged all classes, everyone else incl. KSA/other emirates → none with full choice). Engine routing and horizons follow the **SELECTED** rule. Land-equity **100% lock is Dubai-only**.
 
-- Australia → 10/90 (`ten_ninety`)
-- Malaysia → progress
-- UAE **and city Dubai** → staged
+- Australia → 10/90 (`ten_ninety`) — all asset classes
+- Malaysia residential → progress; Malaysia commercial → none
+- UAE **and city Dubai** → staged — all asset classes
 - **All other locations** (KSA, other emirates including Abu Dhabi / RAK / Sharjah / Ajman / Fujairah, Thailand, China, …) → `none` default with full choice
 
 Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12, progress +24, none +6. Switching the selected rule must **never** overwrite the stored land equity %.
@@ -433,7 +436,14 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **23 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **24 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+
+### Just finished (24 Aug 2026) — Legal pages + multi-model public copy (no engine math)
+
+- **Terms of Service:** `src/app/terms/page.tsx` (`/terms`). Explorer / Professional / credits / Unlimited Pack, BYO Puter, PayPal, liability, contact `owner@feasibuild.app`. Last updated 24 Aug 2026.
+- **Refund Policy:** `src/app/refund-policy/page.tsx` (`/refund-policy`). 7-day Professional refund only if no clean report; credits and Unlimited Pack non-refundable; PayPal dispute suspends the account.
+- **Wiring:** Landing footer (`Footer.tsx`) → `/terms` and `/refund-policy`. `UpgradeModal` disclaimer under Unlimited Pack. Legacy `/terms-of-service` redirects to `/terms`.
+- **Multi-model copy:** Docs Getting Started (BYO-AI bullet + “Which AI models power FeasiBuild?” card), landing Technology Stack (“AI Engine (Qwen, Claude, OpenAI & DeepSeek)”), privacy policy. Comparison BYO-AI row left unchanged.
 
 ### Just finished (23 Aug 2026) — Sale C4 HDA deposit is Malaysia residential-only
 
@@ -489,11 +499,12 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 
 ### Next steps for tomorrow
 
-1. **HDA regression on Labu Warehouse:** Reload Sale C4 preview — no **Capital—HDA deposit** row; cumulative capital **11,582,809.92**; IRR/NPV M0 outflow excludes 428,613.12. Excel export matches. Then open a **Malaysian residential** sale project and confirm the HDA row, 3% M0 deposit, and cumulative capital are unchanged.
-2. **DeepSeek chart E2E:** Regenerate a Sale study with DeepSeek V3.2 — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
-3. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
-4. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
-5. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
+1. **HDA regression (carry-over):** Reload Sale C4 on Labu Warehouse — no **Capital—HDA deposit** row; cumulative capital **11,582,809.92**; M0 IRR excludes 428,613.12. Then confirm a **Malaysian residential** sale project is unchanged.
+2. **Legal smoke:** Open `/terms` and `/refund-policy` from the landing footer and from `UpgradeModal`. Confirm `/terms-of-service` redirects to `/terms`.
+3. **DeepSeek chart E2E:** Regenerate a Sale study with DeepSeek V3.2 — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
+4. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
+5. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
+6. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
 
 ### Still open / later (not tomorrow’s first jobs)
 
@@ -521,7 +532,7 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
 8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name. **HDA construction deposit** in C4 (engine + Malaysia table + Excel) is **Malaysia + residential for-sale only** — never warehouse / retail / office / hotel / data centre, even on Progress Drawdown.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
-10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`.  
+10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`. Public marketing/docs copy must list **Qwen (default), Claude, OpenAI, and DeepSeek** — never imply Qwen-only.  
 11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
 12. **Project save UX:** One Save control per stream layout; optimistic local write before vault sync; auto-save on study generation and export reuses the same pipeline; Explorer lock still gates new-id minting.  
 13. **AI Analyst:** Advisory only — never auto-write into `useFinModelStore`. Live docs are read server-side via `fs` (`/api/analyst-context`); skip Puter `reasoning` chunks; resolve the LLM via `getPreferredModel()`. Quote stored `reasoning_notes` verbatim when the snapshot header is present.  
@@ -538,4 +549,4 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 
 ---
 
-*Last updated 23 Aug 2026 (Sale C4 HDA deposit = Malaysia residential-only). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 24 Aug 2026 (legal pages `/terms` + `/refund-policy`; multi-model public copy). Prefer editing this file over scattering architecture notes across chats.*

@@ -1765,6 +1765,12 @@ export type FinancingEscrowConfig = {
     | "malaysia"
     | "uae"
     | "australia";
+  /**
+   * Set when the unified 8-step C4 wizard persists Step 5.
+   * Commercial projects from the retired no-escrow wizard lack this flag — apply
+   * location + asset-class defaults on next open instead of leftover auto-saved modes.
+   */
+  confirmedByWizard?: boolean;
   malaysia?: {
     propertyType: "HIGH_RISE" | "LANDED";
     retentionFirstReleaseMonths: number;
@@ -1822,7 +1828,7 @@ export type Financing = {
   preferenceShares: PreferenceShares;
   /** Escrow withdrawal method & jurisdiction params (Component 4 Step 5). */
   escrowConfig?: FinancingEscrowConfig;
-  /** Commercial sale: simplified NCF, no escrow/trust, CP+6 preview tenor. */
+  /** Sale product class for HDA eligibility (Malaysia residential-only). Escrow follows the selected rule for every class. */
   financingModel?: "commercial" | "residential";
   escrowSetupFee?: number;
   escrowManagementFeePct?: number;

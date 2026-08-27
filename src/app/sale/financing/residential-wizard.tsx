@@ -28,6 +28,7 @@ import {
   ESCROW_RULE_DISPLAY_NAME,
   ESCROW_RULE_IDS,
   defaultEscrowRuleForLocation,
+  isCommercialSaleAsset,
   isLandEquitySliderLocked,
   normalizeEscrowRuleId,
   type EscrowRuleId,
@@ -338,6 +339,8 @@ function defaultEscrowWithdrawalMode(projectInfo: ProjectInfo): EscrowWithdrawal
     country: projectInfo.country,
     countryCode: projectInfo.countryCode,
     city: projectInfo.city,
+    buildingType: projectInfo.buildingType,
+    buildingSubType: projectInfo.buildingSubType,
   });
 }
 
@@ -464,9 +467,18 @@ function ResidentialFinancingWizardContent() {
         country: projectInfo.country,
         countryCode: projectInfo.countryCode,
         city: projectInfo.city,
+        buildingType: projectInfo.buildingType,
+        buildingSubType: projectInfo.buildingSubType,
       }),
-    [projectInfo.country, projectInfo.countryCode, projectInfo.city]
+    [
+      projectInfo.country,
+      projectInfo.countryCode,
+      projectInfo.city,
+      projectInfo.buildingType,
+      projectInfo.buildingSubType,
+    ]
   );
+  const isCommercialProduct = isCommercialSaleAsset(projectInfo);
   const showRulePickerHint = locationDefaultRule === "none";
   const rules = JURISDICTION_RULES[jurisdiction];
   const feeSuggestions = FEE_SUGGESTIONS[jurisdiction];
@@ -540,6 +552,13 @@ function ResidentialFinancingWizardContent() {
       cashEquityInit
     );
     const storedEscrow = financing.escrowConfig;
+    const commercialProduct = isCommercialSaleAsset(projectInfo);
+    const honorStoredEscrow =
+      Boolean(storedEscrow?.withdrawalMode) &&
+      (!commercialProduct || storedEscrow?.confirmedByWizard);
+    const initialEscrowMode = honorStoredEscrow
+      ? normalizeEscrowRuleId(storedEscrow?.withdrawalMode)
+      : defaultEscrowWithdrawalMode(projectInfo);
 
     return {
       debtType: financing.debtType ?? "conventional",
@@ -554,9 +573,7 @@ function ResidentialFinancingWizardContent() {
       landEquityPercent: initialLandEquity,
       landLoanRatePercent: 6.5,
       landLoanInterestTreatment: "capitalize",
-      escrowWithdrawalMode: storedEscrow?.withdrawalMode
-        ? normalizeEscrowRuleId(storedEscrow.withdrawalMode)
-        : defaultEscrowWithdrawalMode(projectInfo),
+      escrowWithdrawalMode: initialEscrowMode,
       malaysiaPropertyType:
         storedEscrow?.malaysia?.propertyType ??
         resolveMalaysiaPropertyType(projectInfo),
@@ -592,11 +609,7 @@ function ResidentialFinancingWizardContent() {
             6.0,
       idcTreatment: financingConfig?.idcTreatment ?? "capitalize",
       escrowDepositRate: rules.depositRate,
-      // Old MALAYSIA → progress (GDV toggle on). UAE_SA / AUSTRALIA / OTHER → off.
-      salesReduceEquity:
-        (storedEscrow?.withdrawalMode
-          ? storedEscrow.withdrawalMode
-          : defaultEscrowWithdrawalMode(projectInfo)) === "progress",
+      salesReduceEquity: initialEscrowMode === "progress",
       ...prefFromStore,
     };
   });
@@ -1013,7 +1026,7 @@ function ResidentialFinancingWizardContent() {
       ...ratePartial,
       salesRecyclingMode: "immediate",
       escrowReleaseTrigger: "handover",
-      financingModel: "residential",
+      financingModel: isCommercialProduct ? "commercial" : "residential",
     });
 
     const commitmentFeePct = formData.rcfCommitmentFeePercent ?? 0.5;
@@ -1035,7 +1048,7 @@ function ResidentialFinancingWizardContent() {
         ltc: formData.loanToCostPercent,
         ltv: formData.maxLtvPercent,
         salesReduceEquity: formData.salesReduceEquity,
-        financingModel: "residential",
+        financingModel: isCommercialProduct ? "commercial" : "residential",
         landFinancing: {
           type: formData.landEquityPercent >= 100 ? "equity" : "land_loan",
           landLoanAmount: landLoanAmount,
@@ -1069,6 +1082,7 @@ function ResidentialFinancingWizardContent() {
           3,
         escrowConfig: {
           withdrawalMode: formData.escrowWithdrawalMode,
+          confirmedByWizard: true,
           malaysia: {
             propertyType: formData.malaysiaPropertyType,
             retentionFirstReleaseMonths: formData.retentionFirstReleaseMonths,
@@ -1102,7 +1116,17 @@ function ResidentialFinancingWizardContent() {
     cashInflows.grossSales,
     updateFinancing,
     updateFinancingConfig,
+    isCommercialProduct,
   ]);
+
+  const commercialEscrowMigrated = useRef(false);
+  useEffect(() => {
+    if (commercialEscrowMigrated.current) return;
+    if (!isCommercialProduct) return;
+    if (financing.escrowConfig?.confirmedByWizard) return;
+    commercialEscrowMigrated.current = true;
+    persistToStore();
+  }, [isCommercialProduct, financing.escrowConfig?.confirmedByWizard, persistToStore]);
 
   const handlePrevious = useCallback(() => {
     if (currentStep === 0) {
@@ -1138,10 +1162,10 @@ function ResidentialFinancingWizardContent() {
       <header className="sticky top-0 z-40 border-b border-slate-700 bg-slate-900/95 backdrop-blur">
         <div className="mx-auto max-w-6xl px-4 py-4">
           <h1 className="text-2xl font-bold text-white">
-            Component 4: Residential Financing (Sale)
+            Component 4: Financing (Sale)
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Land term loan + construction RCF • Escrow withdrawal mechanisms
+            Land term loan + construction RCF + sales recycling waterfall (escrow per selected rule)
           </p>
           <div className="mt-3 flex justify-between text-sm text-slate-400">
             <span>

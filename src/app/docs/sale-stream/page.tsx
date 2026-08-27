@@ -61,11 +61,11 @@ export default function SaleStreamDocs() {
 
         {/* Component 4 */}
         <section>
-          <h2 className="text-2xl font-bold text-emerald-400 mb-3">4. Residential Financing (Sale)</h2>
+          <h2 className="text-2xl font-bold text-emerald-400 mb-3">4. Financing (Sale)</h2>
           <p className="text-slate-300 leading-relaxed mb-3">
             Configure debt tranches (LTC/LTV ratios), land equity contribution, preference shares, escrow withdrawal
-            rules by jurisdiction (UAE RERA, Malaysia HDA, Australia 10/90 rule), drawdown structure, and interest/IDC
-            treatment.
+            rules (10/90, Staged Escrow, Progress Drawdown, or No Escrow), drawdown structure, and interest/IDC
+            treatment. The same 8-step wizard applies to residential and commercial sale assets.
           </p>
           <p className="text-sm text-slate-400">
             The engine uses a dynamic gap-fill mechanism to determine equity requirements and links financing draws

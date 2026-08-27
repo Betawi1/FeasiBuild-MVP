@@ -14,7 +14,9 @@
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import {
   ESCROW_RULE_HORIZON_OFFSET,
+  isCommercialSaleAsset,
   resolveEscrowRule,
+  resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
 
 // --- TYPES ---
@@ -73,10 +75,16 @@ function hdaDepositApplies(
   inputs: FinancingInputs,
   selectedRule: string
 ): boolean {
+  const commercial =
+    inputs.financingModel === "commercial" ||
+    isCommercialSaleAsset({
+      buildingType: inputs.buildingType,
+      buildingSubType: inputs.buildingSubType,
+    });
   return (
     selectedRule === "progress" &&
     inputs.jurisdiction === "MALAYSIA" &&
-    inputs.financingModel !== "commercial" &&
+    !commercial &&
     inputs.hdaDepositEnabled !== false
   );
 }
@@ -89,8 +97,10 @@ export type FinancingInputs = {
   businessModel?: string;
   projectType?: string;
   exitStrategy?: "sale" | "hold" | "refinance";
-  /** Commercial sale: simplified NCF, no escrow/trust, CP+6 tenor. */
+  /** Sale product class — HDA deposit is Malaysia residential-only. Escrow follows the selected rule. */
   financingModel?: "commercial" | "residential";
+  buildingType?: string;
+  buildingSubType?: string;
   // Project Context
   constructionPeriodMonths: number;
   sCurveMonthly: number[];
@@ -171,6 +181,7 @@ export type FinancingInputs = {
   /** ISO / display country — used for VN/TH flexible horizon. */
   country?: string;
   countryCode?: string;
+  city?: string;
   /** Step 5 escrow rule (ten_ninety | staged | progress | none; legacy uae/malaysia/australia accepted). */
   escrowWithdrawalMode?: string;
   /** Aliases for wizard / legacy field names. */
@@ -329,24 +340,35 @@ export function generateOperationalCashFlow(
   });
 }
 
+function selectedSaleEscrowRule(inputs: FinancingInputs) {
+  const raw =
+    inputs.escrowWithdrawalMode || inputs.withdrawalMethod || inputs.escrowModelType;
+  // Explicit mode (already resolved by the sale bridge/wizard) always wins.
+  if (raw != null && String(raw).trim() !== "") {
+    return resolveEscrowRule({
+      withdrawalMode: raw,
+      jurisdiction: inputs.jurisdiction,
+    });
+  }
+  return resolveSaleProjectEscrowRule({
+    withdrawalMode: raw,
+    jurisdiction: inputs.jurisdiction,
+    country: inputs.country,
+    countryCode: inputs.countryCode,
+    city: inputs.city,
+    buildingType: inputs.buildingType,
+    buildingSubType: inputs.buildingSubType,
+  });
+}
+
 /**
  * Last month index for sale stream (M0 … saleHorizon inclusive).
- * Commercial: CP+6. Residential follows the SELECTED escrow rule (not country):
+ * Follows the SELECTED escrow rule for every asset class (not country, not commercial/residential):
  * staged / ten_ninety → CP+12, progress → CP+24, none / unset → CP+6.
  */
 export function resolveSaleHorizonLastMonth(inputs: FinancingInputs): number {
   const constructionMonths = inputs.constructionPeriodMonths || 42;
-  const businessModel = (inputs.businessModel || inputs.projectType || "").toUpperCase();
-  const isCommercial = businessModel === "COMMERCIAL" || inputs.financingModel === "commercial";
-
-  if (isCommercial) return constructionMonths + 6;
-
-  const selectedRule = resolveEscrowRule({
-    withdrawalMode:
-      inputs.escrowWithdrawalMode || inputs.withdrawalMethod || inputs.escrowModelType,
-    jurisdiction: inputs.jurisdiction,
-  });
-  return constructionMonths + ESCROW_RULE_HORIZON_OFFSET[selectedRule];
+  return constructionMonths + ESCROW_RULE_HORIZON_OFFSET[selectedSaleEscrowRule(inputs)];
 }
 
 // --- STRATEGY MODELS ---
@@ -726,11 +748,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   const totalTdc = totalTdcExclLand + inputs.landCost;
   
   // Estimate GDV for Retention (Total Sales Proceeds)
-  const selectedRule = resolveEscrowRule({
-    withdrawalMode:
-      inputs.escrowWithdrawalMode || inputs.withdrawalMethod || inputs.escrowModelType,
-    jurisdiction: inputs.jurisdiction,
-  });
+  const selectedRule = selectedSaleEscrowRule(inputs);
   const retentionPctPoints = inputs.retentionPercent ?? 5;
   state.retentionAmount = totalSales * (retentionPctPoints / 100);
 
@@ -798,15 +816,14 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     const salesThisMonth = Number(row.salesProceeds) || 0;
     row.salesProceeds = salesThisMonth;
 
-    const isResidential = !isCommercial;
     const useAustraliaTrust = selectedRule === "ten_ninety";
-    const applyEscrowRules = isResidential && selectedRule !== "none";
+    const applyEscrowRules = selectedRule !== "none";
 
-    if (isCommercial || !applyEscrowRules) {
+    if (!applyEscrowRules) {
       row.ncf = salesThisMonth - row.totalOutflowsInclLand;
     }
 
-    // Interest Calculation (1-Month Offset: Interest on M-1 balance) — residential escrow/trust only
+    // Interest Calculation (1-Month Offset: Interest on M-1 balance) — escrow/trust rules only
     let interestEarned = 0;
     if (applyEscrowRules && m > 0) {
       if (useAustraliaTrust) {
@@ -844,16 +861,14 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       state.feeAvgBalanceCount++;
     }
 
-    // --- ESCROW / TRUST ROUTER (Strategy Pattern) ---
-    const isCommercialCheck = inputs.financingModel === "commercial";
-
+    // --- ESCROW / TRUST ROUTER (Strategy Pattern) — selected rule, every asset class ---
     console.debug(`🔍 [DEBUG ENGINE ROUTER] Month ${m}:`, {
-      isCommercialCheck,
       selectedRule,
       jurisdiction: inputs.jurisdiction,
+      financingModel: inputs.financingModel,
     });
 
-    if (isCommercialCheck || selectedRule === "none") {
+    if (selectedRule === "none") {
       applyNonEscrowLogic(row, state, inputs, salesThisMonth);
     } else if (selectedRule === "staged") {
       applyUaeKsaEscrowLogic(
@@ -894,7 +909,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
 
     // --- NET CASH FLOW ---
     if (applyEscrowRules) {
-      // Residential escrow/trust: cash = funds actually received (escrowed sales do not count until released).
+      // Escrow/trust: cash = funds actually received (escrowed sales do not count until released).
       let availableInflows = 0;
       if (useAustraliaTrust) {
         // ASP already = balance payment + trust release (do not add releases again).
@@ -1064,7 +1079,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
 
     // --- LOAN DRAWDOWN (construction period only) ---
     if (isConstructionPhase) {
-      if (!isCommercial && useAustraliaTrust) {
+      if (useAustraliaTrust) {
         // --- 10/90 GAP FILL WITH 70% LTV CAP & EQUITY SWITCH ---
         if (projectedBalance < -1e-6) {
           const deficitAmount = -projectedBalance;
@@ -1179,7 +1194,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       : 0;
     row.cumulativeNcf = previousCumNcf + row.ncfAfterFinancing;
     if (!Number.isFinite(row.cumulativeNcf)) row.cumulativeNcf = 0;
-    if (row.cumulativeNcf < -1e-6 && m > 0 && !isCommercial) {
+    if (row.cumulativeNcf < -1e-6 && m > 0) {
       const facilityHeadroom = Math.max(
         0,
         (inputs.approvedCreditFacility || 0) - state.rcfBalance

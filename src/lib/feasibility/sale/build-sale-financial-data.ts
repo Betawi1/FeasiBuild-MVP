@@ -15,7 +15,7 @@ import {
   isDubaiCity,
   isMalaysiaLocation,
   isUaeLocation,
-  resolveEscrowRule,
+  resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
 import type {
   SaleDevelopmentCostsData,
@@ -448,8 +448,9 @@ export function buildSaleEscrowWithdrawalData(
   const ec = f.escrowConfig;
   const city = bundle.location.city;
   const country = bundle.location.country;
-  const rule = resolveEscrowRule({
+  const rule = resolveSaleProjectEscrowRule({
     withdrawalMode: ec?.withdrawalMode,
+    confirmedByWizard: ec?.confirmedByWizard,
     jurisdiction: isMalaysiaLocation(country)
       ? "MALAYSIA"
       : isAustraliaLocation(country)
@@ -457,10 +458,16 @@ export function buildSaleEscrowWithdrawalData(
         : isUaeLocation(country) && isDubaiCity(city)
         ? "UAE_SA"
         : "OTHER",
+    country,
+    city,
+    buildingType: bundle.buildingType,
+    buildingSubType: bundle.buildingSubType,
   });
   const locationDefault = defaultEscrowRuleForLocation({
     country,
     city,
+    buildingType: bundle.buildingType,
+    buildingSubType: bundle.buildingSubType,
   });
   let localRegimeNote: string | undefined;
   if (rule === "staged" && locationDefault === "staged" && isDubaiCity(city)) {

@@ -2,7 +2,7 @@
 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import SearchParamsBoundary from "@/components/SearchParamsBoundary";
 import useFinModelStore, {
   buildCashOutflowProfile,
@@ -18,7 +18,6 @@ import {
   buildFinancingEnginePreview,
   financingEngineTimelineLastMonth,
   financingEngineTimelineMonthCount,
-  isCommercialFinancingModel,
   isResidentialSaleProject,
   mapEngineRowsToAustralia,
   mapEngineRowsToMalaysia,
@@ -34,7 +33,11 @@ import { exportToCSV } from "@/lib/downloads/exportToCSV";
 import { exportToExcel } from "@/lib/downloads/exportToExcel";
 import { buildFinancingCashFlowExportRows } from "@/app/sale/preview/financing/build-financing-cash-flow-export";
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
-import { resolveEscrowRule, ESCROW_RULE_HORIZON_OFFSET } from "@/lib/financing-engine/escrow-rules";
+import {
+  resolveEscrowRule,
+  resolveSaleProjectEscrowRule,
+  ESCROW_RULE_HORIZON_OFFSET,
+} from "@/lib/financing-engine/escrow-rules";
 import {
   streamKeyFromPrefix,
   useStreamPrefix,
@@ -200,8 +203,6 @@ function FinancingPreviewPageContent({
   const streamPrefix = useStreamPrefix();
   const finStream = streamKeyFromPrefix(streamPrefix);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const wizardParam = searchParams.get("wizard");
   const [downloadOpen, setDownloadOpen] = useState(false);
   const downloadRef = useRef<HTMLDivElement | null>(null);
 
@@ -3532,42 +3533,18 @@ function FinancingPreviewPageContent({
     [projectInfo]
   );
 
-  const isCommercialPreview = useMemo(
-    () => isCommercialFinancingModel(projectInfo, financing, wizardParam),
-    [projectInfo, financing, wizardParam]
-  );
-
-  const showEscrowSection = isResidentialPreview && !isCommercialPreview;
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-    // eslint-disable-next-line no-console
-    console.log("🔍 Project Type Check:", {
-      buildingType: projectInfo.buildingType,
-      buildingSubType: projectInfo.buildingSubType,
-      country: projectInfo.country,
-      financingModel: financing.financingModel,
-      wizardParam,
-      isResidentialPreview,
-      isCommercialPreview,
-      showEscrowSection,
-    });
-  }, [
-    projectInfo.buildingType,
-    projectInfo.buildingSubType,
-    projectInfo.country,
-    financing.financingModel,
-    wizardParam,
-    isResidentialPreview,
-    isCommercialPreview,
-    showEscrowSection,
-  ]);
-
-  // Extract withdrawal mode to component scope for table routing
-  const withdrawalMode =
-    financing.escrowConfig?.withdrawalMode ??
-    (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode ??
-    "none";
+  const withdrawalMode = resolveSaleProjectEscrowRule({
+    withdrawalMode:
+      financing.escrowConfig?.withdrawalMode ??
+      (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode,
+    confirmedByWizard: financing.escrowConfig?.confirmedByWizard,
+    jurisdiction: resolveFinancingEngineJurisdiction(projectInfo),
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+    buildingType: projectInfo.buildingType,
+    buildingSubType: projectInfo.buildingSubType,
+  });
 
   const financingEngineGridMeta = useMemo(() => {
     const j = resolveFinancingEngineJurisdiction(projectInfo);
@@ -3583,16 +3560,13 @@ function FinancingPreviewPageContent({
     }
 
     const timelineOpts = {
-      commercial: isCommercialPreview,
       sale: true as const,
       constructionPeriodMonths: constructionPeriod,
       country: projectInfo.country,
       countryCode: projectInfo.countryCode,
       withdrawalMode,
       businessModel: projectInfo.businessModel ?? "DEV_FOR_SALE",
-      projectType:
-        projectInfo.projectType ??
-        (isCommercialPreview ? "COMMERCIAL" : "RESIDENTIAL"),
+      projectType: projectInfo.projectType ?? "DEV_FOR_SALE",
     };
     return {
       lastMonth: financingEngineTimelineLastMonth(j, constructionPeriod, timelineOpts),
@@ -3601,7 +3575,6 @@ function FinancingPreviewPageContent({
   }, [
     projectInfo,
     constructionPeriod,
-    isCommercialPreview,
     withdrawalMode,
     financing.escrowConfig,
   ]);
@@ -3650,7 +3623,10 @@ function FinancingPreviewPageContent({
       rows: financingEnginePreview.rows,
       jurisdiction: financingEnginePreview.jurisdiction,
       withdrawalMode,
-      hideEscrowRows: !showEscrowSection,
+      hideEscrowRows: resolveEscrowRule({
+        withdrawalMode,
+        jurisdiction: financingEnginePreview.jurisdiction,
+      }) === "none",
       showFfe: isSaleWarehouseProduct,
       showHdaDeposit:
         isResidentialPreview &&
@@ -3659,7 +3635,7 @@ function FinancingPreviewPageContent({
     });
   }, [
     financingEnginePreview,
-    showEscrowSection,
+    withdrawalMode,
     isSaleWarehouseProduct,
     isResidentialPreview,
     projectInfo.city,
@@ -3709,7 +3685,7 @@ function FinancingPreviewPageContent({
                 withdrawalMode,
                 jurisdiction: financingEnginePreview.inputs.jurisdiction,
               });
-              const hideEscrow = !showEscrowSection || previewRule === "none" || isCommercialPreview;
+              const hideEscrow = previewRule === "none";
               if (previewRule === "progress") {
                 return (
                   <CashFlowTableMalaysia

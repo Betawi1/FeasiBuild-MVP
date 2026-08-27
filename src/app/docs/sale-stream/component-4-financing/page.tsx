@@ -18,10 +18,7 @@ export default function SaleComponent4Docs() {
           sales collections cover costs.
         </div>
         <p className="mt-4 text-sm text-slate-400 leading-relaxed">
-          <strong className="text-white">Note:</strong> For{' '}
-          <strong className="text-white">Commercial Strata</strong> assets (Office and Warehouse), the system
-          may apply <strong className="text-white">Non-Escrow</strong> logic or simplified withdrawal rules
-          depending on jurisdiction, as these assets are not subject to residential HDA/RERA regulations.
+          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Dubai/UAE → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial). All four rules remain selectable everywhere.
         </p>
       </div>
 
@@ -270,12 +267,10 @@ export default function SaleComponent4Docs() {
           <div className="mb-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Location defaults (pre-select only)</h4>
             <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
-              <li><strong className="text-white">10/90 Rule:</strong> Australia.</li>
-              <li><strong className="text-white">Staged Escrow Rule:</strong> Dubai (UAE) only.</li>
-              <li><strong className="text-white">Progress Drawdown Rule:</strong> Malaysia.</li>
-              <li>
-                <strong className="text-white">No Escrow Rules:</strong> all other locations — including KSA, the other emirates (Abu Dhabi, Ras Al Khaimah, Sharjah, Ajman, Fujairah), Thailand, and China — with all four options still selectable.
-              </li>
+              <li><strong className="text-white">Staged Escrow Rule:</strong> Dubai/UAE — all asset classes.</li>
+              <li><strong className="text-white">10/90 Rule:</strong> Australia — all asset classes.</li>
+              <li><strong className="text-white">Progress Drawdown Rule:</strong> Malaysia residential.</li>
+              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, plus every other location (KSA, other emirates, Thailand, China, …). All four options remain selectable everywhere.</li>
             </ul>
           </div>
 
@@ -284,7 +279,7 @@ export default function SaleComponent4Docs() {
               <h4 className="text-emerald-400 font-medium mb-1">Staged Escrow Rule</h4>
               <p className="text-xs text-slate-500 mb-2">Staged Escrow Rule Configuration</p>
               <p className="text-sm text-slate-400 mb-2">
-                Certification-based staged withdrawals. Default only for Dubai, United Arab Emirates; selectable in any other market.
+                Certification-based staged withdrawals. Default only for Dubai/UAE (all asset classes); selectable in any other market.
               </p>
               <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
                 <li><strong>Certification interval:</strong> progress withdrawals at each certification (e.g. every 3 months), with cash drawn the following month (1-month offset).</li>
@@ -298,7 +293,7 @@ export default function SaleComponent4Docs() {
               <h4 className="text-blue-400 font-medium mb-1">10/90 Rule</h4>
               <p className="text-xs text-slate-500 mb-2">10/90 Rule Configuration</p>
               <p className="text-sm text-slate-400 mb-2">
-                Deposit held in trust at lock; balance paid at settlement. Default for Australia; selectable anywhere.
+                Deposit held in trust at lock; balance paid at settlement. Default for Australia (all asset classes); selectable anywhere.
               </p>
               <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
                 <li><strong>Purchase Deposit %:</strong> user-editable (default 10). Must sum with Balance % to 100.</li>
@@ -315,7 +310,7 @@ export default function SaleComponent4Docs() {
               <h4 className="text-purple-400 font-medium mb-1">Progress Drawdown Rule</h4>
               <p className="text-xs text-slate-500 mb-2">Progress Drawdown Rule Configuration</p>
               <p className="text-sm text-slate-400 mb-2">
-                Milestone / S-curve-linked drawdowns. HDA is the Malaysian regime that uses this rule. Default for Malaysia; selectable anywhere.
+                Milestone / S-curve-linked drawdowns. HDA is the Malaysian regime that uses this rule. Default for Malaysia residential (Malaysia commercial defaults to No Escrow); selectable anywhere.
               </p>
               <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
                 <li><strong>Drawdowns:</strong> withdrawals follow construction milestones and the S-curve (SPA signing, foundation, framework, and later completion / title stages).</li>
@@ -327,7 +322,7 @@ export default function SaleComponent4Docs() {
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
               <h4 className="text-white font-medium mb-2">No Escrow Rules</h4>
               <p className="text-sm text-slate-400 mb-3">
-                Default for every location that does not map to the three mechanisms above (including KSA and UAE emirates other than Dubai). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply. Horizon is CP+6.
+                Default for Malaysia commercial and every location that does not map to the three mechanisms above (including KSA and UAE emirates other than Dubai). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply. Horizon is CP+6.
               </p>
               <p className="text-sm text-slate-400">
                 Optional toggle: <strong className="text-white">Sales reduce equity need (optional)</strong>.

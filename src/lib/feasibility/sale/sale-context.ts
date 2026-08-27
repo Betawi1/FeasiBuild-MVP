@@ -20,7 +20,7 @@ import {
   isDubaiCity,
   isMalaysiaLocation,
   isUaeLocation,
-  resolveEscrowRule,
+  resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
 
 function formatToken(id?: string): string {
@@ -70,9 +70,15 @@ function escrowJurisdictionLabel(
   projectInfo: ProjectInfo,
   financing: Financing
 ): string {
-  const rule = resolveEscrowRule({
+  const rule = resolveSaleProjectEscrowRule({
     withdrawalMode: financing.escrowConfig?.withdrawalMode,
+    confirmedByWizard: financing.escrowConfig?.confirmedByWizard,
     jurisdiction: legacyEngineJurisdiction(projectInfo),
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+    buildingType: projectInfo.buildingType,
+    buildingSubType: projectInfo.buildingSubType,
   });
   return ESCROW_RULE_DISPLAY_NAME[rule];
 }

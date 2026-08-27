@@ -11,7 +11,9 @@ import {
   isDubaiCity,
   isAustraliaLocation,
   isMalaysiaLocation,
+  isCommercialSaleAsset,
   resolveEscrowRule,
+  resolveSaleProjectEscrowRule,
   type EscrowRuleId,
 } from "@/lib/financing-engine/escrow-rules";
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
@@ -102,28 +104,17 @@ export function resolvePreviewEscrowRule(
   return resolveEscrowRule({ withdrawalMode, jurisdiction });
 }
 
-/** Sale stream: residential = escrow/trust; commercial = direct sales sweep (Component 1 sub-type). */
+/** Sale stream: residential vs commercial-landed / strata (HDA eligibility, Malaysia defaults). */
 export function isResidentialSaleProject(projectInfo: ProjectInfo): boolean {
-  const sub = (projectInfo.buildingSubType ?? "").toLowerCase();
-  if (sub.startsWith("residential_") || sub.includes("residential")) {
-    return true;
-  }
-  if (sub.startsWith("commercial_") || sub.includes("commercial")) {
-    return false;
-  }
-  const bt = (projectInfo.buildingType ?? "").toLowerCase();
-  return bt === "residential";
+  return !isCommercialSaleAsset(projectInfo);
 }
 
+/** Sale product class for HDA / Malaysia default. Escrow engine follows the selected rule for every class. */
 export function isCommercialFinancingModel(
   projectInfo: ProjectInfo,
   financing?: Financing,
-  wizardParam?: string | null
+  _wizardParam?: string | null
 ): boolean {
-  if (wizardParam === "commercial") return true;
-  if (wizardParam === "residential") return false;
-
-  // Component 1 product selection wins over stale financing.wizard flags.
   if (isResidentialSaleProject(projectInfo)) return false;
 
   const sub = (projectInfo.buildingSubType ?? "").toLowerCase();
@@ -132,8 +123,7 @@ export function isCommercialFinancingModel(
   if (financing?.financingModel === "commercial") return true;
   if (financing?.financingModel === "residential") return false;
 
-  const bt = (projectInfo.buildingType ?? "").toLowerCase();
-  return bt.length > 0 && bt !== "residential";
+  return isCommercialSaleAsset(projectInfo);
 }
 
 /** Last month index in the financing engine grid (e.g. CP=42, UAE → 54). */
@@ -377,20 +367,26 @@ export function buildFinancingEnginePreview(params: {
 
   const jurisdiction = resolveFinancingEngineJurisdiction(projectInfo);
   const commercial = isCommercialFinancingModel(projectInfo, financing);
-  const withdrawalMode =
-    financing.escrowConfig?.withdrawalMode ??
-    (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode ??
-    "none";
+  const withdrawalMode = resolveSaleProjectEscrowRule({
+    withdrawalMode:
+      financing.escrowConfig?.withdrawalMode ??
+      (financing as { escrowWithdrawalMode?: string }).escrowWithdrawalMode,
+    confirmedByWizard: financing.escrowConfig?.confirmedByWizard,
+    jurisdiction,
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+    buildingType: projectInfo.buildingType,
+    buildingSubType: projectInfo.buildingSubType,
+  });
   const timelineOpts: FinancingEngineTimelineOptions = {
-    commercial,
     sale: true,
     constructionPeriodMonths: constructionPeriod,
     country: projectInfo.country,
     countryCode: projectInfo.countryCode,
     withdrawalMode,
     businessModel: projectInfo.businessModel ?? "DEV_FOR_SALE",
-    projectType:
-      projectInfo.projectType ?? (commercial ? "COMMERCIAL" : "RESIDENTIAL"),
+    projectType: projectInfo.projectType ?? "DEV_FOR_SALE",
   };
   const engineMonths = Math.max(
     1,
@@ -473,13 +469,14 @@ export function buildFinancingEnginePreview(params: {
   const inputs: FinancingInputs = {
     stream: "sale",
     businessModel: projectInfo.businessModel ?? "DEV_FOR_SALE",
-    projectType:
-      projectInfo.projectType ??
-      (commercial ? "COMMERCIAL" : "RESIDENTIAL"),
+    projectType: projectInfo.projectType ?? "DEV_FOR_SALE",
     exitStrategy: "sale",
     financingModel: commercial ? "commercial" : "residential",
+    buildingType: projectInfo.buildingType,
+    buildingSubType: projectInfo.buildingSubType,
     country: projectInfo.country,
     countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
     escrowWithdrawalMode: withdrawalMode,
     withdrawalMethod: withdrawalMode,
     jurisdiction,

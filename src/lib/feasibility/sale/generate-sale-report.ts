@@ -283,16 +283,9 @@ function generateSaleMarketSlides(
   ];
 }
 
-function isResidentialSaleSubtype(buildingSubType?: string | null): boolean {
-  const normalized = (buildingSubType ?? "").toLowerCase().replace(/\s+/g, "_");
-  return normalized.includes("residential");
-}
-
 function generateSaleFinancialSlides(
   bundle: SaleFeasibilityBundle
 ): FeasibilitySlide[] {
-  const includeEscrow = isResidentialSaleSubtype(bundle.buildingSubType);
-
   return [
     {
       id: "sale-dev-assumptions",
@@ -342,19 +335,15 @@ function generateSaleFinancialSlides(
       paragraphs: commentary(bundle, "Revolving Credit Facility"),
       data: buildSaleRevolvingCreditData(bundle),
     },
-    // HDA / Schedule H escrow applies to residential for-sale projects only
-    ...(includeEscrow
-      ? [
-          {
-            id: "sale-escrow",
-            section: "financial" as const,
-            title: "Financial Analysis",
-            subtitle: "Escrow Withdrawal Configuration",
-            paragraphs: commentary(bundle, "Escrow Configuration"),
-            data: buildSaleEscrowWithdrawalData(bundle),
-          },
-        ]
-      : []),
+    // Escrow slide for every sale asset class — format follows the selected rule
+    {
+      id: "sale-escrow",
+      section: "financial" as const,
+      title: "Financial Analysis",
+      subtitle: "Escrow Withdrawal Configuration",
+      paragraphs: commentary(bundle, "Escrow Configuration"),
+      data: buildSaleEscrowWithdrawalData(bundle),
+    },
     {
       id: "sale-post-financing",
       section: "financial",

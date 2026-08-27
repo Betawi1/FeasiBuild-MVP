@@ -103,7 +103,7 @@ export default function SaleComponent3Docs() {
                 (standard escrow release and final settlement).
               </li>
               <li>
-                <strong className="text-white">Commercial / Non-Escrow:</strong> Construction Period + 6
+                <strong className="text-white">No Escrow Rules:</strong> Construction Period + 6
                 months (direct sales collection).
               </li>
             </ul>

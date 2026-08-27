@@ -87,20 +87,65 @@ export function isLandEquitySliderLocked(opts: {
 }
 
 /**
- * Location pre-selects a default only. Never hard-link a country to a rule in the engine.
- * Australia → 10/90; Malaysia → Progress Drawdown; UAE + Dubai → Staged; all else → none.
+ * Sale Component 1 product: commercial-landed / strata office / warehouse vs residential.
+ * Used only for pre-select defaults (Malaysia commercial → none) and HDA eligibility.
+ */
+export function isCommercialSaleAsset(opts: {
+  buildingType?: string | null;
+  buildingSubType?: string | null;
+}): boolean {
+  const sub = (opts.buildingSubType ?? "").toLowerCase();
+  if (sub.startsWith("residential_") || sub.includes("residential")) return false;
+  if (sub.startsWith("commercial_") || sub.includes("commercial")) return true;
+  const bt = (opts.buildingType ?? "").toLowerCase();
+  return bt.length > 0 && bt !== "residential";
+}
+
+/**
+ * Location + asset class pre-select a default only. Never hard-link a country to a rule
+ * in the engine. All four tabs remain selectable everywhere.
+ *
+ * Dubai/UAE → staged (all asset classes); Australia → 10/90 (all asset classes);
+ * Malaysia → progress (residential) / none (commercial); all other locations → none.
  */
 export function defaultEscrowRuleForLocation(opts: {
   country?: string | null;
   countryCode?: string | null;
   city?: string | null;
+  buildingType?: string | null;
+  buildingSubType?: string | null;
 }): EscrowRuleId {
   if (isAustraliaLocation(opts.country, opts.countryCode)) return "ten_ninety";
-  if (isMalaysiaLocation(opts.country, opts.countryCode)) return "progress";
+  if (isMalaysiaLocation(opts.country, opts.countryCode)) {
+    return isCommercialSaleAsset(opts) ? "none" : "progress";
+  }
   if (isUaeLocation(opts.country, opts.countryCode) && isDubaiCity(opts.city)) {
     return "staged";
   }
   return "none";
+}
+
+/**
+ * Sale-stream escrow resolution: stored user selection wins; otherwise location +
+ * asset-class default. Commercial projects from the retired no-escrow wizard did not
+ * confirm a rule — ignore leftover auto-persisted modes until the unified wizard saves.
+ */
+export function resolveSaleProjectEscrowRule(opts: {
+  withdrawalMode?: string | null;
+  confirmedByWizard?: boolean;
+  jurisdiction?: string | null;
+  country?: string | null;
+  countryCode?: string | null;
+  city?: string | null;
+  buildingType?: string | null;
+  buildingSubType?: string | null;
+}): EscrowRuleId {
+  const raw = opts.withdrawalMode;
+  const hasStored = raw != null && String(raw).trim() !== "";
+  const commercial = isCommercialSaleAsset(opts);
+  const honorStored = hasStored && (!commercial || opts.confirmedByWizard);
+  if (honorStored) return normalizeEscrowRuleId(raw);
+  return defaultEscrowRuleForLocation(opts);
 }
 
 /**
