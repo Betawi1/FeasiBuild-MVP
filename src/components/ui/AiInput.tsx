@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent, type FC } from "react";
+import { useCallback, useEffect, useState, type FC } from "react";
+import { useFocusedNumericString } from "@/hooks/useFocusedNumericString";
 
 export interface AiInputProps {
   label: string;
@@ -21,8 +22,21 @@ export interface AiInputProps {
    * Prefer this over the live `value` so remounts after an override still reset correctly.
    */
   benchmarkValue?: number | string;
+  /** Fired on the first keystroke so the parent can persist the override flag. */
+  onManualOverride?: () => void;
+  /** Fired when the user clicks Reset to benchmark inside this control. */
+  onResetOverride?: () => void;
   disabled?: boolean;
   className?: string;
+}
+
+function toFiniteNumber(v: number | string | undefined): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
 }
 
 export const AiInput: FC<AiInputProps> = ({
@@ -32,15 +46,19 @@ export const AiInput: FC<AiInputProps> = ({
   placeholder,
   helperText,
   type = "number",
-  step = 0.01,
   min,
   max,
   isAiGenerated = true,
   isManualOverride = false,
   benchmarkValue,
+  onManualOverride,
+  onResetOverride,
   disabled = false,
   className = "",
 }) => {
+  const isNumeric = type === "number" || type === "percentage";
+  const numericValue = toFiniteNumber(value);
+
   const hasBenchmark =
     benchmarkValue != null &&
     benchmarkValue !== "" &&
@@ -51,44 +69,58 @@ export const AiInput: FC<AiInputProps> = ({
   );
   const [hasEdited, setHasEdited] = useState(isManualOverride);
 
-  // Sync from persisted override flag (e.g. after remount or Reset to benchmark)
+  const commitNumber = useCallback(
+    (n: number) => {
+      onChange(n);
+    },
+    [onChange]
+  );
+
+  const draft = useFocusedNumericString(numericValue, commitNumber);
+
+  // Parent persisted override (e.g. after remount)
   useEffect(() => {
-    if (isManualOverride) {
-      setHasEdited(true);
-    } else {
-      setHasEdited(false);
-      setOriginalValue(hasBenchmark ? benchmarkValue! : value);
-    }
-    // Only react to the override flag toggling / external reset
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (isManualOverride) setHasEdited(true);
   }, [isManualOverride]);
 
-  // Keep AI baseline in sync when benchmark arrives or updates from research
+  // Benchmark may update original/reset baseline only when the field is not overridden
   useEffect(() => {
-    if (hasBenchmark) {
-      setOriginalValue(benchmarkValue!);
-    }
-  }, [benchmarkValue, hasBenchmark]);
+    if (hasEdited || isManualOverride) return;
+    if (hasBenchmark) setOriginalValue(benchmarkValue!);
+  }, [benchmarkValue, hasBenchmark, hasEdited, isManualOverride]);
 
-  // Keep baseline in sync when value is pushed from outside (AI populate / reset)
+  // Header-bar "Reset to benchmark" writes the store value back; un-focus then clear local edit
   useEffect(() => {
-    if (!isManualOverride && !hasEdited && !hasBenchmark) {
-      setOriginalValue(value);
-    }
-  }, [value, isManualOverride, hasEdited, hasBenchmark]);
+    if (draft.focused) return;
+    if (isManualOverride) return;
+    const baseline = hasBenchmark ? benchmarkValue! : originalValue;
+    const matches =
+      numericValue === toFiniteNumber(baseline) ||
+      (typeof value === "number" &&
+        typeof baseline === "number" &&
+        Math.abs(value - baseline) < 1e-9);
+    if (matches && hasEdited) setHasEdited(false);
+  }, [
+    draft.focused,
+    isManualOverride,
+    hasBenchmark,
+    benchmarkValue,
+    originalValue,
+    numericValue,
+    value,
+    hasEdited,
+  ]);
 
   const baseline = hasBenchmark ? benchmarkValue! : originalValue;
   const valuesDiffer =
-    value !== baseline &&
+    toFiniteNumber(value) !== toFiniteNumber(baseline) &&
     !(
       typeof value === "number" &&
       typeof baseline === "number" &&
       Math.abs(value - baseline) < 1e-9
-    ) &&
-    !(value === "" && (baseline === "" || baseline == null));
+    );
 
-  const isOverride =
-    isManualOverride || (hasEdited && valuesDiffer);
+  const isOverride = isManualOverride || hasEdited || (valuesDiffer && isAiGenerated);
 
   const getBorderColorClass = () => {
     if (isOverride) {
@@ -125,24 +157,18 @@ export const AiInput: FC<AiInputProps> = ({
   const badgeConfig = getBadgeConfig();
   const borderColorClass = getBorderColorClass();
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
-    let newValue: number | string = e.target.value;
-
-    if (type === "number" || type === "percentage") {
-      const parsed = parseFloat(e.target.value);
-      newValue = Number.isNaN(parsed) ? "" : parsed;
-    }
-
+  const markEdited = () => {
     setHasEdited(true);
-    onChange(newValue);
+    onManualOverride?.();
   };
 
   const handleReset = () => {
     setHasEdited(false);
-    onChange(baseline);
+    onResetOverride?.();
+    onChange(toFiniteNumber(baseline));
   };
 
-  const displayValue = type === "percentage" ? `${value}` : value;
+  const displayValue = isNumeric ? draft.display : value;
 
   const resolvedHelperText = isOverride
     ? "Manually overridden — edit to change"
@@ -161,12 +187,22 @@ export const AiInput: FC<AiInputProps> = ({
 
       <div className="relative">
         <input
-          type={type === "percentage" ? "number" : type}
-          step={step}
+          type={isNumeric ? "text" : type}
+          inputMode={isNumeric ? "decimal" : undefined}
+          autoComplete="off"
           min={min}
           max={max}
           value={displayValue}
-          onChange={handleChange}
+          onFocus={isNumeric ? draft.onFocus : undefined}
+          onChange={(e) => {
+            markEdited();
+            if (isNumeric) {
+              draft.onChangeText(e.target.value);
+              return;
+            }
+            onChange(e.target.value);
+          }}
+          onBlur={isNumeric ? draft.onBlur : undefined}
           disabled={disabled}
           placeholder={placeholder}
           aria-label={label}

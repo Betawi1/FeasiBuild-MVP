@@ -11,6 +11,7 @@ import useSaleModelStore, {
 import type { AiResearchData } from "@/store/useFinModelStore";
 import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
 import { AiInput } from "@/components/ui/AiInput";
+import { NumericDraftInput } from "@/components/ui/NumericDraftInput";
 import { AiHintBox } from "@/components/ui/AiHintBox";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
@@ -18,6 +19,13 @@ import {
   logSaleCashInflow,
   SALE_CASH_INFLOW_AUDIT_FIELDS,
 } from "@/lib/sale-audit-fields";
+
+type C2OverrideKey =
+  | "salesPrice"
+  | "brokerCommissionPercent"
+  | "vatPercent"
+  | "escrowFeePercent"
+  | "salesDiscountPercent";
 
 type PaymentPlanPreset = "front_loaded" | "even" | "back_loaded";
 
@@ -40,6 +48,11 @@ function CashInflowsPageContent() {
   const updateCashInflows = useSaleModelStore((s) => s.updateCashInflows);
 
   const [errors, setErrors] = useState<Errors>({});
+  const [c2Overrides, setC2Overrides] = useState<
+    Partial<Record<C2OverrideKey, boolean>>
+  >({});
+  const c2OverridesRef = useRef(c2Overrides);
+  c2OverridesRef.current = c2Overrides;
   const cashInflowStepVisitLogged = useRef<Set<number>>(new Set());
 
   const isSaleLandedProduct = useMemo(
@@ -282,30 +295,59 @@ function CashInflowsPageContent() {
   const isRateOverride = (current: number, bench?: number) =>
     bench != null && Math.abs(current - bench) > 0.001;
 
-  const isSalesPriceManual = isRateOverride(cashInflows.salesPrice, aiSalesPrice);
-  const isAgentCommissionManual = isRateOverride(
-    cashInflows.buyerMix.brokerCommissionPercent,
-    aiAgentCommission
-  );
-  const isVatManual = isRateOverride(
-    cashInflows.buyerMix.vatPercent,
-    aiVatPercent
-  );
-  const isEscrowManual = isRateOverride(
-    cashInflows.buyerMix.escrowFeePercent,
-    aiEscrowFeePercent
-  );
-  const isSalesDiscountManual = isRateOverride(
-    cashInflows.buyerMix.salesDiscountPercent,
-    aiSalesDiscount
-  );
+  const markC2Override = (key: C2OverrideKey) => {
+    if (c2OverridesRef.current[key]) return;
+    const next = { ...c2OverridesRef.current, [key]: true };
+    c2OverridesRef.current = next;
+    setC2Overrides(next);
+  };
+
+  const clearC2Override = (key: C2OverrideKey) => {
+    if (!c2OverridesRef.current[key]) return;
+    const next = { ...c2OverridesRef.current };
+    delete next[key];
+    c2OverridesRef.current = next;
+    setC2Overrides(next);
+  };
+
+  const isSalesPriceManual =
+    !!c2Overrides.salesPrice ||
+    isRateOverride(cashInflows.salesPrice, aiSalesPrice);
+  const isAgentCommissionManual =
+    !!c2Overrides.brokerCommissionPercent ||
+    isRateOverride(
+      cashInflows.buyerMix.brokerCommissionPercent,
+      aiAgentCommission
+    );
+  const isVatManual =
+    !!c2Overrides.vatPercent ||
+    isRateOverride(cashInflows.buyerMix.vatPercent, aiVatPercent);
+  const isEscrowManual =
+    !!c2Overrides.escrowFeePercent ||
+    isRateOverride(
+      cashInflows.buyerMix.escrowFeePercent,
+      aiEscrowFeePercent
+    );
+  const isSalesDiscountManual =
+    !!c2Overrides.salesDiscountPercent ||
+    isRateOverride(
+      cashInflows.buyerMix.salesDiscountPercent,
+      aiSalesDiscount
+    );
 
   const DEFAULT_SALES_PRICE = 1200;
   const lastAppliedAiSalesPriceRef = useRef<number | null>(null);
+  const lastAppliedDeductionsRef = useRef<{
+    brokerCommissionPercent?: number;
+    vatPercent?: number;
+    escrowFeePercent?: number;
+    salesDiscountPercent?: number;
+  }>({});
 
-  // Sync AI sales price into store (default 1200 currently shadows AI 710 in the input)
+  // Apply AI sales price only when the benchmark itself changes and the field is not overridden
   useEffect(() => {
     if (aiSalesPrice == null) return;
+    if (c2OverridesRef.current.salesPrice) return;
 
     const current = cashInflows.salesPrice;
     const prevAi = lastAppliedAiSalesPriceRef.current;
@@ -324,74 +366,77 @@ function CashInflowsPageContent() {
       updateCashInflows({ salesPrice: aiSalesPrice });
       lastAppliedAiSalesPriceRef.current = aiSalesPrice;
     }
-  }, [aiSalesPrice, cashInflows.salesPrice, updateCashInflows]);
+    // Intentionally omit salesPrice from deps — do not re-apply on every keystroke
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiSalesPrice, updateCashInflows]);
 
-  // Sync AI deductions when still on wizard defaults
+  // Apply AI deductions only when the benchmark changes, never while a field is overridden
   useEffect(() => {
-    const patchBuyer: Partial<CashInflows["buyerMix"]> = {};
-    if (
-      aiAgentCommission != null &&
-      cashInflows.buyerMix.brokerCommissionPercent === 2 &&
-      Math.abs(aiAgentCommission - 2) > 0.001
-    ) {
-      patchBuyer.brokerCommissionPercent = aiAgentCommission;
-    }
-    if (
-      aiVatPercent != null &&
-      cashInflows.buyerMix.vatPercent === 5 &&
-      Math.abs(aiVatPercent - 5) > 0.001
-    ) {
-      patchBuyer.vatPercent = aiVatPercent;
-    }
-    if (
-      aiEscrowFeePercent != null &&
-      cashInflows.buyerMix.escrowFeePercent === 1 &&
-      Math.abs(aiEscrowFeePercent - 1) > 0.001
-    ) {
-      patchBuyer.escrowFeePercent = aiEscrowFeePercent;
-    }
-    if (
-      aiSalesDiscount != null &&
-      cashInflows.buyerMix.salesDiscountPercent === 3 &&
-      Math.abs(aiSalesDiscount - 3) > 0.001
-    ) {
-      patchBuyer.salesDiscountPercent = aiSalesDiscount;
-    }
-    if (Object.keys(patchBuyer).length === 0) return;
-    updateCashInflows({
-      buyerMix: { ...cashInflows.buyerMix, ...patchBuyer },
-    });
+    const last = lastAppliedDeductionsRef.current;
+    const mix = cashInflows.buyerMix;
+    const ov = c2OverridesRef.current;
+    const patch: Partial<CashInflows["buyerMix"]> = {};
+
+    const maybeApply = (
+      key: keyof typeof last,
+      ai: number | undefined,
+      defaultVal: number,
+      overridden: boolean
+    ) => {
+      if (ai == null || overridden) return;
+      const current = mix[key] as number;
+      if (Math.abs(current - ai) < 0.001) return;
+      const onDefault = Math.abs(current - defaultVal) < 0.001;
+      const onPrevAi = last[key] != null && Math.abs(current - last[key]!) < 0.001;
+      if (onDefault || onPrevAi) patch[key] = ai;
+    };
+
+    maybeApply(
+      "brokerCommissionPercent",
+      aiAgentCommission,
+      2,
+      !!ov.brokerCommissionPercent
+    );
+    maybeApply("vatPercent", aiVatPercent, 5, !!ov.vatPercent);
+    maybeApply("escrowFeePercent", aiEscrowFeePercent, 1, !!ov.escrowFeePercent);
+    maybeApply("salesDiscountPercent", aiSalesDiscount, 3, !!ov.salesDiscountPercent);
+
+    if (aiAgentCommission != null) last.brokerCommissionPercent = aiAgentCommission;
+    if (aiVatPercent != null) last.vatPercent = aiVatPercent;
+    if (aiEscrowFeePercent != null) last.escrowFeePercent = aiEscrowFeePercent;
+    if (aiSalesDiscount != null) last.salesDiscountPercent = aiSalesDiscount;
+
+    if (Object.keys(patch).length === 0) return;
+    updateCashInflows({ buyerMix: patch as CashInflows["buyerMix"] });
+    // Do not depend on buyerMix — spreading it back was overwriting in-progress edits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     aiAgentCommission,
     aiVatPercent,
     aiEscrowFeePercent,
     aiSalesDiscount,
-    cashInflows.buyerMix,
     updateCashInflows,
   ]);
 
   const resetSalesPriceToBenchmark = () => {
     if (aiSalesPrice == null) return;
+    clearC2Override("salesPrice");
     updateCashInflows({ salesPrice: aiSalesPrice });
     lastAppliedAiSalesPriceRef.current = aiSalesPrice;
   };
 
   const resetDeductionsToBenchmark = () => {
-    updateCashInflows({
-      buyerMix: {
-        ...cashInflows.buyerMix,
-        ...(aiAgentCommission != null
-          ? { brokerCommissionPercent: aiAgentCommission }
-          : {}),
-        ...(aiVatPercent != null ? { vatPercent: aiVatPercent } : {}),
-        ...(aiEscrowFeePercent != null
-          ? { escrowFeePercent: aiEscrowFeePercent }
-          : {}),
-        ...(aiSalesDiscount != null
-          ? { salesDiscountPercent: aiSalesDiscount }
-          : {}),
-      },
-    });
+    clearC2Override("brokerCommissionPercent");
+    clearC2Override("vatPercent");
+    clearC2Override("escrowFeePercent");
+    clearC2Override("salesDiscountPercent");
+    const patch: Partial<CashInflows["buyerMix"]> = {};
+    if (aiAgentCommission != null) patch.brokerCommissionPercent = aiAgentCommission;
+    if (aiVatPercent != null) patch.vatPercent = aiVatPercent;
+    if (aiEscrowFeePercent != null) patch.escrowFeePercent = aiEscrowFeePercent;
+    if (aiSalesDiscount != null) patch.salesDiscountPercent = aiSalesDiscount;
+    if (Object.keys(patch).length === 0) return;
+    updateCashInflows({ buyerMix: patch as CashInflows["buyerMix"] });
   };
 
   const deductionsPercent = useMemo(() => {
@@ -1061,11 +1106,18 @@ function CashInflowsPageContent() {
                   <AiInput
                     label={`Average Sales Price (${projectInfo.currency}/sqft)`}
                     value={cashInflows.salesPrice}
-                    onChange={(v) =>
-                      updateFormData("salesPrice", Number(v) || 0)
-                    }
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("salesPrice", v);
+                      }
+                    }}
+                    onManualOverride={() => markC2Override("salesPrice")}
+                    onResetOverride={() => {
+                      clearC2Override("salesPrice");
+                    }}
                     isAiGenerated={!!aiSalesPrice}
                     isManualOverride={isSalesPriceManual}
+                    benchmarkValue={aiSalesPrice}
                     helperText="Use a weighted average across unit mixes (studios, 1BR, 2BR, etc.)."
                   />
                   {aiSalesPrice != null && isSalesPriceManual && (
@@ -1535,15 +1587,9 @@ function CashInflowsPageContent() {
                     <label className="block text-sm font-medium text-slate-300 mb-2">
                       Cash Buyers (% of units)
                     </label>
-                    <input
-                      type="number"
+                    <NumericDraftInput
                       value={cashInflows.buyerMix.cashBuyerPercent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "cashBuyerPercent",
-                          Number(e.target.value) || 0
-                        )
-                      }
+                      onChange={(n) => updateFormData("cashBuyerPercent", n)}
                       className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {fieldError("cashBuyerPercent") && (
@@ -1556,15 +1602,9 @@ function CashInflowsPageContent() {
                     <label className="block text-sm font-medium text-slate-300 mb-2">
                       Mortgage Buyers (% of units)
                     </label>
-                    <input
-                      type="number"
+                    <NumericDraftInput
                       value={cashInflows.buyerMix.mortgageBuyerPercent}
-                      onChange={(e) =>
-                        updateFormData(
-                          "mortgageBuyerPercent",
-                          Number(e.target.value) || 0
-                        )
-                      }
+                      onChange={(n) => updateFormData("mortgageBuyerPercent", n)}
                       className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {fieldError("mortgageBuyerPercent") && (
@@ -1587,11 +1627,16 @@ function CashInflowsPageContent() {
                     label="Agent / Broker Commission (% of GV)"
                     type="percentage"
                     value={cashInflows.buyerMix.brokerCommissionPercent}
-                    onChange={(v) =>
-                      updateFormData("brokerCommissionPercent", Number(v) || 0)
-                    }
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("brokerCommissionPercent", v);
+                      }
+                    }}
+                    onManualOverride={() => markC2Override("brokerCommissionPercent")}
+                    onResetOverride={() => clearC2Override("brokerCommissionPercent")}
                     isAiGenerated={!!aiAgentCommission}
                     isManualOverride={isAgentCommissionManual}
+                    benchmarkValue={aiAgentCommission}
                   />
                   {fieldError("brokerCommissionPercent") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -1602,11 +1647,16 @@ function CashInflowsPageContent() {
                     label="VAT on Sales (% of GV)"
                     type="percentage"
                     value={cashInflows.buyerMix.vatPercent}
-                    onChange={(v) =>
-                      updateFormData("vatPercent", Number(v) || 0)
-                    }
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("vatPercent", v);
+                      }
+                    }}
+                    onManualOverride={() => markC2Override("vatPercent")}
+                    onResetOverride={() => clearC2Override("vatPercent")}
                     isAiGenerated={aiVatPercent != null}
                     isManualOverride={isVatManual}
+                    benchmarkValue={aiVatPercent}
                   />
                   {fieldError("vatPercent") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -1617,11 +1667,16 @@ function CashInflowsPageContent() {
                     label="Escrow / Collection Fees (% of GV)"
                     type="percentage"
                     value={cashInflows.buyerMix.escrowFeePercent}
-                    onChange={(v) =>
-                      updateFormData("escrowFeePercent", Number(v) || 0)
-                    }
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("escrowFeePercent", v);
+                      }
+                    }}
+                    onManualOverride={() => markC2Override("escrowFeePercent")}
+                    onResetOverride={() => clearC2Override("escrowFeePercent")}
                     isAiGenerated={aiEscrowFeePercent != null}
                     isManualOverride={isEscrowManual}
+                    benchmarkValue={aiEscrowFeePercent}
                   />
                   {fieldError("escrowFeePercent") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -1632,11 +1687,16 @@ function CashInflowsPageContent() {
                     label="Average Sales Discount (% of list price)"
                     type="percentage"
                     value={cashInflows.buyerMix.salesDiscountPercent}
-                    onChange={(v) =>
-                      updateFormData("salesDiscountPercent", Number(v) || 0)
-                    }
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("salesDiscountPercent", v);
+                      }
+                    }}
+                    onManualOverride={() => markC2Override("salesDiscountPercent")}
+                    onResetOverride={() => clearC2Override("salesDiscountPercent")}
                     isAiGenerated={!!aiSalesDiscount}
                     isManualOverride={isSalesDiscountManual}
+                    benchmarkValue={aiSalesDiscount}
                   />
                   {fieldError("salesDiscountPercent") && (
                     <p className="mt-1 text-sm text-red-400">

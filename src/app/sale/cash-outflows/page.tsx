@@ -3351,12 +3351,15 @@ function CashOutflowsPageContent() {
                   </div>
                   <AiInput
                     label={`Building Rate (${projectInfo.currency}/sqft)`}
-                    value={cashOutflows.buildingRate || benchBuildingRate || 0}
-                    onChange={(v) =>
-                      updateFormData("buildingRate", Number(v) || 0)
-                    }
+                    value={cashOutflows.buildingRate}
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("buildingRate", v);
+                      }
+                    }}
                     isAiGenerated={!!aiBuildingRate}
                     isManualOverride={isBuildingManual}
+                    benchmarkValue={benchBuildingRate}
                   />
                   {fieldError("buildingRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -3399,7 +3402,7 @@ function CashOutflowsPageContent() {
                       isSaleLandedProduct ||
                       (projectInfo.salesHighRisePodiumBUA || 0) === 0
                         ? 0
-                        : cashOutflows.parkingRate || benchParkingRate || 0
+                        : cashOutflows.parkingRate
                     }
                     onChange={(v) => {
                       if (
@@ -3408,7 +3411,9 @@ function CashOutflowsPageContent() {
                       ) {
                         return; // Don't allow changes when BUA is 0
                       }
-                      updateFormData("parkingRate", Number(v) || 0);
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("parkingRate", v);
+                      }
                     }}
                     disabled={
                       isSaleLandedProduct ||
@@ -3429,6 +3434,7 @@ function CashOutflowsPageContent() {
                       isParkingManual &&
                       (projectInfo.salesHighRisePodiumBUA || 0) > 0
                     }
+                    benchmarkValue={benchParkingRate}
                   />
                   {fieldError("parkingRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -3455,7 +3461,7 @@ function CashOutflowsPageContent() {
                       isSaleLandedProduct ||
                       (projectInfo.salesHighRiseBasementBUA || 0) === 0
                         ? 0
-                        : cashOutflows.basementRate || benchBasementRate || 0
+                        : cashOutflows.basementRate
                     }
                     onChange={(v) => {
                       if (
@@ -3464,7 +3470,9 @@ function CashOutflowsPageContent() {
                       ) {
                         return; // Don't allow changes when BUA is 0
                       }
-                      updateFormData("basementRate", Number(v) || 0);
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("basementRate", v);
+                      }
                     }}
                     disabled={
                       isSaleLandedProduct ||
@@ -3485,6 +3493,7 @@ function CashOutflowsPageContent() {
                       isBasementManual &&
                       (projectInfo.salesHighRiseBasementBUA || 0) > 0
                     }
+                    benchmarkValue={benchBasementRate}
                   />
                   {fieldError("basementRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -3563,12 +3572,15 @@ function CashOutflowsPageContent() {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <AiInput
                       label={`Infrastructure Rate (${projectInfo.currency}/sqft)`}
-                      value={cashOutflows.infrastructureRate ?? benchInfraRate ?? 0}
-                      onChange={(v) =>
-                        updateFormData("infrastructureRate", Number(v) || 0)
-                      }
+                      value={cashOutflows.infrastructureRate ?? 0}
+                      onChange={(v) => {
+                        if (typeof v === "number" && Number.isFinite(v)) {
+                          updateFormData("infrastructureRate", v);
+                        }
+                      }}
                       isAiGenerated={!!aiInfraRate}
                       isManualOverride={isInfraManual}
+                      benchmarkValue={benchInfraRate}
                       helperText="For landed developments only (Hi-Rise: leave as 0)"
                     />
 
@@ -3727,10 +3739,15 @@ function CashOutflowsPageContent() {
                   <AiInput
                     label="Soft Costs % of CC incl. contingency (SC%)"
                     type="percentage"
-                    value={cashOutflows.softCostPercent || benchScPct || 0}
-                    onChange={(v) => updateFormData("softCostPercent", Number(v) || 0)}
+                    value={cashOutflows.softCostPercent}
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("softCostPercent", v);
+                      }
+                    }}
                     isAiGenerated={!!aiScPct}
                     isManualOverride={isSCManual}
+                    benchmarkValue={benchScPct}
                     helperText="SC amount = CC incl. contingency × SC% ÷ 100"
                   />
                   {fieldError("softCostPercent") && (
@@ -3744,10 +3761,15 @@ function CashOutflowsPageContent() {
                   <AiInput
                     label="POWC % of CC incl. contingency (POWC%)"
                     type="percentage"
-                    value={cashOutflows.powcPercent || benchPowcPct || 0}
-                    onChange={(v) => updateFormData("powcPercent", Number(v) || 0)}
+                    value={cashOutflows.powcPercent}
+                    onChange={(v) => {
+                      if (typeof v === "number" && Number.isFinite(v)) {
+                        updateFormData("powcPercent", v);
+                      }
+                    }}
                     isAiGenerated={!!aiPowcPct}
                     isManualOverride={isPOWCManual}
+                    benchmarkValue={benchPowcPct}
                     helperText="POWC = Pre-Operating Expenses & Working Capital"
                   />
                   {fieldError("powcPercent") && (
@@ -3762,12 +3784,15 @@ function CashOutflowsPageContent() {
                     <AiInput
                       label="FF&E % of CC incl. contingency (FFE%)"
                       type="percentage"
-                      value={cashOutflows.ffePercent || benchFfePct || 0}
-                      onChange={(v) =>
-                        updateFormData("ffePercent", Number(v) || 0)
-                      }
+                      value={cashOutflows.ffePercent}
+                      onChange={(v) => {
+                        if (typeof v === "number" && Number.isFinite(v)) {
+                          updateFormData("ffePercent", v);
+                        }
+                      }}
                       isAiGenerated={!!aiFfePct}
                       isManualOverride={isFFEManual}
+                      benchmarkValue={benchFfePct}
                       helperText="Furniture, fixtures & equipment"
                     />
                     {fieldError("ffePercent") && (
@@ -3883,10 +3908,15 @@ function CashOutflowsPageContent() {
 
                 <AiInput
                   label={`Land Rate (${projectInfo.currency}/sqft)`}
-                  value={cashOutflows.landRate || benchLandRate || 0}
-                  onChange={(v) => updateFormData("landRate", Number(v) || 0)}
+                  value={cashOutflows.landRate}
+                  onChange={(v) => {
+                    if (typeof v === "number" && Number.isFinite(v)) {
+                      updateFormData("landRate", v);
+                    }
+                  }}
                   isAiGenerated={!!aiLandRate}
                   isManualOverride={isLandRateManual}
+                  benchmarkValue={benchLandRate}
                   helperText={
                     cityLandRate && !aiLandRate
                       ? `Recommended for ${projectInfo.city}: ${cityLandRate.ratePerSqft.toLocaleString()} ${projectInfo.currency}/sqft`
