@@ -16,6 +16,11 @@ import { AiHintBox } from "@/components/ui/AiHintBox";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { useStreamPrefix, withStreamPrefix } from "@/lib/stream-path";
 import {
+  applyAIValues,
+  overriddenSourceKeys,
+  tagFieldSources,
+} from "@/lib/field-value-source";
+import {
   logSaleCashInflow,
   SALE_CASH_INFLOW_AUDIT_FIELDS,
 } from "@/lib/sale-audit-fields";
@@ -292,48 +297,59 @@ function CashInflowsPageContent() {
   const aiEscrowFeePercent = aiC2?.deductions?.escrow_fees_pct;
   const aiSalesDiscount = aiC2?.deductions?.avg_sales_discount_pct;
 
-  const isRateOverride = (current: number, bench?: number) =>
-    bench != null && Math.abs(current - bench) > 0.001;
-
   const markC2Override = (key: C2OverrideKey) => {
     if (c2OverridesRef.current[key]) return;
     const next = { ...c2OverridesRef.current, [key]: true };
     c2OverridesRef.current = next;
     setC2Overrides(next);
+    updateCashInflows({
+      fieldSources: {
+        ...(cashInflows.fieldSources ?? {}),
+        [key]: "override",
+      },
+    });
   };
 
   const clearC2Override = (key: C2OverrideKey) => {
-    if (!c2OverridesRef.current[key]) return;
+    if (!c2OverridesRef.current[key] && cashInflows.fieldSources?.[key] !== "override") {
+      return;
+    }
     const next = { ...c2OverridesRef.current };
     delete next[key];
     c2OverridesRef.current = next;
     setC2Overrides(next);
+    updateCashInflows({
+      fieldSources: {
+        ...(cashInflows.fieldSources ?? {}),
+        [key]: aiC2FieldHasAi(key) ? "ai" : "default",
+      },
+    });
+  };
+
+  const aiC2FieldHasAi = (key: C2OverrideKey) => {
+    if (key === "salesPrice") return aiSalesPrice != null;
+    if (key === "brokerCommissionPercent") return aiAgentCommission != null;
+    if (key === "vatPercent") return aiVatPercent != null;
+    if (key === "escrowFeePercent") return aiEscrowFeePercent != null;
+    if (key === "salesDiscountPercent") return aiSalesDiscount != null;
+    return false;
   };
 
   const isSalesPriceManual =
     !!c2Overrides.salesPrice ||
-    isRateOverride(cashInflows.salesPrice, aiSalesPrice);
+    cashInflows.fieldSources?.salesPrice === "override";
   const isAgentCommissionManual =
     !!c2Overrides.brokerCommissionPercent ||
-    isRateOverride(
-      cashInflows.buyerMix.brokerCommissionPercent,
-      aiAgentCommission
-    );
+    cashInflows.fieldSources?.brokerCommissionPercent === "override";
   const isVatManual =
     !!c2Overrides.vatPercent ||
-    isRateOverride(cashInflows.buyerMix.vatPercent, aiVatPercent);
+    cashInflows.fieldSources?.vatPercent === "override";
   const isEscrowManual =
     !!c2Overrides.escrowFeePercent ||
-    isRateOverride(
-      cashInflows.buyerMix.escrowFeePercent,
-      aiEscrowFeePercent
-    );
+    cashInflows.fieldSources?.escrowFeePercent === "override";
   const isSalesDiscountManual =
     !!c2Overrides.salesDiscountPercent ||
-    isRateOverride(
-      cashInflows.buyerMix.salesDiscountPercent,
-      aiSalesDiscount
-    );
+    cashInflows.fieldSources?.salesDiscountPercent === "override";
 
   const DEFAULT_SALES_PRICE = 1200;
   const lastAppliedAiSalesPriceRef = useRef<number | null>(null);
@@ -348,6 +364,7 @@ function CashInflowsPageContent() {
   useEffect(() => {
     if (aiSalesPrice == null) return;
     if (c2OverridesRef.current.salesPrice) return;
+    if (cashInflows.fieldSources?.salesPrice === "override") return;
 
     const current = cashInflows.salesPrice;
     const prevAi = lastAppliedAiSalesPriceRef.current;
@@ -359,11 +376,31 @@ function CashInflowsPageContent() {
 
     if (alreadyOnAi) {
       lastAppliedAiSalesPriceRef.current = aiSalesPrice;
+      const { fieldSources } = applyAIValues(
+        { salesPrice: aiSalesPrice },
+        {
+          currentSources: cashInflows.fieldSources,
+          overriddenKeys: overriddenSourceKeys(cashInflows.fieldSources),
+        }
+      );
+      if (cashInflows.fieldSources?.salesPrice !== "ai") {
+        updateCashInflows({ fieldSources });
+      }
       return;
     }
 
     if (stillOnDefault || stillOnPrevAi) {
-      updateCashInflows({ salesPrice: aiSalesPrice });
+      const { values, fieldSources } = applyAIValues(
+        { salesPrice: aiSalesPrice },
+        {
+          currentSources: cashInflows.fieldSources,
+          overriddenKeys: overriddenSourceKeys(cashInflows.fieldSources),
+        }
+      );
+      updateCashInflows({
+        ...(values as Partial<CashInflows>),
+        fieldSources,
+      });
       lastAppliedAiSalesPriceRef.current = aiSalesPrice;
     }
     // Intentionally omit salesPrice from deps — do not re-apply on every keystroke
@@ -395,19 +432,65 @@ function CashInflowsPageContent() {
       "brokerCommissionPercent",
       aiAgentCommission,
       2,
-      !!ov.brokerCommissionPercent
+      !!ov.brokerCommissionPercent ||
+        cashInflows.fieldSources?.brokerCommissionPercent === "override"
     );
-    maybeApply("vatPercent", aiVatPercent, 5, !!ov.vatPercent);
-    maybeApply("escrowFeePercent", aiEscrowFeePercent, 1, !!ov.escrowFeePercent);
-    maybeApply("salesDiscountPercent", aiSalesDiscount, 3, !!ov.salesDiscountPercent);
+    maybeApply(
+      "vatPercent",
+      aiVatPercent,
+      5,
+      !!ov.vatPercent || cashInflows.fieldSources?.vatPercent === "override"
+    );
+    maybeApply(
+      "escrowFeePercent",
+      aiEscrowFeePercent,
+      1,
+      !!ov.escrowFeePercent ||
+        cashInflows.fieldSources?.escrowFeePercent === "override"
+    );
+    maybeApply(
+      "salesDiscountPercent",
+      aiSalesDiscount,
+      3,
+      !!ov.salesDiscountPercent ||
+        cashInflows.fieldSources?.salesDiscountPercent === "override"
+    );
 
     if (aiAgentCommission != null) last.brokerCommissionPercent = aiAgentCommission;
     if (aiVatPercent != null) last.vatPercent = aiVatPercent;
     if (aiEscrowFeePercent != null) last.escrowFeePercent = aiEscrowFeePercent;
     if (aiSalesDiscount != null) last.salesDiscountPercent = aiSalesDiscount;
 
-    if (Object.keys(patch).length === 0) return;
-    updateCashInflows({ buyerMix: patch as CashInflows["buyerMix"] });
+    if (Object.keys(patch).length === 0) {
+      const keys = [
+        aiAgentCommission != null ? "brokerCommissionPercent" : null,
+        aiVatPercent != null ? "vatPercent" : null,
+        aiEscrowFeePercent != null ? "escrowFeePercent" : null,
+        aiSalesDiscount != null ? "salesDiscountPercent" : null,
+      ].filter((k): k is string => k != null);
+      if (keys.length > 0) {
+        updateCashInflows({
+          fieldSources: tagFieldSources(
+            cashInflows.fieldSources,
+            keys,
+            "ai",
+            overriddenSourceKeys(cashInflows.fieldSources)
+          ),
+        });
+      }
+      return;
+    }
+    const { values: taggedMix, fieldSources } = applyAIValues(
+      patch as Record<string, unknown>,
+      {
+        currentSources: cashInflows.fieldSources,
+        overriddenKeys: overriddenSourceKeys(cashInflows.fieldSources),
+      }
+    );
+    updateCashInflows({
+      buyerMix: taggedMix as CashInflows["buyerMix"],
+      fieldSources,
+    });
     // Do not depend on buyerMix — spreading it back was overwriting in-progress edits
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1115,6 +1198,7 @@ function CashInflowsPageContent() {
                     onResetOverride={() => {
                       clearC2Override("salesPrice");
                     }}
+                    source={cashInflows.fieldSources?.salesPrice}
                     isAiGenerated={!!aiSalesPrice}
                     isManualOverride={isSalesPriceManual}
                     benchmarkValue={aiSalesPrice}
@@ -1634,6 +1718,7 @@ function CashInflowsPageContent() {
                     }}
                     onManualOverride={() => markC2Override("brokerCommissionPercent")}
                     onResetOverride={() => clearC2Override("brokerCommissionPercent")}
+                    source={cashInflows.fieldSources?.brokerCommissionPercent}
                     isAiGenerated={!!aiAgentCommission}
                     isManualOverride={isAgentCommissionManual}
                     benchmarkValue={aiAgentCommission}
@@ -1654,6 +1739,7 @@ function CashInflowsPageContent() {
                     }}
                     onManualOverride={() => markC2Override("vatPercent")}
                     onResetOverride={() => clearC2Override("vatPercent")}
+                    source={cashInflows.fieldSources?.vatPercent}
                     isAiGenerated={aiVatPercent != null}
                     isManualOverride={isVatManual}
                     benchmarkValue={aiVatPercent}
@@ -1674,6 +1760,7 @@ function CashInflowsPageContent() {
                     }}
                     onManualOverride={() => markC2Override("escrowFeePercent")}
                     onResetOverride={() => clearC2Override("escrowFeePercent")}
+                    source={cashInflows.fieldSources?.escrowFeePercent}
                     isAiGenerated={aiEscrowFeePercent != null}
                     isManualOverride={isEscrowManual}
                     benchmarkValue={aiEscrowFeePercent}
@@ -1694,6 +1781,7 @@ function CashInflowsPageContent() {
                     }}
                     onManualOverride={() => markC2Override("salesDiscountPercent")}
                     onResetOverride={() => clearC2Override("salesDiscountPercent")}
+                    source={cashInflows.fieldSources?.salesDiscountPercent}
                     isAiGenerated={!!aiSalesDiscount}
                     isManualOverride={isSalesDiscountManual}
                     benchmarkValue={aiSalesDiscount}

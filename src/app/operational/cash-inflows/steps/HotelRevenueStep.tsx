@@ -821,6 +821,12 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
             min={0}
             isAiGenerated={!!aiAdrYear1 && !adrYear1IsManual}
             isManualOverride={adrYear1IsManual}
+            onResetOverride={() => {
+              adrYear1ManualRef.current = false;
+              setAdrYear1IsManual(false);
+              if (aiAdrYear1 != null) setAdrYear1(aiAdrYear1);
+            }}
+            benchmarkValue={aiAdrYear1}
           />
           {fieldError("adrYear1") && (
             <p className="mt-1 text-sm text-red-400">{fieldError("adrYear1")}</p>
@@ -842,6 +848,11 @@ export default function HotelRevenueStep({ fieldError }: HotelRevenueStepProps) 
             min={0}
             isAiGenerated={!!aiAdrInflation && !adrInflationIsManual}
             isManualOverride={adrInflationIsManual}
+            onResetOverride={() => {
+              setAdrInflationIsManual(false);
+              if (aiAdrInflation != null) setAdrInflationRate(aiAdrInflation);
+            }}
+            benchmarkValue={aiAdrInflation}
           />
           {fieldError("adrInflation") && (
             <p className="mt-1 text-sm text-red-400">

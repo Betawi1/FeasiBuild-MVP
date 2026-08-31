@@ -891,6 +891,17 @@ export default function OfficeRevenueStep({
               min={0}
               isAiGenerated={!!aiOfficeRentYear1 && !overrides.officeRentPsf}
               isManualOverride={!!overrides.officeRentPsf}
+              onResetOverride={() => {
+                setOverrides((prev) => {
+                  const next = { ...prev };
+                  delete next.officeRentPsf;
+                  return next;
+                });
+                setOfficeRentPsf(
+                  aiOfficeRentYear1 ?? benchmark?.baseRentPsf ?? 180
+                );
+              }}
+              benchmarkValue={aiOfficeRentYear1}
             />
             {fieldError("officeRentPsf") && (
               <p className="mt-1 text-sm text-red-400">
@@ -911,6 +922,17 @@ export default function OfficeRevenueStep({
                 aiOfficeRentEscalation != null && !overrides.officeEscalation
               }
               isManualOverride={!!overrides.officeEscalation}
+              onResetOverride={() => {
+                setOverrides((prev) => {
+                  const next = { ...prev };
+                  delete next.officeEscalation;
+                  return next;
+                });
+                setOfficeEscalation(
+                  aiOfficeRentEscalation ?? benchmark?.rentEscalation ?? 3
+                );
+              }}
+              benchmarkValue={aiOfficeRentEscalation}
             />
           </div>
           <div>

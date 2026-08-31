@@ -124,6 +124,9 @@ export default function DataCentreConstructionCostsStep({
   const aiResearchData = useFinModelStore(
     (s) => s.operational.cashOutflows.aiResearchData
   );
+  const fieldSources = useFinModelStore(
+    (s) => s.operational.cashOutflows.fieldSources
+  );
   const currency = projectInfo.currency || "USD";
   const updateProjectInfo = useFinModelStore((s) => s.updateProjectInfo);
   const updateCashOutflows = useFinModelStore((s) => s.updateCashOutflows);
@@ -137,6 +140,26 @@ export default function DataCentreConstructionCostsStep({
     if (field != null && value != null) {
       logOperationalCashOutflow(field, value, 6);
     }
+  };
+
+  const markDcOverride = (key: string) => {
+    if (fieldSources?.[key] === "override") return;
+    updateCashOutflows(
+      { fieldSources: { ...(fieldSources ?? {}), [key]: "override" } },
+      "operational"
+    );
+  };
+
+  const resetDcSource = (key: string, hasAi: boolean) => {
+    updateCashOutflows(
+      {
+        fieldSources: {
+          ...(fieldSources ?? {}),
+          [key]: hasAi ? "ai" : "default",
+        },
+      },
+      "operational"
+    );
   };
 
   const aiCapEx = useMemo(
@@ -250,32 +273,17 @@ export default function DataCentreConstructionCostsStep({
   const contingencyFromAi = aiContingency != null && aiContingency > 0;
 
   const buildingRateOverridden =
-    aiBuildingRate != null &&
-    projectInfo.dataCentreBuildingRate != null &&
-    Math.abs(projectInfo.dataCentreBuildingRate - aiBuildingRate) > 1e-9;
+    fieldSources?.dataCentreBuildingRate === "override";
   const meElecOverridden =
-    aiMeElec != null &&
-    projectInfo.dataCentreMECostPerMWElectrical != null &&
-    Math.abs(projectInfo.dataCentreMECostPerMWElectrical - aiMeElec) > 1e-9;
+    fieldSources?.dataCentreMECostPerMWElectrical === "override";
   const meCoolOverridden =
-    aiMeCool != null &&
-    projectInfo.dataCentreMECostPerMWCooling != null &&
-    Math.abs(projectInfo.dataCentreMECostPerMWCooling - aiMeCool) > 1e-9;
+    fieldSources?.dataCentreMECostPerMWCooling === "override";
   const itHardwareOverridden =
-    aiItHardwareCost != null &&
-    projectInfo.dataCentreITHardwareCostPerMW != null &&
-    Math.abs(projectInfo.dataCentreITHardwareCostPerMW - aiItHardwareCost) >
-      1e-9;
+    fieldSources?.dataCentreITHardwareCostPerMW === "override";
   const profFeesOverridden =
-    aiProfFees != null &&
-    projectInfo.dataCentreProfessionalFeesPercent != null &&
-    Math.abs(projectInfo.dataCentreProfessionalFeesPercent - aiProfFees) >
-      1e-9;
+    fieldSources?.dataCentreProfessionalFeesPercent === "override";
   const contingencyOverridden =
-    aiContingency != null &&
-    projectInfo.dataCentreContingencyPercent != null &&
-    Math.abs(projectInfo.dataCentreContingencyPercent - aiContingency) >
-      1e-9;
+    fieldSources?.dataCentreContingencyPercent === "override";
 
   const operatorProvides =
     !!projectInfo.dataCentreITHardwareProvidedByOperator;
@@ -330,6 +338,18 @@ export default function DataCentreConstructionCostsStep({
             min={0}
             isAiGenerated={buildingRateFromAi}
             isManualOverride={buildingRateOverridden}
+            source={fieldSources?.dataCentreBuildingRate}
+            onManualOverride={() => markDcOverride("dataCentreBuildingRate")}
+            onResetOverride={() => {
+              if (aiBuildingRate != null) {
+                patchInfo(
+                  { dataCentreBuildingRate: aiBuildingRate },
+                  "dataCentreBuildingRate",
+                  aiBuildingRate
+                );
+              }
+              resetDcSource("dataCentreBuildingRate", buildingRateFromAi);
+            }}
             benchmarkValue={aiBuildingRate}
             helperText="AI-suggested when available from Phase 2 research"
           />
@@ -381,6 +401,20 @@ export default function DataCentreConstructionCostsStep({
             min={0}
             isAiGenerated={meElecFromAi}
             isManualOverride={meElecOverridden}
+            source={fieldSources?.dataCentreMECostPerMWElectrical}
+            onManualOverride={() =>
+              markDcOverride("dataCentreMECostPerMWElectrical")
+            }
+            onResetOverride={() => {
+              if (aiMeElec != null) {
+                patchInfo(
+                  { dataCentreMECostPerMWElectrical: aiMeElec },
+                  "dataCentreMECostPerMWElectrical",
+                  aiMeElec
+                );
+              }
+              resetDcSource("dataCentreMECostPerMWElectrical", meElecFromAi);
+            }}
             benchmarkValue={aiMeElec}
           />
           <AiInput
@@ -400,6 +434,20 @@ export default function DataCentreConstructionCostsStep({
             min={0}
             isAiGenerated={meCoolFromAi}
             isManualOverride={meCoolOverridden}
+            source={fieldSources?.dataCentreMECostPerMWCooling}
+            onManualOverride={() =>
+              markDcOverride("dataCentreMECostPerMWCooling")
+            }
+            onResetOverride={() => {
+              if (aiMeCool != null) {
+                patchInfo(
+                  { dataCentreMECostPerMWCooling: aiMeCool },
+                  "dataCentreMECostPerMWCooling",
+                  aiMeCool
+                );
+              }
+              resetDcSource("dataCentreMECostPerMWCooling", meCoolFromAi);
+            }}
             benchmarkValue={aiMeCool}
           />
         </div>
@@ -481,6 +529,23 @@ export default function DataCentreConstructionCostsStep({
               min={0}
               isAiGenerated={itHardwareFromAi}
               isManualOverride={itHardwareOverridden}
+              source={fieldSources?.dataCentreITHardwareCostPerMW}
+              onManualOverride={() =>
+                markDcOverride("dataCentreITHardwareCostPerMW")
+              }
+              onResetOverride={() => {
+                if (aiItHardwareCost != null) {
+                  patchInfo(
+                    { dataCentreITHardwareCostPerMW: aiItHardwareCost },
+                    "dataCentreITHardwareCostPerMW",
+                    aiItHardwareCost
+                  );
+                }
+                resetDcSource(
+                  "dataCentreITHardwareCostPerMW",
+                  itHardwareFromAi
+                );
+              }}
               benchmarkValue={aiItHardwareCost}
               helperText={
                 itHardwareFromAi
@@ -535,6 +600,20 @@ export default function DataCentreConstructionCostsStep({
             max={30}
             isAiGenerated={profFeesFromAi}
             isManualOverride={profFeesOverridden}
+            source={fieldSources?.dataCentreProfessionalFeesPercent}
+            onManualOverride={() =>
+              markDcOverride("dataCentreProfessionalFeesPercent")
+            }
+            onResetOverride={() => {
+              if (aiProfFees != null) {
+                patchInfo(
+                  { dataCentreProfessionalFeesPercent: aiProfFees },
+                  "dataCentreProfessionalFeesPercent",
+                  aiProfFees
+                );
+              }
+              resetDcSource("dataCentreProfessionalFeesPercent", profFeesFromAi);
+            }}
             benchmarkValue={aiProfFees}
             helperText={
               profFeesFromAi
@@ -575,6 +654,20 @@ export default function DataCentreConstructionCostsStep({
             max={30}
             isAiGenerated={contingencyFromAi}
             isManualOverride={contingencyOverridden}
+            source={fieldSources?.dataCentreContingencyPercent}
+            onManualOverride={() =>
+              markDcOverride("dataCentreContingencyPercent")
+            }
+            onResetOverride={() => {
+              if (aiContingency != null) {
+                patchInfo(
+                  { dataCentreContingencyPercent: aiContingency },
+                  "dataCentreContingencyPercent",
+                  aiContingency
+                );
+              }
+              resetDcSource("dataCentreContingencyPercent", contingencyFromAi);
+            }}
             benchmarkValue={aiContingency}
             helperText={
               contingencyFromAi

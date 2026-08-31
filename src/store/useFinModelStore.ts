@@ -23,6 +23,7 @@ import {
   type OperationalRetailHoldSnapshot,
 } from "@/lib/operational-pnl";
 import type { FinancingMetrics, ProjectMetrics } from "./financingStore";
+import type { FieldValueSource } from "@/lib/field-value-source";
 import { buildRecommendationQuery } from "../app/sale/utils/db-mapping";
 import {
   getRecommendations,
@@ -1575,6 +1576,13 @@ export type CashOutflows = {
   operationalWarehouseLandRateManual?: boolean;
   /** AI research data from Puter.js (Component 1 & 2 benchmarks) */
   aiResearchData?: AiResearchData;
+  /**
+   * Per-field origin of the current number.
+   * `ai` = puter.ai.chat parse (any provider, including Qwen fallback).
+   * `override` = user typed in the field.
+   * `default` = jurisdiction / profile benchmark or Reset to benchmark.
+   */
+  fieldSources?: Record<string, FieldValueSource>;
 
   // Warehouse/Industrial specific (C1S3–C1S4 + later cost/revenue steps)
   developmentType?: WarehouseDevelopmentType;
@@ -1672,6 +1680,11 @@ export type CashInflows = {
   grossSales: number;
   netProceeds: number;
   monthlyInflowSchedule: MonthlyCashFlowPoint[];
+  /**
+   * Per-field origin of the current number (C2 sales price, deductions, etc.).
+   * Same meaning as `CashOutflows.fieldSources`.
+   */
+  fieldSources?: Record<string, FieldValueSource>;
 };
 
 export type MonthlyCashFlowPoint = {
@@ -2279,6 +2292,7 @@ const defaultCashOutflows: CashOutflows = {
   operationalWarehouseFfeManual: false,
   operationalWarehouseLandRateManual: false,
   aiResearchData: undefined,
+  fieldSources: {},
 };
 
 const defaultCashInflows: CashInflows = {
@@ -2308,6 +2322,7 @@ const defaultCashInflows: CashInflows = {
   grossSales: 0,
   netProceeds: 0,
   monthlyInflowSchedule: [],
+  fieldSources: {},
 };
 
 /** Default Project IRR exit inputs; safe fallback when persisted state omits `exitAssumptions`. */
@@ -3255,6 +3270,12 @@ function mergeCashInflowsPatch(
         ...data.launchTiming,
       },
     }),
+    ...(data.fieldSources && {
+      fieldSources: {
+        ...(prev.fieldSources ?? {}),
+        ...data.fieldSources,
+      },
+    }),
     ...(data.warehouseRevenue && {
       warehouseRevenue: {
         ...prev.warehouseRevenue,
@@ -3454,6 +3475,12 @@ const useFinModelStore = create<FinModelStore>()(
                 ...prev.warehouseCosts,
                 ...data.warehouseCosts,
               } as WarehouseCosts,
+            }),
+            ...(data.fieldSources && {
+              fieldSources: {
+                ...(prev.fieldSources ?? {}),
+                ...data.fieldSources,
+              },
             }),
           };
           const syncConstructionToFinancing =

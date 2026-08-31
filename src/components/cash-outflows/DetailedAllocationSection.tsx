@@ -39,40 +39,42 @@ type DetailedAllocationSectionProps = {
   onResetToBenchmark?: () => void;
 };
 
-function differsFromAi(current: number, aiVal?: number | null): boolean {
-  return aiVal != null && Math.abs(current - aiVal) > 0.001;
-}
-
-function allocInputClass(current: number, aiVal?: number | null): string {
+function allocInputClass(hasAi: boolean, isOverridden: boolean): string {
   const base =
     "w-20 rounded bg-slate-800 px-3 py-2 text-right text-white focus:outline-none focus:ring-2";
-  if (aiVal != null && differsFromAi(current, aiVal)) {
+  if (isOverridden) {
     return `${base} border-2 border-amber-500 focus:ring-amber-500`;
   }
-  if (aiVal != null) {
+  if (hasAi) {
     return `${base} border-2 border-blue-500 focus:ring-blue-500`;
   }
   return `${base} border border-slate-600 focus:ring-emerald-500`;
 }
 
 function AllocBadge({
-  current,
-  aiVal,
+  hasAi,
+  isOverridden,
 }: {
-  current: number;
-  aiVal?: number | null;
+  hasAi: boolean;
+  isOverridden: boolean;
 }) {
-  if (aiVal == null) return null;
-  if (differsFromAi(current, aiVal)) {
+  if (isOverridden) {
     return (
       <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
         Override
       </span>
     );
   }
+  if (hasAi) {
+    return (
+      <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+        AI
+      </span>
+    );
+  }
   return (
-    <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
-      AI
+    <span className="rounded-full bg-slate-500/20 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+      Default
     </span>
   );
 }
@@ -83,13 +85,16 @@ function AllocRow({
   value,
   onChange,
   aiVal,
+  isOverridden,
 }: {
   label: string;
   hint: string;
   value: number;
   onChange: (value: number) => void;
   aiVal?: number | null;
+  isOverridden: boolean;
 }) {
+  const hasAi = aiVal != null;
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg bg-slate-900/50 p-3">
       <div className="min-w-0">
@@ -103,9 +108,9 @@ function AllocRow({
           max={100}
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className={allocInputClass(value, aiVal)}
+          className={allocInputClass(hasAi, isOverridden)}
         />
-        <AllocBadge current={value} aiVal={aiVal} />
+        <AllocBadge hasAi={hasAi} isOverridden={isOverridden} />
         <span className="text-slate-400">%</span>
       </div>
     </div>
@@ -145,6 +150,16 @@ export default function DetailedAllocationSection({
   onResetToBenchmark,
 }: DetailedAllocationSectionProps) {
   const [resetConfirmation, setResetConfirmation] = useState(false);
+  const [overridden, setOverridden] = useState<Set<string>>(() => new Set());
+
+  const markOverridden = (key: string) => {
+    setOverridden((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  };
 
   const powcAlloc = powcAllocation ?? { ...DEFAULT_POWC_ALLOCATION };
   const softAlloc = softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
@@ -164,22 +179,16 @@ export default function DetailedAllocationSection({
   );
 
   const hasPowcOverride =
-    differsFromAi(
-      powcAlloc.siteEstablishment,
-      aiPowcBreakdown?.site_establishment_pct
-    ) ||
-    differsFromAi(powcAlloc.overhead, aiPowcBreakdown?.overhead_pct) ||
-    differsFromAi(
-      powcAlloc.authorityFees,
-      aiPowcBreakdown?.authority_fees_pct
-    );
+    overridden.has("siteEstablishment") ||
+    overridden.has("overhead") ||
+    overridden.has("authorityFees");
 
   const hasScOverride =
-    differsFromAi(softAlloc.architect, aiScBreakdown?.architect_pct) ||
-    differsFromAi(softAlloc.projectManagement, aiScBreakdown?.pm_pct) ||
-    differsFromAi(softAlloc.engineering, aiScBreakdown?.engineering_pct) ||
-    differsFromAi(softAlloc.geotechnical, aiScBreakdown?.geotech_pct) ||
-    differsFromAi(softAlloc.otherFees, aiScBreakdown?.other_pct);
+    overridden.has("architect") ||
+    overridden.has("projectManagement") ||
+    overridden.has("engineering") ||
+    overridden.has("geotechnical") ||
+    overridden.has("otherFees");
 
   /** Only show RTB when at least one allocation field differs from AI. */
   const showResetButton =
@@ -187,6 +196,7 @@ export default function DetailedAllocationSection({
     (hasPowcOverride || hasScOverride);
 
   const handleResetDetailedAllocationToBenchmark = () => {
+    setOverridden(new Set());
     if (onResetToBenchmark) {
       onResetToBenchmark();
     } else {
@@ -252,25 +262,33 @@ export default function DetailedAllocationSection({
               hint="Mobilization, temporary facilities, site prep"
               value={powcAlloc.siteEstablishment}
               aiVal={aiPowcBreakdown?.site_establishment_pct}
-              onChange={(siteEstablishment) =>
-                onPowcChange({ ...powcAlloc, siteEstablishment })
-              }
+              isOverridden={overridden.has("siteEstablishment")}
+              onChange={(siteEstablishment) => {
+                markOverridden("siteEstablishment");
+                onPowcChange({ ...powcAlloc, siteEstablishment });
+              }}
             />
             <AllocRow
               label="Overhead Costs"
               hint="Admin, HSE, Management, site staff"
               value={powcAlloc.overhead}
               aiVal={aiPowcBreakdown?.overhead_pct}
-              onChange={(overhead) => onPowcChange({ ...powcAlloc, overhead })}
+              isOverridden={overridden.has("overhead")}
+              onChange={(overhead) => {
+                markOverridden("overhead");
+                onPowcChange({ ...powcAlloc, overhead });
+              }}
             />
             <AllocRow
               label="Authority Fees"
               hint="Telco, power, water, drainage, permits"
               value={powcAlloc.authorityFees}
               aiVal={aiPowcBreakdown?.authority_fees_pct}
-              onChange={(authorityFees) =>
-                onPowcChange({ ...powcAlloc, authorityFees })
-              }
+              isOverridden={overridden.has("authorityFees")}
+              onChange={(authorityFees) => {
+                markOverridden("authorityFees");
+                onPowcChange({ ...powcAlloc, authorityFees });
+              }}
             />
             <TotalRow total={powcTotal} />
             {powcError && (
@@ -289,45 +307,55 @@ export default function DetailedAllocationSection({
               hint="Design, drawings, site supervision"
               value={softAlloc.architect}
               aiVal={aiScBreakdown?.architect_pct}
-              onChange={(architect) =>
-                onSoftCostChange({ ...softAlloc, architect })
-              }
+              isOverridden={overridden.has("architect")}
+              onChange={(architect) => {
+                markOverridden("architect");
+                onSoftCostChange({ ...softAlloc, architect });
+              }}
             />
             <AllocRow
               label="Project Management"
               hint="Owner's rep, coordination, reporting"
               value={softAlloc.projectManagement}
               aiVal={aiScBreakdown?.pm_pct}
-              onChange={(projectManagement) =>
-                onSoftCostChange({ ...softAlloc, projectManagement })
-              }
+              isOverridden={overridden.has("projectManagement")}
+              onChange={(projectManagement) => {
+                markOverridden("projectManagement");
+                onSoftCostChange({ ...softAlloc, projectManagement });
+              }}
             />
             <AllocRow
               label="Engineering Consultant"
               hint="Structural, MEP, civil engineering"
               value={softAlloc.engineering}
               aiVal={aiScBreakdown?.engineering_pct}
-              onChange={(engineering) =>
-                onSoftCostChange({ ...softAlloc, engineering })
-              }
+              isOverridden={overridden.has("engineering")}
+              onChange={(engineering) => {
+                markOverridden("engineering");
+                onSoftCostChange({ ...softAlloc, engineering });
+              }}
             />
             <AllocRow
               label="Geotechnical Consultant"
               hint="Soil investigation, foundation recommendations"
               value={softAlloc.geotechnical}
               aiVal={aiScBreakdown?.geotech_pct}
-              onChange={(geotechnical) =>
-                onSoftCostChange({ ...softAlloc, geotechnical })
-              }
+              isOverridden={overridden.has("geotechnical")}
+              onChange={(geotechnical) => {
+                markOverridden("geotechnical");
+                onSoftCostChange({ ...softAlloc, geotechnical });
+              }}
             />
             <AllocRow
               label="Other Fees"
               hint="Legal, insurance, marketing, miscellaneous"
               value={softAlloc.otherFees}
               aiVal={aiScBreakdown?.other_pct}
-              onChange={(otherFees) =>
-                onSoftCostChange({ ...softAlloc, otherFees })
-              }
+              isOverridden={overridden.has("otherFees")}
+              onChange={(otherFees) => {
+                markOverridden("otherFees");
+                onSoftCostChange({ ...softAlloc, otherFees });
+              }}
             />
             <TotalRow total={softTotal} />
             {softCostError && (

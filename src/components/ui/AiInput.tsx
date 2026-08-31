@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FC } from "react";
+import { useCallback, useEffect, useRef, useState, type FC } from "react";
 import { useFocusedNumericString } from "@/hooks/useFocusedNumericString";
+import type { FieldValueSource } from "@/lib/field-value-source";
 
 export interface AiInputProps {
   label: string;
@@ -18,7 +19,12 @@ export interface AiInputProps {
   /** Persisted store/local flag — survives remount; cleared by Reset to benchmark */
   isManualOverride?: boolean;
   /**
-   * Explicit AI benchmark used for reset + override comparison.
+   * Explicit source tag. When set, drives the badge:
+   * ai = blue AI, override = orange (user typed), default = grey.
+   */
+  source?: FieldValueSource;
+  /**
+   * Explicit AI / jurisdiction baseline used for reset.
    * Prefer this over the live `value` so remounts after an override still reset correctly.
    */
   benchmarkValue?: number | string;
@@ -50,6 +56,7 @@ export const AiInput: FC<AiInputProps> = ({
   max,
   isAiGenerated = true,
   isManualOverride = false,
+  source,
   benchmarkValue,
   onManualOverride,
   onResetOverride,
@@ -67,7 +74,10 @@ export const AiInput: FC<AiInputProps> = ({
   const [originalValue, setOriginalValue] = useState<number | string>(
     hasBenchmark ? benchmarkValue : value
   );
-  const [hasEdited, setHasEdited] = useState(isManualOverride);
+  const [hasEdited, setHasEdited] = useState(
+    isManualOverride || source === "override"
+  );
+  const prevManualRef = useRef(isManualOverride || source === "override");
 
   const commitNumber = useCallback(
     (n: number) => {
@@ -78,55 +88,41 @@ export const AiInput: FC<AiInputProps> = ({
 
   const draft = useFocusedNumericString(numericValue, commitNumber);
 
-  // Parent persisted override (e.g. after remount)
-  useEffect(() => {
-    if (isManualOverride) setHasEdited(true);
-  }, [isManualOverride]);
+  const persistedOverride = isManualOverride || source === "override";
 
-  // Benchmark may update original/reset baseline only when the field is not overridden
+  // Parent persisted override (e.g. after remount). Clear only when parent resets.
   useEffect(() => {
-    if (hasEdited || isManualOverride) return;
-    if (hasBenchmark) setOriginalValue(benchmarkValue!);
-  }, [benchmarkValue, hasBenchmark, hasEdited, isManualOverride]);
+    if (persistedOverride) setHasEdited(true);
+    else if (prevManualRef.current && !persistedOverride) setHasEdited(false);
+    prevManualRef.current = persistedOverride;
+  }, [persistedOverride]);
 
-  // Header-bar "Reset to benchmark" writes the store value back; un-focus then clear local edit
+  // Parent-driven updates (AI apply / reset) refresh the reset baseline.
+  // Do not treat those updates as a user override.
   useEffect(() => {
-    if (draft.focused) return;
-    if (isManualOverride) return;
-    const baseline = hasBenchmark ? benchmarkValue! : originalValue;
-    const matches =
-      numericValue === toFiniteNumber(baseline) ||
-      (typeof value === "number" &&
-        typeof baseline === "number" &&
-        Math.abs(value - baseline) < 1e-9);
-    if (matches && hasEdited) setHasEdited(false);
+    if (hasEdited || persistedOverride) return;
+    setOriginalValue(hasBenchmark ? benchmarkValue! : value);
   }, [
-    draft.focused,
-    isManualOverride,
-    hasBenchmark,
-    benchmarkValue,
-    originalValue,
-    numericValue,
     value,
+    benchmarkValue,
+    hasBenchmark,
     hasEdited,
+    persistedOverride,
   ]);
 
   const baseline = hasBenchmark ? benchmarkValue! : originalValue;
-  const valuesDiffer =
-    toFiniteNumber(value) !== toFiniteNumber(baseline) &&
-    !(
-      typeof value === "number" &&
-      typeof baseline === "number" &&
-      Math.abs(value - baseline) < 1e-9
-    );
 
-  const isOverride = isManualOverride || hasEdited || (valuesDiffer && isAiGenerated);
+  // Orange only when the user typed, or the parent persisted an override flag.
+  // AI-applied values that differ from the jurisdiction default stay blue.
+  const isOverride = hasEdited || persistedOverride;
+  const showAi =
+    !isOverride && (source === "ai" || (source !== "default" && isAiGenerated));
 
   const getBorderColorClass = () => {
     if (isOverride) {
       return "border-amber-500 focus:ring-amber-500";
     }
-    if (isAiGenerated) {
+    if (showAi) {
       return "border-blue-500 focus:ring-blue-500";
     }
     return "border-slate-600 focus:ring-slate-500";
@@ -140,7 +136,7 @@ export const AiInput: FC<AiInputProps> = ({
         textColor: "text-amber-400",
       };
     }
-    if (isAiGenerated) {
+    if (showAi) {
       return {
         text: "AI",
         bgColor: "bg-blue-500/20",
@@ -164,7 +160,10 @@ export const AiInput: FC<AiInputProps> = ({
 
   const handleReset = () => {
     setHasEdited(false);
-    onResetOverride?.();
+    if (onResetOverride) {
+      onResetOverride();
+      return;
+    }
     onChange(toFiniteNumber(baseline));
   };
 

@@ -59,6 +59,12 @@ import { AiInput } from "@/components/ui/AiInput";
 import { AiHintBox } from "@/components/ui/AiHintBox";
 import { AiGuardrailBox } from "@/components/ui/AiGuardrailBox";
 import {
+  applyAIValues,
+  overriddenSourceKeys,
+  tagFieldSources,
+  type FieldValueSource,
+} from "@/lib/field-value-source";
+import {
   logSaleCashOutflow,
   SALE_CASH_OUTFLOW_AUDIT_FIELDS,
   SALE_CASH_OUTFLOW_STAGE_ALLOCATION_FIELDS,
@@ -847,40 +853,74 @@ function CashOutflowsPageContent() {
               otherFees: c1.sc_breakdown.other_pct,
             };
           }
-          updateCashOutflowsForStream(patch);
+          const { aiResearchData, ...aiFields } = patch;
+          const { values: aiValues, fieldSources } = applyAIValues(
+            aiFields as Record<string, unknown>,
+            {
+              currentSources: cashOutflows.fieldSources,
+              overriddenKeys: overriddenSourceKeys(cashOutflows.fieldSources),
+            }
+          );
+          updateCashOutflowsForStream({
+            ...aiValues,
+            aiResearchData,
+            fieldSources,
+          } as Partial<CashOutflows>);
           const c2 = researchData.c2_sales;
           if (c2?.avg_sales_price_psf || c2?.deductions) {
             const existingInflows =
               useFinModelStore.getState().sale.cashInflows;
+            const inflowPatch: Record<string, unknown> = {};
+            if (c2.avg_sales_price_psf) {
+              inflowPatch.salesPrice = c2.avg_sales_price_psf;
+            }
+            if (c2.deductions) {
+              inflowPatch.buyerMix = {
+                ...existingInflows.buyerMix,
+                ...(c2.deductions.agent_commission_pct != null
+                  ? {
+                      brokerCommissionPercent:
+                        c2.deductions.agent_commission_pct,
+                    }
+                  : {}),
+                ...(c2.deductions.vat_pct != null
+                  ? { vatPercent: c2.deductions.vat_pct }
+                  : {}),
+                ...(c2.deductions.escrow_fees_pct != null
+                  ? { escrowFeePercent: c2.deductions.escrow_fees_pct }
+                  : {}),
+                ...(c2.deductions.avg_sales_discount_pct != null
+                  ? {
+                      salesDiscountPercent:
+                        c2.deductions.avg_sales_discount_pct,
+                    }
+                  : {}),
+              };
+            }
+            const inflowSources = applyAIValues(inflowPatch, {
+              currentSources: existingInflows.fieldSources,
+              overriddenKeys: overriddenSourceKeys(existingInflows.fieldSources),
+            });
+            const deductionKeys = [
+              c2.deductions?.agent_commission_pct != null
+                ? "brokerCommissionPercent"
+                : null,
+              c2.deductions?.vat_pct != null ? "vatPercent" : null,
+              c2.deductions?.escrow_fees_pct != null
+                ? "escrowFeePercent"
+                : null,
+              c2.deductions?.avg_sales_discount_pct != null
+                ? "salesDiscountPercent"
+                : null,
+            ].filter((k): k is string => k != null);
             updateCashInflowsForStream({
-              ...(c2.avg_sales_price_psf
-                ? { salesPrice: c2.avg_sales_price_psf }
-                : {}),
-              ...(c2.deductions
-                ? {
-                    buyerMix: {
-                      ...existingInflows.buyerMix,
-                      ...(c2.deductions.agent_commission_pct != null
-                        ? {
-                            brokerCommissionPercent:
-                              c2.deductions.agent_commission_pct,
-                          }
-                        : {}),
-                      ...(c2.deductions.vat_pct != null
-                        ? { vatPercent: c2.deductions.vat_pct }
-                        : {}),
-                      ...(c2.deductions.escrow_fees_pct != null
-                        ? { escrowFeePercent: c2.deductions.escrow_fees_pct }
-                        : {}),
-                      ...(c2.deductions.avg_sales_discount_pct != null
-                        ? {
-                            salesDiscountPercent:
-                              c2.deductions.avg_sales_discount_pct,
-                          }
-                        : {}),
-                    },
-                  }
-                : {}),
+              ...(inflowSources.values as Partial<typeof existingInflows>),
+              fieldSources: tagFieldSources(
+                inflowSources.fieldSources,
+                deductionKeys,
+                "ai",
+                overriddenSourceKeys(existingInflows.fieldSources)
+              ),
             });
           }
           console.log(
@@ -1246,6 +1286,34 @@ function CashOutflowsPageContent() {
     }
   };
 
+  const fieldSources = cashOutflows.fieldSources ?? {};
+  const sourceOf = (key: string): FieldValueSource | undefined =>
+    fieldSources[key];
+  const isSourceOverride = (key: string) => sourceOf(key) === "override";
+  const markC1Override = (key: string) => {
+    if (fieldSources[key] === "override") return;
+    updateCashOutflowsForStream({
+      fieldSources: { ...fieldSources, [key]: "override" },
+    });
+  };
+  const resetC1Source = (key: string, hasAi: boolean) => {
+    updateCashOutflowsForStream({
+      fieldSources: {
+        ...fieldSources,
+        [key]: hasAi ? "ai" : "default",
+      },
+    });
+  };
+  const resetC1Sources = (keys: string[], hasAi: boolean) => {
+    updateCashOutflowsForStream({
+      fieldSources: tagFieldSources(
+        fieldSources,
+        keys,
+        hasAi ? "ai" : "default"
+      ),
+    });
+  };
+
   const logConstructionPeriodMonths = useCallback((months: number) => {
     if (!Number.isFinite(months) || months < 6 || months > 84) return;
     logSaleCashOutflow("constructionPeriod", months, 11);
@@ -1496,10 +1564,10 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  const isBuildingManual = isRateOverride(cashOutflows.buildingRate, benchBuildingRate);
-  const isParkingManual = isRateOverride(cashOutflows.parkingRate, benchParkingRate);
-  const isBasementManual = isRateOverride(cashOutflows.basementRate, benchBasementRate);
-  const isInfraManual = isRateOverride(cashOutflows.infrastructureRate ?? 0, benchInfraRate);
+  const isBuildingManual = isSourceOverride("buildingRate");
+  const isParkingManual = isSourceOverride("parkingRate");
+  const isBasementManual = isSourceOverride("basementRate");
+  const isInfraManual = isSourceOverride("infrastructureRate");
 
   const isAnyRateManual =
     isBuildingManual || isParkingManual || isBasementManual || isInfraManual;
@@ -1507,11 +1575,27 @@ function CashOutflowsPageContent() {
   const isStep6Manual = isAnyRateManual;
 
   const resetStep6ToBenchmark = () => {
+    const keys = [
+      "buildingRate",
+      "parkingRate",
+      "basementRate",
+      "infrastructureRate",
+    ];
     updateCashOutflowsForStream({
       ...(benchBuildingRate != null ? { buildingRate: benchBuildingRate } : {}),
       ...(benchParkingRate != null ? { parkingRate: benchParkingRate } : {}),
       ...(benchBasementRate != null ? { basementRate: benchBasementRate } : {}),
       ...(benchInfraRate != null ? { infrastructureRate: benchInfraRate } : {}),
+      fieldSources: tagFieldSources(
+        fieldSources,
+        keys,
+        aiBuildingRate != null ||
+          aiParkingRate != null ||
+          aiBasementRate != null ||
+          aiInfraRate != null
+          ? "ai"
+          : "default"
+      ),
     });
   };
 
@@ -1553,11 +1637,10 @@ function CashOutflowsPageContent() {
     updateCashOutflowsForStream,
   ]);
 
-  const isSCManual = isRateOverride(cashOutflows.softCostPercent, benchScPct);
-  const isPOWCManual = isRateOverride(cashOutflows.powcPercent, benchPowcPct);
+  const isSCManual = isSourceOverride("softCostPercent");
+  const isPOWCManual = isSourceOverride("powcPercent");
   const isFFEManual =
-    isSaleWarehouseProduct &&
-    isRateOverride(cashOutflows.ffePercent || 0, benchFfePct);
+    isSaleWarehouseProduct && isSourceOverride("ffePercent");
   const isAnySCPOWCManual = isSCManual || isPOWCManual || isFFEManual;
 
   const resetScPowcToBenchmark = () => {
@@ -1565,6 +1648,13 @@ function CashOutflowsPageContent() {
       ...(benchScPct != null ? { softCostPercent: benchScPct } : {}),
       ...(benchPowcPct != null ? { powcPercent: benchPowcPct } : {}),
       ...(benchFfePct != null ? { ffePercent: benchFfePct } : {}),
+      fieldSources: tagFieldSources(
+        fieldSources,
+        ["softCostPercent", "powcPercent", "ffePercent"],
+        aiScPct != null || aiPowcPct != null || aiFfePct != null
+          ? "ai"
+          : "default"
+      ),
     });
   };
 
@@ -1624,10 +1714,10 @@ function CashOutflowsPageContent() {
   ]);
 
   const isStageAllocationManual =
-    isRateOverride(cashOutflows.stageAllocation.stage1Percent, benchStage1) ||
-    isRateOverride(cashOutflows.stageAllocation.stage2Percent, benchStage2) ||
-    isRateOverride(cashOutflows.stageAllocation.stage3Percent, benchStage3) ||
-    isRateOverride(cashOutflows.stageAllocation.stage4Percent, benchStage4);
+    isSourceOverride("stage1Percent") ||
+    isSourceOverride("stage2Percent") ||
+    isSourceOverride("stage3Percent") ||
+    isSourceOverride("stage4Percent");
 
   const resetStagesToBenchmark = () => {
     const stages = saleRecommendations?.constructionStages;
@@ -1647,6 +1737,11 @@ function CashOutflowsPageContent() {
         ...(benchStage3 != null ? { stage3Percent: benchStage3 } : {}),
         ...(benchStage4 != null ? { stage4Percent: benchStage4 } : {}),
       },
+      fieldSources: tagFieldSources(
+        fieldSources,
+        ["stage1Percent", "stage2Percent", "stage3Percent", "stage4Percent"],
+        aiScurve != null ? "ai" : "default"
+      ),
     });
   };
 
@@ -1696,11 +1791,18 @@ function CashOutflowsPageContent() {
   const mvpLandRate = cityLandRate?.ratePerSqft;
   const benchLandRate = aiLandRate ?? mvpLandRate;
 
-  const isLandRateManual = isRateOverride(cashOutflows.landRate, benchLandRate);
+  const isLandRateManual = isSourceOverride("landRate");
 
   const resetLandRateToBenchmark = () => {
     if (benchLandRate == null) return;
-    updateCashOutflowsForStream({ landRate: benchLandRate });
+    updateCashOutflowsForStream({
+      landRate: benchLandRate,
+      fieldSources: tagFieldSources(
+        fieldSources,
+        ["landRate"],
+        aiLandRate != null ? "ai" : "default"
+      ),
+    });
   };
 
   const resetAllocationsToBenchmark = () => {
@@ -1734,33 +1836,16 @@ function CashOutflowsPageContent() {
     cashOutflows.softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
 
   const isPowcAllocationManual =
-    (aiPowcBreakdown?.site_establishment_pct != null &&
-      isRateOverride(
-        powcAllocCurrent.siteEstablishment,
-        aiPowcBreakdown.site_establishment_pct
-      )) ||
-    (aiPowcBreakdown?.overhead_pct != null &&
-      isRateOverride(powcAllocCurrent.overhead, aiPowcBreakdown.overhead_pct)) ||
-    (aiPowcBreakdown?.authority_fees_pct != null &&
-      isRateOverride(
-        powcAllocCurrent.authorityFees,
-        aiPowcBreakdown.authority_fees_pct
-      ));
+    isSourceOverride("powcSiteEstablishment") ||
+    isSourceOverride("powcOverhead") ||
+    isSourceOverride("powcAuthorityFees");
 
   const isScAllocationManual =
-    (aiScBreakdown?.architect_pct != null &&
-      isRateOverride(softAllocCurrent.architect, aiScBreakdown.architect_pct)) ||
-    (aiScBreakdown?.pm_pct != null &&
-      isRateOverride(softAllocCurrent.projectManagement, aiScBreakdown.pm_pct)) ||
-    (aiScBreakdown?.engineering_pct != null &&
-      isRateOverride(
-        softAllocCurrent.engineering,
-        aiScBreakdown.engineering_pct
-      )) ||
-    (aiScBreakdown?.geotech_pct != null &&
-      isRateOverride(softAllocCurrent.geotechnical, aiScBreakdown.geotech_pct)) ||
-    (aiScBreakdown?.other_pct != null &&
-      isRateOverride(softAllocCurrent.otherFees, aiScBreakdown.other_pct));
+    isSourceOverride("scArchitect") ||
+    isSourceOverride("scPM") ||
+    isSourceOverride("scEngineering") ||
+    isSourceOverride("scGeotech") ||
+    isSourceOverride("scOther");
 
   const isStep13Manual = isPowcAllocationManual || isScAllocationManual;
 
@@ -3360,6 +3445,14 @@ function CashOutflowsPageContent() {
                         updateFormData("buildingRate", v);
                       }
                     }}
+                    onManualOverride={() => markC1Override("buildingRate")}
+                    onResetOverride={() => {
+                      if (benchBuildingRate != null) {
+                        updateFormData("buildingRate", benchBuildingRate);
+                      }
+                      resetC1Source("buildingRate", !!aiBuildingRate);
+                    }}
+                    source={sourceOf("buildingRate")}
                     isAiGenerated={!!aiBuildingRate}
                     isManualOverride={isBuildingManual}
                     benchmarkValue={benchBuildingRate}
@@ -3437,6 +3530,14 @@ function CashOutflowsPageContent() {
                       isParkingManual &&
                       (projectInfo.salesHighRisePodiumBUA || 0) > 0
                     }
+                    source={sourceOf("parkingRate")}
+                    onManualOverride={() => markC1Override("parkingRate")}
+                    onResetOverride={() => {
+                      if (benchParkingRate != null) {
+                        updateFormData("parkingRate", benchParkingRate);
+                      }
+                      resetC1Source("parkingRate", !!aiParkingRate);
+                    }}
                     benchmarkValue={benchParkingRate}
                   />
                   {fieldError("parkingRate") && (
@@ -3496,6 +3597,14 @@ function CashOutflowsPageContent() {
                       isBasementManual &&
                       (projectInfo.salesHighRiseBasementBUA || 0) > 0
                     }
+                    source={sourceOf("basementRate")}
+                    onManualOverride={() => markC1Override("basementRate")}
+                    onResetOverride={() => {
+                      if (benchBasementRate != null) {
+                        updateFormData("basementRate", benchBasementRate);
+                      }
+                      resetC1Source("basementRate", !!aiBasementRate);
+                    }}
                     benchmarkValue={benchBasementRate}
                   />
                   {fieldError("basementRate") && (
@@ -3583,6 +3692,14 @@ function CashOutflowsPageContent() {
                       }}
                       isAiGenerated={!!aiInfraRate}
                       isManualOverride={isInfraManual}
+                      source={sourceOf("infrastructureRate")}
+                      onManualOverride={() => markC1Override("infrastructureRate")}
+                      onResetOverride={() => {
+                        if (benchInfraRate != null) {
+                          updateFormData("infrastructureRate", benchInfraRate);
+                        }
+                        resetC1Source("infrastructureRate", !!aiInfraRate);
+                      }}
                       benchmarkValue={benchInfraRate}
                       helperText="For landed developments only (Hi-Rise: leave as 0)"
                     />
@@ -3750,6 +3867,14 @@ function CashOutflowsPageContent() {
                     }}
                     isAiGenerated={!!aiScPct}
                     isManualOverride={isSCManual}
+                    source={sourceOf("softCostPercent")}
+                    onManualOverride={() => markC1Override("softCostPercent")}
+                    onResetOverride={() => {
+                      if (benchScPct != null) {
+                        updateFormData("softCostPercent", benchScPct);
+                      }
+                      resetC1Source("softCostPercent", aiScPct != null);
+                    }}
                     benchmarkValue={benchScPct}
                     helperText="SC amount = CC incl. contingency × SC% ÷ 100"
                   />
@@ -3772,6 +3897,14 @@ function CashOutflowsPageContent() {
                     }}
                     isAiGenerated={!!aiPowcPct}
                     isManualOverride={isPOWCManual}
+                    source={sourceOf("powcPercent")}
+                    onManualOverride={() => markC1Override("powcPercent")}
+                    onResetOverride={() => {
+                      if (benchPowcPct != null) {
+                        updateFormData("powcPercent", benchPowcPct);
+                      }
+                      resetC1Source("powcPercent", aiPowcPct != null);
+                    }}
                     benchmarkValue={benchPowcPct}
                     helperText="POWC = Pre-Operating Expenses & Working Capital"
                   />
@@ -3795,6 +3928,14 @@ function CashOutflowsPageContent() {
                       }}
                       isAiGenerated={!!aiFfePct}
                       isManualOverride={isFFEManual}
+                      source={sourceOf("ffePercent")}
+                      onManualOverride={() => markC1Override("ffePercent")}
+                      onResetOverride={() => {
+                        if (benchFfePct != null) {
+                          updateFormData("ffePercent", benchFfePct);
+                        }
+                        resetC1Source("ffePercent", aiFfePct != null);
+                      }}
                       benchmarkValue={benchFfePct}
                       helperText="Furniture, fixtures & equipment"
                     />
@@ -3919,6 +4060,14 @@ function CashOutflowsPageContent() {
                   }}
                   isAiGenerated={!!aiLandRate}
                   isManualOverride={isLandRateManual}
+                  source={sourceOf("landRate")}
+                  onManualOverride={() => markC1Override("landRate")}
+                  onResetOverride={() => {
+                    if (benchLandRate != null) {
+                      updateFormData("landRate", benchLandRate);
+                    }
+                    resetC1Source("landRate", !!aiLandRate);
+                  }}
                   benchmarkValue={benchLandRate}
                   helperText={
                     cityLandRate && !aiLandRate
@@ -4255,10 +4404,16 @@ function CashOutflowsPageContent() {
                           updateFormData("stage1Percent", Number(v) || 0)
                         }
                         isAiGenerated={!!aiScurve?.stage_1_pct}
-                        isManualOverride={isRateOverride(
-                          cashOutflows.stageAllocation.stage1Percent,
-                          benchStage1
-                        )}
+                        isManualOverride={isSourceOverride("stage1Percent")}
+                        source={sourceOf("stage1Percent")}
+                        onManualOverride={() => markC1Override("stage1Percent")}
+                        onResetOverride={() => {
+                          if (benchStage1 != null) {
+                            updateFormData("stage1Percent", benchStage1);
+                          }
+                          resetC1Source("stage1Percent", !!aiScurve?.stage_1_pct);
+                        }}
+                        benchmarkValue={benchStage1}
                       />
                     </div>
                   </div>
@@ -4284,10 +4439,16 @@ function CashOutflowsPageContent() {
                           updateFormData("stage2Percent", Number(v) || 0)
                         }
                         isAiGenerated={!!aiScurve?.stage_2_pct}
-                        isManualOverride={isRateOverride(
-                          cashOutflows.stageAllocation.stage2Percent,
-                          benchStage2
-                        )}
+                        isManualOverride={isSourceOverride("stage2Percent")}
+                        source={sourceOf("stage2Percent")}
+                        onManualOverride={() => markC1Override("stage2Percent")}
+                        onResetOverride={() => {
+                          if (benchStage2 != null) {
+                            updateFormData("stage2Percent", benchStage2);
+                          }
+                          resetC1Source("stage2Percent", !!aiScurve?.stage_2_pct);
+                        }}
+                        benchmarkValue={benchStage2}
                       />
                     </div>
                   </div>
@@ -4313,10 +4474,16 @@ function CashOutflowsPageContent() {
                           updateFormData("stage3Percent", Number(v) || 0)
                         }
                         isAiGenerated={!!aiScurve?.stage_3_pct}
-                        isManualOverride={isRateOverride(
-                          cashOutflows.stageAllocation.stage3Percent,
-                          benchStage3
-                        )}
+                        isManualOverride={isSourceOverride("stage3Percent")}
+                        source={sourceOf("stage3Percent")}
+                        onManualOverride={() => markC1Override("stage3Percent")}
+                        onResetOverride={() => {
+                          if (benchStage3 != null) {
+                            updateFormData("stage3Percent", benchStage3);
+                          }
+                          resetC1Source("stage3Percent", !!aiScurve?.stage_3_pct);
+                        }}
+                        benchmarkValue={benchStage3}
                       />
                     </div>
                   </div>
@@ -4342,10 +4509,16 @@ function CashOutflowsPageContent() {
                           updateFormData("stage4Percent", Number(v) || 0)
                         }
                         isAiGenerated={!!aiScurve?.stage_4_pct}
-                        isManualOverride={isRateOverride(
-                          cashOutflows.stageAllocation.stage4Percent ?? 0,
-                          benchStage4
-                        )}
+                        isManualOverride={isSourceOverride("stage4Percent")}
+                        source={sourceOf("stage4Percent")}
+                        onManualOverride={() => markC1Override("stage4Percent")}
+                        onResetOverride={() => {
+                          if (benchStage4 != null) {
+                            updateFormData("stage4Percent", benchStage4);
+                          }
+                          resetC1Source("stage4Percent", !!aiScurve?.stage_4_pct);
+                        }}
+                        benchmarkValue={benchStage4}
                       />
                     </div>
                   </div>

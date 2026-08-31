@@ -65,13 +65,37 @@ export default function DataCentreBuildingConfigStep({ errors = {} }: Props) {
   const aiResearchData = useFinModelStore(
     (s) => s.operational.cashOutflows.aiResearchData
   );
+  const fieldSources = useFinModelStore(
+    (s) => s.operational.cashOutflows.fieldSources
+  );
   const updateProjectInfo = useFinModelStore((s) => s.updateProjectInfo);
+  const updateCashOutflows = useFinModelStore((s) => s.updateCashOutflows);
 
   const patch = (data: Partial<ProjectInfo>, field?: string, value?: string | number) => {
     updateProjectInfo(data, "operational");
     if (field != null && value != null) {
       logOperationalCashOutflow(field, value, 5);
     }
+  };
+
+  const markDcOverride = (key: string) => {
+    if (fieldSources?.[key] === "override") return;
+    updateCashOutflows(
+      { fieldSources: { ...(fieldSources ?? {}), [key]: "override" } },
+      "operational"
+    );
+  };
+
+  const resetDcSource = (key: string, hasAi: boolean) => {
+    updateCashOutflows(
+      {
+        fieldSources: {
+          ...(fieldSources ?? {}),
+          [key]: hasAi ? "ai" : "default",
+        },
+      },
+      "operational"
+    );
   };
 
   const aiBasics = useMemo(
@@ -163,22 +187,12 @@ export default function DataCentreBuildingConfigStep({ errors = {} }: Props) {
     updateProjectInfo,
   ]);
 
-  const pueFromAi =
-    (aiPue != null && aiPue > 0) ||
-    (projectInfo.dataCentrePUE != null && projectInfo.dataCentrePUE > 0);
-  const densityFromAi =
-    (aiItLoadDensity != null && aiItLoadDensity > 0) ||
-    (projectInfo.dataCentreITLoadDensity != null &&
-      projectInfo.dataCentreITLoadDensity > 0);
+  const pueFromAi = aiPue != null && aiPue > 0;
+  const densityFromAi = aiItLoadDensity != null && aiItLoadDensity > 0;
 
   const densityOverridden =
-    aiItLoadDensity != null &&
-    projectInfo.dataCentreITLoadDensity != null &&
-    Math.abs(projectInfo.dataCentreITLoadDensity - aiItLoadDensity) > 1e-9;
-  const pueOverridden =
-    aiPue != null &&
-    projectInfo.dataCentrePUE != null &&
-    Math.abs(projectInfo.dataCentrePUE - aiPue) > 1e-9;
+    fieldSources?.dataCentreITLoadDensity === "override";
+  const pueOverridden = fieldSources?.dataCentrePUE === "override";
 
   return (
     <div className="space-y-8">
@@ -283,6 +297,18 @@ export default function DataCentreBuildingConfigStep({ errors = {} }: Props) {
             placeholder="e.g. 0.15"
             isAiGenerated={densityFromAi}
             isManualOverride={densityOverridden}
+            source={fieldSources?.dataCentreITLoadDensity}
+            onManualOverride={() => markDcOverride("dataCentreITLoadDensity")}
+            onResetOverride={() => {
+              if (aiItLoadDensity != null) {
+                patch(
+                  { dataCentreITLoadDensity: aiItLoadDensity },
+                  "dataCentreITLoadDensity",
+                  aiItLoadDensity
+                );
+              }
+              resetDcSource("dataCentreITLoadDensity", densityFromAi);
+            }}
             benchmarkValue={aiItLoadDensity}
             helperText={
               densityFromAi
@@ -393,6 +419,14 @@ export default function DataCentreBuildingConfigStep({ errors = {} }: Props) {
             placeholder="e.g. 1.35"
             isAiGenerated={pueFromAi}
             isManualOverride={pueOverridden}
+            source={fieldSources?.dataCentrePUE}
+            onManualOverride={() => markDcOverride("dataCentrePUE")}
+            onResetOverride={() => {
+              if (aiPue != null) {
+                patch({ dataCentrePUE: aiPue }, "dataCentrePUE", aiPue);
+              }
+              resetDcSource("dataCentrePUE", pueFromAi);
+            }}
             benchmarkValue={aiPue}
             helperText={
               pueFromAi

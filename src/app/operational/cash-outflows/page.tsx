@@ -57,6 +57,12 @@ import BenchmarkHeader from "@/components/BenchmarkHeader";
 import DetailedAllocationSection from "@/components/cash-outflows/DetailedAllocationSection";
 import CashOutflowsReviewSummary from "@/components/cash-outflows/CashOutflowsReviewSummary";
 import {
+  applyAIValues,
+  overriddenSourceKeys,
+  tagFieldSources,
+  type FieldValueSource,
+} from "@/lib/field-value-source";
+import {
   DEFAULT_POWC_ALLOCATION,
   DEFAULT_SOFT_COST_ALLOCATION,
 } from "@/lib/cash-outflow-default-allocations";
@@ -403,6 +409,26 @@ function findProfileDefault(pi: ProjectInfo) {
     }
   }
   return { key: rawKey, profile: undefined };
+}
+
+function commitAiCashOutflowPatch(
+  patch: Partial<CashOutflows>,
+  update: (data: Partial<CashOutflows>) => void,
+  currentSources: Record<string, FieldValueSource> | undefined
+) {
+  const { aiResearchData, ...rest } = patch;
+  const { values, fieldSources } = applyAIValues(
+    rest as Record<string, unknown>,
+    {
+      currentSources,
+      overriddenKeys: overriddenSourceKeys(currentSources),
+    }
+  );
+  update({
+    ...(values as Partial<CashOutflows>),
+    ...(aiResearchData ? { aiResearchData } : {}),
+    fieldSources,
+  });
 }
 
 function getProfileKey(
@@ -885,6 +911,22 @@ function CashOutflowsPageContent() {
           ...(basics.constructionMonths != null
             ? { constructionPeriod: Math.round(basics.constructionMonths) }
             : {}),
+          fieldSources: tagFieldSources(
+            useFinModelStore.getState().operational?.cashOutflows?.fieldSources,
+            [
+              ...(basics.itLoadDensity != null
+                ? ["dataCentreITLoadDensity"]
+                : []),
+              ...(basics.typicalPue != null ? ["dataCentrePUE"] : []),
+              ...(basics.constructionMonths != null
+                ? ["constructionPeriod"]
+                : []),
+            ],
+            "ai",
+            overriddenSourceKeys(
+              useFinModelStore.getState().operational?.cashOutflows?.fieldSources
+            )
+          ),
         });
 
         updateProjectInfoForStream({
@@ -1378,20 +1420,18 @@ function CashOutflowsPageContent() {
     ai != null && Number.isFinite(ai) && Math.abs(current - ai) > ALLOC_EPS;
 
   const hasStageAllocationOverride = useMemo(() => {
-    if (!aiScurve) return false;
-    const sa = cashOutflows.stageAllocation;
+    const src = cashOutflows.fieldSources;
     return (
-      differsFromAi(sa.stage1Percent, aiScurve.stage_1_pct) ||
-      differsFromAi(sa.stage2Percent, aiScurve.stage_2_pct) ||
-      differsFromAi(sa.stage3Percent, aiScurve.stage_3_pct) ||
-      differsFromAi(sa.stage4Percent, aiScurve.stage_4_pct)
+      src?.stage1Percent === "override" ||
+      src?.stage2Percent === "override" ||
+      src?.stage3Percent === "override" ||
+      src?.stage4Percent === "override"
     );
   }, [
-    aiScurve,
-    cashOutflows.stageAllocation.stage1Percent,
-    cashOutflows.stageAllocation.stage2Percent,
-    cashOutflows.stageAllocation.stage3Percent,
-    cashOutflows.stageAllocation.stage4Percent,
+    cashOutflows.fieldSources?.stage1Percent,
+    cashOutflows.fieldSources?.stage2Percent,
+    cashOutflows.fieldSources?.stage3Percent,
+    cashOutflows.fieldSources?.stage4Percent,
   ]);
 
   const powcAllocCurrent =
@@ -1400,50 +1440,33 @@ function CashOutflowsPageContent() {
     cashOutflows.softCostAllocation ?? { ...DEFAULT_SOFT_COST_ALLOCATION };
 
   const hasPowcAllocationOverride = useMemo(() => {
-    if (!aiPowcBreakdown) return false;
+    const src = cashOutflows.fieldSources;
     return (
-      differsFromAi(
-        powcAllocCurrent.siteEstablishment,
-        aiPowcBreakdown.site_establishment_pct
-      ) ||
-      differsFromAi(powcAllocCurrent.overhead, aiPowcBreakdown.overhead_pct) ||
-      differsFromAi(
-        powcAllocCurrent.authorityFees,
-        aiPowcBreakdown.authority_fees_pct
-      )
+      src?.powcSiteEstablishment === "override" ||
+      src?.powcOverhead === "override" ||
+      src?.powcAuthorityFees === "override"
     );
   }, [
-    aiPowcBreakdown,
-    powcAllocCurrent.siteEstablishment,
-    powcAllocCurrent.overhead,
-    powcAllocCurrent.authorityFees,
+    cashOutflows.fieldSources?.powcSiteEstablishment,
+    cashOutflows.fieldSources?.powcOverhead,
+    cashOutflows.fieldSources?.powcAuthorityFees,
   ]);
 
   const hasScAllocationOverride = useMemo(() => {
-    if (!aiScBreakdown) return false;
+    const src = cashOutflows.fieldSources;
     return (
-      differsFromAi(softAllocCurrent.architect, aiScBreakdown.architect_pct) ||
-      differsFromAi(
-        softAllocCurrent.projectManagement,
-        aiScBreakdown.pm_pct
-      ) ||
-      differsFromAi(
-        softAllocCurrent.engineering,
-        aiScBreakdown.engineering_pct
-      ) ||
-      differsFromAi(
-        softAllocCurrent.geotechnical,
-        aiScBreakdown.geotech_pct
-      ) ||
-      differsFromAi(softAllocCurrent.otherFees, aiScBreakdown.other_pct)
+      src?.scArchitect === "override" ||
+      src?.scPM === "override" ||
+      src?.scEngineering === "override" ||
+      src?.scGeotech === "override" ||
+      src?.scOther === "override"
     );
   }, [
-    aiScBreakdown,
-    softAllocCurrent.architect,
-    softAllocCurrent.projectManagement,
-    softAllocCurrent.engineering,
-    softAllocCurrent.geotechnical,
-    softAllocCurrent.otherFees,
+    cashOutflows.fieldSources?.scArchitect,
+    cashOutflows.fieldSources?.scPM,
+    cashOutflows.fieldSources?.scEngineering,
+    cashOutflows.fieldSources?.scGeotech,
+    cashOutflows.fieldSources?.scOther,
   ]);
 
   const hasDetailedAllocationOverride =
@@ -2069,7 +2092,11 @@ function CashOutflowsPageContent() {
             };
           }
 
-          updateCashOutflowsForStream(patch);
+          commitAiCashOutflowPatch(
+            patch,
+            updateCashOutflowsForStream,
+            st?.fieldSources
+          );
           console.log("📊 Auto-populated fields from AI research:", patch);
 
           const storedData =
@@ -2268,7 +2295,11 @@ function CashOutflowsPageContent() {
             };
           }
 
-          updateCashOutflowsForStream(patch);
+          commitAiCashOutflowPatch(
+            patch,
+            updateCashOutflowsForStream,
+            st?.fieldSources
+          );
           console.log("📊 Retail auto-populated fields from AI research:", patch);
 
           hasResearchedForRetailRef.current = researchKey;
@@ -2462,7 +2493,11 @@ function CashOutflowsPageContent() {
             };
           }
 
-          updateCashOutflowsForStream(patch);
+          commitAiCashOutflowPatch(
+            patch,
+            updateCashOutflowsForStream,
+            st?.fieldSources
+          );
           console.log("📊 Office auto-populated fields from AI research:", patch);
 
           hasResearchedForOfficeRef.current = researchKey;
@@ -2661,7 +2696,11 @@ function CashOutflowsPageContent() {
             };
           }
 
-          updateCashOutflowsForStream(patch);
+          commitAiCashOutflowPatch(
+            patch,
+            updateCashOutflowsForStream,
+            st?.fieldSources
+          );
           console.log("📊 Residential auto-populated fields from AI research:", patch);
 
           hasResearchedForResidentialRef.current = researchKey;
@@ -2891,7 +2930,11 @@ function CashOutflowsPageContent() {
             }
           }
 
-          updateCashOutflowsForStream(patch);
+          commitAiCashOutflowPatch(
+            patch,
+            updateCashOutflowsForStream,
+            st?.fieldSources
+          );
           console.log(
             "📊 Warehouse auto-populated fields from AI research:",
             patch
@@ -3086,15 +3129,31 @@ function CashOutflowsPageContent() {
           latestProjectInfo
         );
 
-        updateCashOutflowsForStream({
-          ...mapped.cashOutflowsPatch,
-          aiResearchData: {
-            ...researchData,
-            _researchKey: researchKey,
+        const currentSources =
+          useFinModelStore.getState().operational?.cashOutflows?.fieldSources;
+        commitAiCashOutflowPatch(
+          {
+            ...mapped.cashOutflowsPatch,
+            aiResearchData: {
+              ...researchData,
+              _researchKey: researchKey,
+            },
           },
-        });
+          updateCashOutflowsForStream,
+          currentSources
+        );
         if (Object.keys(mapped.projectInfoPatch).length > 0) {
           updateProjectInfoForStream(mapped.projectInfoPatch);
+          updateCashOutflowsForStream({
+            fieldSources: tagFieldSources(
+              useFinModelStore.getState().operational?.cashOutflows?.fieldSources,
+              Object.keys(mapped.projectInfoPatch),
+              "ai",
+              overriddenSourceKeys(
+                useFinModelStore.getState().operational?.cashOutflows?.fieldSources
+              )
+            ),
+          });
         }
         if (Object.keys(mapped.cashInflowsPatch).length > 0) {
           updateCashInflowsForStream(mapped.cashInflowsPatch);
@@ -4380,37 +4439,21 @@ function CashOutflowsPageContent() {
     return (
       !!cashOutflows.operationalOfficeScManual ||
       !!cashOutflows.operationalOfficePowcManual ||
-      !!cashOutflows.operationalOfficeFfeManual ||
-      differsFromAi(cashOutflows.softCostPercent, aiScPct) ||
-      differsFromAi(cashOutflows.powcPercent, aiPowcPct) ||
-      (showsOperationalFfe &&
-        differsFromAi(cashOutflows.ffePercent, aiFfePct))
+      !!cashOutflows.operationalOfficeFfeManual
     );
   }, [
     isOperationalOffice,
     cashOutflows.operationalOfficeScManual,
     cashOutflows.operationalOfficePowcManual,
     cashOutflows.operationalOfficeFfeManual,
-    cashOutflows.softCostPercent,
-    cashOutflows.powcPercent,
-    cashOutflows.ffePercent,
-    aiScPct,
-    aiPowcPct,
-    aiFfePct,
-    showsOperationalFfe,
   ]);
 
   const officeLandRateOverride = useMemo(() => {
     if (!isOperationalOffice) return false;
-    return (
-      !!cashOutflows.operationalOfficeLandRateManual ||
-      differsFromAi(cashOutflows.landRate, aiLandRate)
-    );
+    return !!cashOutflows.operationalOfficeLandRateManual;
   }, [
     isOperationalOffice,
     cashOutflows.operationalOfficeLandRateManual,
-    cashOutflows.landRate,
-    aiLandRate,
   ]);
 
   const handleOfficeCcRateChange = useCallback(
@@ -6469,6 +6512,32 @@ function CashOutflowsPageContent() {
                           cashOutflows.operationalResidentialBuildingRateManual
                         )
                       }
+                      source={cashOutflows.fieldSources?.buildingRate}
+                      onManualOverride={() =>
+                        updateCashOutflowsForStream({
+                          fieldSources: {
+                            ...cashOutflows.fieldSources,
+                            buildingRate: "override",
+                          },
+                        })
+                      }
+                      onResetOverride={() => {
+                        const next =
+                          aiBuildingRate ?? cashOutflows.buildingRate;
+                        updateCashOutflowsForStream({
+                          buildingRate: next,
+                          operationalHotelBuildingRateManual: false,
+                          operationalRetailBuildingRateManual: false,
+                          operationalOfficeBuildingRateManual: false,
+                          operationalResidentialBuildingRateManual: false,
+                          fieldSources: {
+                            ...cashOutflows.fieldSources,
+                            buildingRate:
+                              aiBuildingRate != null ? "ai" : "default",
+                          },
+                        });
+                      }}
+                      benchmarkValue={aiBuildingRate}
                     />
                     {fieldError("buildingRate") && (
                       <p className="mt-1 text-sm text-red-400">
@@ -7138,6 +7207,7 @@ function CashOutflowsPageContent() {
                         cashOutflows.operationalWarehouseScManual
                       )
                     }
+                    source={cashOutflows.fieldSources?.softCostPercent}
                     helperText="SC amount = CC incl. contingency × SC% ÷ 100"
                   />
                   {fieldError("softCostPercent") && (
@@ -7196,6 +7266,7 @@ function CashOutflowsPageContent() {
                         cashOutflows.operationalWarehousePowcManual
                       )
                     }
+                    source={cashOutflows.fieldSources?.powcPercent}
                     helperText="POWC amount = CC incl. contingency × POWC% ÷ 100. POWC = Pre-Operating Expenses & Working Capital (Site Establishment, Overhead, Authority Fees)"
                   />
                   {fieldError("powcPercent") && (
@@ -7569,6 +7640,7 @@ function CashOutflowsPageContent() {
                         cashOutflows.operationalWarehouseLandRateManual
                       )
                     }
+                    source={cashOutflows.fieldSources?.landRate}
                   />
                   {fieldError("landRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -7767,11 +7839,28 @@ function CashOutflowsPageContent() {
                     aiConstructionPeriodMonths > 0
                   }
                   isManualOverride={
-                    aiConstructionPeriodMonths != null &&
-                    cashOutflows.constructionPeriod != null &&
-                    cashOutflows.constructionPeriod !==
-                      aiConstructionPeriodMonths
+                    cashOutflows.fieldSources?.constructionPeriod === "override"
                   }
+                  source={cashOutflows.fieldSources?.constructionPeriod}
+                  onManualOverride={() =>
+                    updateCashOutflowsForStream({
+                      fieldSources: {
+                        ...cashOutflows.fieldSources,
+                        constructionPeriod: "override",
+                      },
+                    })
+                  }
+                  onResetOverride={() => {
+                    if (aiConstructionPeriodMonths != null) {
+                      updateCashOutflowsForStream({
+                        constructionPeriod: aiConstructionPeriodMonths,
+                        fieldSources: {
+                          ...cashOutflows.fieldSources,
+                          constructionPeriod: "ai",
+                        },
+                      });
+                    }
+                  }}
                   benchmarkValue={aiConstructionPeriodMonths}
                   helperText={
                     aiConstructionPeriodMonths != null
@@ -7916,10 +8005,31 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_1_pct}
-                        isManualOverride={differsFromAi(
-                          cashOutflows.stageAllocation.stage1Percent,
-                          aiC1?.s_curve?.stage_1_pct
-                        )}
+                        isManualOverride={
+                          cashOutflows.fieldSources?.stage1Percent === "override"
+                        }
+                        source={cashOutflows.fieldSources?.stage1Percent}
+                        onManualOverride={() =>
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage1Percent: "override",
+                            },
+                          })
+                        }
+                        onResetOverride={() => {
+                          const pct = aiC1?.s_curve?.stage_1_pct;
+                          if (pct != null) {
+                            updateStageAllocationField("stage1Percent", pct);
+                          }
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage1Percent: pct != null ? "ai" : "default",
+                            },
+                          });
+                        }}
+                        benchmarkValue={aiC1?.s_curve?.stage_1_pct}
                       />
                     </div>
                   </div>
@@ -7951,10 +8061,31 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_2_pct}
-                        isManualOverride={differsFromAi(
-                          cashOutflows.stageAllocation.stage2Percent,
-                          aiC1?.s_curve?.stage_2_pct
-                        )}
+                        isManualOverride={
+                          cashOutflows.fieldSources?.stage2Percent === "override"
+                        }
+                        source={cashOutflows.fieldSources?.stage2Percent}
+                        onManualOverride={() =>
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage2Percent: "override",
+                            },
+                          })
+                        }
+                        onResetOverride={() => {
+                          const pct = aiC1?.s_curve?.stage_2_pct;
+                          if (pct != null) {
+                            updateStageAllocationField("stage2Percent", pct);
+                          }
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage2Percent: pct != null ? "ai" : "default",
+                            },
+                          });
+                        }}
+                        benchmarkValue={aiC1?.s_curve?.stage_2_pct}
                       />
                     </div>
                   </div>
@@ -7986,10 +8117,31 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_3_pct}
-                        isManualOverride={differsFromAi(
-                          cashOutflows.stageAllocation.stage3Percent,
-                          aiC1?.s_curve?.stage_3_pct
-                        )}
+                        isManualOverride={
+                          cashOutflows.fieldSources?.stage3Percent === "override"
+                        }
+                        source={cashOutflows.fieldSources?.stage3Percent}
+                        onManualOverride={() =>
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage3Percent: "override",
+                            },
+                          })
+                        }
+                        onResetOverride={() => {
+                          const pct = aiC1?.s_curve?.stage_3_pct;
+                          if (pct != null) {
+                            updateStageAllocationField("stage3Percent", pct);
+                          }
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage3Percent: pct != null ? "ai" : "default",
+                            },
+                          });
+                        }}
+                        benchmarkValue={aiC1?.s_curve?.stage_3_pct}
                       />
                     </div>
                   </div>
@@ -8022,10 +8174,31 @@ function CashOutflowsPageContent() {
                         }
                         type="percentage"
                         isAiGenerated={!!aiC1?.s_curve?.stage_4_pct}
-                        isManualOverride={differsFromAi(
-                          cashOutflows.stageAllocation.stage4Percent,
-                          aiC1?.s_curve?.stage_4_pct
-                        )}
+                        isManualOverride={
+                          cashOutflows.fieldSources?.stage4Percent === "override"
+                        }
+                        source={cashOutflows.fieldSources?.stage4Percent}
+                        onManualOverride={() =>
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage4Percent: "override",
+                            },
+                          })
+                        }
+                        onResetOverride={() => {
+                          const pct = aiC1?.s_curve?.stage_4_pct;
+                          if (pct != null) {
+                            updateStageAllocationField("stage4Percent", pct);
+                          }
+                          updateCashOutflowsForStream({
+                            fieldSources: {
+                              ...cashOutflows.fieldSources,
+                              stage4Percent: pct != null ? "ai" : "default",
+                            },
+                          });
+                        }}
+                        benchmarkValue={aiC1?.s_curve?.stage_4_pct}
                       />
                     </div>
                   </div>
