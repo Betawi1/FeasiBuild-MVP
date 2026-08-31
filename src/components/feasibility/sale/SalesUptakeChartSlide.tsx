@@ -10,11 +10,11 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: SaleSalesUptakeChartData;
@@ -55,9 +55,8 @@ export default function SalesUptakeChartSlide({
           <h3 className="text-xs font-bold text-slate-800 mb-2 shrink-0">
             Sales Uptake &amp; Mix Schedule ({data.currency} &apos;000)
           </h3>
-          <div className="flex-1 min-h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <ReactiveChart data={chartData} height="h-72">
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" fontSize={10} interval="preserveStartEnd" />
                 <YAxis fontSize={10} />
@@ -76,8 +75,7 @@ export default function SalesUptakeChartSlide({
                   stackId="a"
                 />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
         </div>
       </div>
     </SlideContainer>

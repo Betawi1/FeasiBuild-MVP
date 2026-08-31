@@ -10,11 +10,11 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 type AnnualRevenuesDataWithBullets = AnnualRevenuesData & {
   summaryBullets?: string[];
@@ -70,7 +70,7 @@ export default function AnnualRevenuesByClassSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Annual revenues of {city} hotels by hotel class (AED 000)
           </h3>
-          <ResponsiveContainer width="100%" height={280}>
+          <ReactiveChart data={data.yearlyData} height="h-72">
             <BarChart data={data.yearlyData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="year" fontSize={9} />
@@ -82,7 +82,7 @@ export default function AnnualRevenuesByClassSlide({
               <Bar dataKey="threeStar" stackId="a" fill="#166534" name="Three-star" />
               <Bar dataKey="others" stackId="a" fill="#1e3a8a" name="Others" />
             </BarChart>
-          </ResponsiveContainer>
+          </ReactiveChart>
           {isEditing ? (
             <div className="flex justify-center gap-2 mt-1 text-[10px]">
               <input

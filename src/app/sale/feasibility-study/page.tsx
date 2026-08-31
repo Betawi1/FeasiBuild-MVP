@@ -284,7 +284,7 @@ export default function SaleFeasibilityStudyPage() {
       <div className="flex flex-1 items-center justify-center bg-slate-950 p-4">
         <SlideCaptureProvider captureId="slide-capture-container">
           <SlideErrorBoundary
-            key={currentSlide.id}
+            key={`${currentSlide.id}:${JSON.stringify(currentSlide.charts ?? [])}`}
             fallback={
               <div className="flex h-[720px] w-[1280px] items-center justify-center bg-white">
                 <p className="text-red-600">Error rendering slide</p>

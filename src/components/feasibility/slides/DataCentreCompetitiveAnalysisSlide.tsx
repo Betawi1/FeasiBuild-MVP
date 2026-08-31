@@ -14,11 +14,11 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: DataCentreCompetitiveAnalysisData;
@@ -78,12 +78,11 @@ export default function DataCentreCompetitiveAnalysisSlide({
               <h3 className="mb-1 shrink-0 text-[10px] font-semibold text-slate-700">
                 {DATACENTRE_CHART_LABELS.competitorPricingKw.replace("MYR", c)}
               </h3>
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={data.competitorPricing}
-                    margin={CHART_MARGIN}
-                  >
+              <ReactiveChart data={data.competitorPricing} height="h-56">
+                <BarChart
+                  data={data.competitorPricing}
+                  margin={CHART_MARGIN}
+                >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="name"
@@ -106,17 +105,15 @@ export default function DataCentreCompetitiveAnalysisSlide({
                       />
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+              </ReactiveChart>
             </div>
 
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
               <h3 className="mb-1 shrink-0 text-[10px] font-semibold text-slate-700">
                 {DATACENTRE_CHART_LABELS.competitorPue}
               </h3>
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.competitorPUE} margin={CHART_MARGIN}>
+              <ReactiveChart data={data.competitorPUE} height="h-56">
+                <BarChart data={data.competitorPUE} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="name"
@@ -142,8 +139,7 @@ export default function DataCentreCompetitiveAnalysisSlide({
                       />
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+              </ReactiveChart>
             </div>
           </div>
 
@@ -153,9 +149,8 @@ export default function DataCentreCompetitiveAnalysisSlide({
               <h3 className="mb-1 shrink-0 text-center text-[10px] font-semibold text-slate-700">
                 {DATACENTRE_CHART_LABELS.latencyToHubs}
               </h3>
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.latencyToHubs} margin={CHART_MARGIN}>
+              <ReactiveChart data={data.latencyToHubs} height="h-56">
+                <BarChart data={data.latencyToHubs} margin={CHART_MARGIN}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="hub"
@@ -176,8 +171,7 @@ export default function DataCentreCompetitiveAnalysisSlide({
                       />
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+              </ReactiveChart>
             </div>
           </div>
         </div>

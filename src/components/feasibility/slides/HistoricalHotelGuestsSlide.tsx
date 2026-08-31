@@ -10,7 +10,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -20,6 +19,7 @@ import {
   CHART_MARGIN_WITH_LABELS,
   formatChartNumber,
 } from "@/components/feasibility/charts/chart-data-labels";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 type HistoricalGuestsDataWithBullets = HistoricalGuestsData & {
   summaryBullets?: string[];
@@ -70,7 +70,7 @@ export default function HistoricalHotelGuestsSlide({
             <h3 className="text-xs font-semibold text-slate-700 mb-1">
               Number of hotel guests &amp; guest nights, {country}
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
+            <ReactiveChart data={data.yearlyData} height="h-64">
               <BarChart data={data.yearlyData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
@@ -94,7 +94,7 @@ export default function HistoricalHotelGuestsSlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </ReactiveChart>
             {isEditing ? (
               <div className="flex justify-center gap-2 mt-1 text-[10px]">
                 <input
@@ -130,7 +130,7 @@ export default function HistoricalHotelGuestsSlide({
             <h3 className="text-xs font-semibold text-slate-700 mb-1">
               Composition by hotel class
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
+            <ReactiveChart data={data.compositionByClass} height="h-64">
               <BarChart data={data.compositionByClass}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
@@ -142,7 +142,7 @@ export default function HistoricalHotelGuestsSlide({
                 <Bar dataKey="threeStar" stackId="a" fill="#166534" name="3-Star" />
                 <Bar dataKey="others" stackId="a" fill="#1e3a8a" name="Others" />
               </BarChart>
-            </ResponsiveContainer>
+            </ReactiveChart>
           </div>
         </div>
 

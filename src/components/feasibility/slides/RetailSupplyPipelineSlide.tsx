@@ -14,11 +14,11 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: RetailSupplyPipelineData;
@@ -52,9 +52,8 @@ export default function RetailSupplyPipelineSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Retail GLA stock & pipeline — {city} (m sqft)
           </h3>
-          <div className="flex-1 min-h-0 pt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={CHART_MARGIN_WITH_LABELS}>
+          <ReactiveChart data={chartData} height="h-72">
+            <BarChart data={chartData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
@@ -85,8 +84,7 @@ export default function RetailSupplyPipelineSlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
         </div>
         <div className="space-y-3 overflow-y-auto">
           <EditableSlideParagraphs

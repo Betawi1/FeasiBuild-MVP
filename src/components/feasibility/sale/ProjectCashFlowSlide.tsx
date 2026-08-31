@@ -11,11 +11,11 @@ import {
   Line,
   LineChart,
   ReferenceLine,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: SaleProjectCashFlowData;
@@ -60,9 +60,8 @@ export default function ProjectCashFlowSlide({
             Payback: M{data.paybackMonth}
           </span>
         </div>
-        <div className="flex-1 min-h-[220px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
+        <ReactiveChart data={chartData} height="h-72">
+          <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" tick={{ fontSize: 8 }} interval={Math.ceil(chartData.length / 12)} />
               <YAxis tick={{ fontSize: 10 }} />
@@ -72,8 +71,7 @@ export default function ProjectCashFlowSlide({
               <Line type="monotone" dataKey="netCashFlow" stroke="#2563eb" dot={false} name={`Net CF (${data.currency} '000)`} />
               <Line type="monotone" dataKey="cumulative" stroke="#059669" dot={false} name={`Cumulative (${data.currency} '000)`} />
             </LineChart>
-          </ResponsiveContainer>
-        </div>
+        </ReactiveChart>
       </div>
     </SlideContainer>
   );

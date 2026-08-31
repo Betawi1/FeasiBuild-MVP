@@ -12,7 +12,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   ReferenceLine,
   Legend,
 } from "recharts";
@@ -20,6 +19,7 @@ import {
   BarValueLabelList,
   formatChartNumber,
 } from "@/components/feasibility/charts/chart-data-labels";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: PreferenceSharesExitStrategyData;
@@ -93,12 +93,11 @@ export default function PreferenceSharesExitStrategySlide({
           <h3 className="text-sm font-bold text-slate-900 mb-2 border-b border-slate-300 pb-1 shrink-0">
             Debt Service Coverage Ratio (DSCR)
           </h3>
-          <div className="w-full min-h-0 flex-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.dscrByYear}
-                margin={{ top: 22, right: 10, left: 0, bottom: 0 }}
-              >
+          <ReactiveChart data={data.dscrByYear} height="h-64">
+            <BarChart
+              data={data.dscrByYear}
+              margin={{ top: 22, right: 10, left: 0, bottom: 0 }}
+            >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={10} />
                 <YAxis domain={[0, yDomainMax]} fontSize={10} />
@@ -138,8 +137,7 @@ export default function PreferenceSharesExitStrategySlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
           <p className="text-[10px] text-slate-500 mt-2 text-center shrink-0">
             Minimum required DSCR of {minDscr.toFixed(2)}x indicated by red
             dashed line.

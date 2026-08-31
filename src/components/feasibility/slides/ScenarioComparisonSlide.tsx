@@ -17,12 +17,12 @@ import {
   Tooltip,
   Legend,
   ReferenceLine,
-  ResponsiveContainer,
 } from "recharts";
 import {
   HorizontalBarValueLabelList,
   formatChartNumber,
 } from "@/components/feasibility/charts/chart-data-labels";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: ScenarioComparisonData;
@@ -70,13 +70,12 @@ export default function ScenarioComparisonSlide({
           <h3 className="text-sm font-bold text-slate-800 mb-2 text-center shrink-0">
             IRR Sensitivity by Driver
           </h3>
-          <div className="w-full min-h-0 flex-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                layout="vertical"
-                data={sortedTornadoData}
-                margin={{ top: 5, right: 36, left: 60, bottom: 5 }}
-              >
+          <ReactiveChart data={sortedTornadoData} height="h-72">
+            <BarChart
+              layout="vertical"
+              data={sortedTornadoData}
+              margin={{ top: 5, right: 36, left: 60, bottom: 5 }}
+            >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
                   type="number"
@@ -130,8 +129,7 @@ export default function ScenarioComparisonSlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
           <p className="text-[10px] text-slate-500 mt-2 text-center shrink-0">
             Chart shows the impact of individual variable shocks on Project IRR
             relative to Base Case.

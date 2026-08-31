@@ -10,7 +10,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -20,6 +19,7 @@ import {
   CHART_MARGIN_WITH_LABELS,
   formatChartNumber,
 } from "@/components/feasibility/charts/chart-data-labels";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 type LengthOfStayDataWithBullets = LengthOfStayData & {
   summaryBullets?: string[];
@@ -85,7 +85,7 @@ export default function AverageLengthOfStaySlide({
             <h3 className="text-xs font-semibold text-slate-700 mb-1">
               Average length of stay by region, {country}
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
+            <ReactiveChart data={data.byRegion} height="h-64">
               <BarChart data={data.byRegion} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="region" fontSize={9} />
@@ -117,14 +117,14 @@ export default function AverageLengthOfStaySlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </ReactiveChart>
           </div>
 
           <div className="flex-1 min-h-0">
             <h3 className="text-xs font-semibold text-slate-700 mb-1">
               Average length of stay by hotel class
             </h3>
-            <ResponsiveContainer width="100%" height={160}>
+            <ReactiveChart data={data.byHotelClass} height="h-64">
               <BarChart data={data.byHotelClass} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="hotelClass" fontSize={9} />
@@ -156,7 +156,7 @@ export default function AverageLengthOfStaySlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </ReactiveChart>
             {isEditing ? (
               <div className="flex flex-wrap justify-center gap-2 mt-1 text-[10px]">
                 {data.byHotelClass.map((item, i) => (

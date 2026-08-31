@@ -19,7 +19,6 @@ import {
   LineChart,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -30,6 +29,7 @@ import {
   LineValueLabelList,
   formatChartNumber,
 } from "@/components/feasibility/charts/chart-data-labels";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props {
   slide: FeasibilitySlide;
@@ -76,7 +76,6 @@ function ParagraphBlock({
 }
 
 function ChartBlock({ chart }: { chart: NonNullable<FeasibilitySlide["charts"]>[number] }) {
-  const heightClass = chart.height ?? "flex-1";
   const widthClass = chart.width ?? "w-full";
   const titleLower = chart.title.toLowerCase();
   const isVolumeMetric =
@@ -113,77 +112,76 @@ function ChartBlock({ chart }: { chart: NonNullable<FeasibilitySlide["charts"]>[
   };
 
   const isStackedBar = chart.type === "bar" && chart.stacked === true;
+  const series = chart.data ?? [];
 
   return (
-    <div className={`flex ${heightClass} ${widthClass} min-h-[200px] flex-col pt-1`}>
+    <div className={`flex ${widthClass} shrink-0 flex-col pt-1`}>
       <h4 className="mb-2 shrink-0 text-center text-xs font-semibold text-slate-500">
         {chart.title}
       </h4>
-      <div className="min-h-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%">
-          {chart.type === "pie" ? (
-            <PieChart>
-              <Pie
-                data={chart.data}
-                dataKey={chart.yKeys[0] ?? "value"}
-                nameKey={chart.xKey}
-                cx="50%"
-                cy="50%"
-                outerRadius={70}
-              >
-                {chart.data.map((_, j) => (
-                  <Cell
-                    key={j}
-                    fill={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
-                  />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          ) : chart.type === "line" ? (
-            <LineChart data={chart.data} margin={CHART_MARGIN_WITH_LABELS}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xKey} fontSize={10} />
-              <YAxis fontSize={10} />
-              <Tooltip />
-              <Legend />
-              {chart.yKeys.map((key, j) => (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  stroke={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                >
-                  <LineValueLabelList formatter={formatLabel} />
-                </Line>
-              ))}
-            </LineChart>
-          ) : (
-            <BarChart data={chart.data} margin={CHART_MARGIN_WITH_LABELS}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={chart.xKey} fontSize={10} />
-              <YAxis fontSize={10} />
-              <Tooltip />
-              <Legend />
-              {chart.yKeys.map((key, j) => (
-                <Bar
-                  key={key}
-                  dataKey={key}
+      <ReactiveChart data={series} height="h-64">
+        {chart.type === "pie" ? (
+          <PieChart>
+            <Pie
+              data={series}
+              dataKey={chart.yKeys[0] ?? "value"}
+              nameKey={chart.xKey}
+              cx="50%"
+              cy="50%"
+              outerRadius={70}
+            >
+              {series.map((_, j) => (
+                <Cell
+                  key={j}
                   fill={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
-                  {...(isStackedBar ? { stackId: "a" } : {})}
-                >
-                  {!isStackedBar ? (
-                    <BarValueLabelList formatter={formatLabel} />
-                  ) : null}
-                </Bar>
+                />
               ))}
-            </BarChart>
-          )}
-        </ResponsiveContainer>
-      </div>
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        ) : chart.type === "line" ? (
+          <LineChart data={series} margin={CHART_MARGIN_WITH_LABELS}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={chart.xKey} fontSize={10} />
+            <YAxis fontSize={10} />
+            <Tooltip />
+            <Legend />
+            {chart.yKeys.map((key, j) => (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              >
+                <LineValueLabelList formatter={formatLabel} />
+              </Line>
+            ))}
+          </LineChart>
+        ) : (
+          <BarChart data={series} margin={CHART_MARGIN_WITH_LABELS}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey={chart.xKey} fontSize={10} />
+            <YAxis fontSize={10} />
+            <Tooltip />
+            <Legend />
+            {chart.yKeys.map((key, j) => (
+              <Bar
+                key={key}
+                dataKey={key}
+                fill={chart.colors?.[j] ?? COLORS[j % COLORS.length]}
+                {...(isStackedBar ? { stackId: "a" } : {})}
+              >
+                {!isStackedBar ? (
+                  <BarValueLabelList formatter={formatLabel} />
+                ) : null}
+              </Bar>
+            ))}
+          </BarChart>
+        )}
+      </ReactiveChart>
     </div>
   );
 }
@@ -209,7 +207,10 @@ export default function MarketReview({
             className="w-full space-y-2"
           />
           {slide.charts?.map((chart, i) => (
-            <ChartBlock key={i} chart={chart} />
+            <ChartBlock
+              key={`${chart.title}-${i}-${JSON.stringify(chart.data)}`}
+              chart={chart}
+            />
           ))}
           {slide.tables?.map((table, i) => (
             <div key={i} className="w-full shrink-0">
@@ -270,10 +271,16 @@ export default function MarketReview({
             />
           </div>
 
-          <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+          <div className="flex flex-col gap-4 min-h-0 overflow-hidden overflow-y-auto">
             {slide.charts?.map((chart, i) => (
-              <ChartBlock key={i} chart={chart} />
+              <ChartBlock
+                key={`${chart.title}-${i}-${JSON.stringify(chart.data)}`}
+                chart={chart}
+              />
             ))}
+            {!hasCharts && !slide.tables?.length ? (
+              <div className="h-64 w-full shrink-0 rounded bg-slate-50" aria-hidden />
+            ) : null}
 
             {slide.tables?.map((table, i) => (
               <div key={i} className="shrink-0">

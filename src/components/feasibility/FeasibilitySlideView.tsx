@@ -358,7 +358,12 @@ function FeasibilitySlideViewInner({
     slide.id === "hosp-2" ||
     slide.id === "hosp-4"
   ) {
-    return <MarketReview {...common} />;
+    return (
+      <MarketReview
+        key={JSON.stringify(slide.charts ?? [])}
+        {...common}
+      />
+    );
   }
 
   if (slide.id === "hosp-competition-1") {
@@ -426,7 +431,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "mall-market-metrics") {
     if ((slide.charts?.length ?? 0) >= 2) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
@@ -443,7 +453,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "mall-supply-pipeline") {
     if ((slide.charts?.length ?? 0) >= 1) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
@@ -541,7 +556,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "office-market-metrics") {
     if ((slide.charts?.length ?? 0) >= 2) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
@@ -558,7 +578,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "office-supply-pipeline") {
     if ((slide.charts?.length ?? 0) >= 1) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
@@ -656,7 +681,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "btr-market-metrics") {
     if ((slide.charts?.length ?? 0) >= 2) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
@@ -673,7 +703,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "btr-supply-pipeline") {
     if ((slide.charts?.length ?? 0) >= 1) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
@@ -765,7 +800,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "datacentre-market-metrics") {
     if ((slide.charts?.length ?? 0) >= 2) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
@@ -782,7 +822,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "warehouse-market-metrics") {
     if ((slide.charts?.length ?? 0) >= 2) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailMarketMetricsData(slide.data)
       ? slide.data
@@ -799,7 +844,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "datacentre-supply-pipeline") {
     if ((slide.charts?.length ?? 0) >= 1) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
@@ -816,7 +866,12 @@ function FeasibilitySlideViewInner({
 
   if (slide.id === "warehouse-supply-pipeline") {
     if ((slide.charts?.length ?? 0) >= 1) {
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     }
     const data = isRetailSupplyPipelineData(slide.data)
       ? slide.data
@@ -1103,7 +1158,12 @@ function FeasibilitySlideViewInner({
     case "project":
       return <ProjectAnalysis {...common} projectData={projectData} />;
     case "market":
-      return <MarketReview {...common} />;
+      return (
+        <MarketReview
+          key={JSON.stringify(slide.charts ?? [])}
+          {...common}
+        />
+      );
     default:
       return <ProjectAnalysis {...common} projectData={projectData} />;
   }

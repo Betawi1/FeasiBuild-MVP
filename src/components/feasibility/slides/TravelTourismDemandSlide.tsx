@@ -10,11 +10,11 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: TravelTourismDemandData;
@@ -46,44 +46,42 @@ export default function TravelTourismDemandSlide({
           <h3 className="text-sm font-semibold text-slate-700 mb-2 shrink-0">
             Travel &amp; Tourism Demand in {country}
           </h3>
-          <div className="flex-1 min-h-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.chartData}
-                margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" fontSize={10} />
-                <YAxis fontSize={10} tickFormatter={(v) => `${v}`} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: "10px" }} />
-                <Bar
-                  dataKey="consumption"
-                  stackId="a"
-                  fill="#4c1d95"
-                  name="T&T Consumption"
-                />
-                <Bar
-                  dataKey="capitalInvestment"
-                  stackId="a"
-                  fill="#92400e"
-                  name="Capital Investment"
-                />
-                <Bar
-                  dataKey="governmentExpenditure"
-                  stackId="a"
-                  fill="#166534"
-                  name="Govt Expenditures"
-                />
-                <Bar
-                  dataKey="nonVisitorExports"
-                  stackId="a"
-                  fill="#1e3a8a"
-                  name="Non-Visitor Exports"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <ReactiveChart data={data.chartData} height="h-72">
+            <BarChart
+              data={data.chartData}
+              margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="year" fontSize={10} />
+              <YAxis fontSize={10} tickFormatter={(v) => `${v}`} />
+              <Tooltip />
+              <Legend wrapperStyle={{ fontSize: "10px" }} />
+              <Bar
+                dataKey="consumption"
+                stackId="a"
+                fill="#4c1d95"
+                name="T&T Consumption"
+              />
+              <Bar
+                dataKey="capitalInvestment"
+                stackId="a"
+                fill="#92400e"
+                name="Capital Investment"
+              />
+              <Bar
+                dataKey="governmentExpenditure"
+                stackId="a"
+                fill="#166534"
+                name="Govt Expenditures"
+              />
+              <Bar
+                dataKey="nonVisitorExports"
+                stackId="a"
+                fill="#1e3a8a"
+                name="Non-Visitor Exports"
+              />
+            </BarChart>
+          </ReactiveChart>
           {isEditing ? (
             <div className="flex gap-2 mt-2 shrink-0">
               <input

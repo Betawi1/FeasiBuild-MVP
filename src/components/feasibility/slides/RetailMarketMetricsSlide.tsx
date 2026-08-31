@@ -18,11 +18,11 @@ import {
   Legend,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 interface Props extends SlideEditingProps {
   data: RetailMarketMetricsData;
@@ -49,9 +49,8 @@ export default function RetailMarketMetricsSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Footfall index — {city} malls
           </h3>
-          <div className="flex-1 min-h-0 pt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.chartData} margin={CHART_MARGIN_WITH_LABELS}>
+          <ReactiveChart data={data.chartData} height="h-64">
+            <BarChart data={data.chartData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
@@ -66,8 +65,7 @@ export default function RetailMarketMetricsSlide({
                   />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
           <div className="flex gap-4 mt-1 text-[10px] text-emerald-600 shrink-0">
             <span>Footfall CAGR: {data.footfallCagr}</span>
             <span>Occupancy: {data.occupancyLatest}</span>
@@ -77,9 +75,8 @@ export default function RetailMarketMetricsSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Tenant sales PSF trend
           </h3>
-          <div className="flex-1 min-h-0 pt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.chartData} margin={CHART_MARGIN_WITH_LABELS}>
+          <ReactiveChart data={data.chartData} height="h-64">
+            <LineChart data={data.chartData} margin={CHART_MARGIN_WITH_LABELS}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" fontSize={9} />
                 <YAxis fontSize={9} />
@@ -111,8 +108,7 @@ export default function RetailMarketMetricsSlide({
                   dot={{ r: 2 }}
                 />
               </LineChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
           <p className="text-[10px] text-emerald-600 mt-1 shrink-0">
             Sales PSF CAGR: {data.salesPsfCagr}
           </p>

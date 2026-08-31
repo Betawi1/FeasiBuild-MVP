@@ -6,7 +6,8 @@ import EditableSlideParagraphs from "@/components/feasibility/EditableSlideParag
 import EditableTextBlock from "@/components/feasibility/EditableTextBlock";
 import type { SlideEditingProps } from "@/components/feasibility/slide-editing";
 import type { RetailTenantProfileData } from "@/types/feasibility";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Pie, PieChart, Tooltip } from "recharts";
+import ReactiveChart from "@/components/feasibility/charts/ReactiveChart";
 
 const COLORS = ["#8b5cf6", "#10b981", "#f59e0b", "#3b82f6", "#ef4444", "#06b6d4"];
 
@@ -51,9 +52,8 @@ export default function RetailTenantProfileSlide({
           <h3 className="text-xs font-semibold text-slate-700 mb-1 shrink-0">
             Target tenant mix (% of {unitLabel})
           </h3>
-          <div className="flex-1 min-h-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+          <ReactiveChart data={data.tenantMix} height="h-72">
+            <PieChart>
                 <Pie
                   data={data.tenantMix}
                   dataKey="sharePct"
@@ -74,8 +74,7 @@ export default function RetailTenantProfileSlide({
                 </Pie>
                 <Tooltip />
               </PieChart>
-            </ResponsiveContainer>
-          </div>
+          </ReactiveChart>
           <p className="text-[10px] text-emerald-600 mt-1 shrink-0">
             Target WALE: {waleLabel} years · Catchment: {data.catchmentRadius}
           </p>
