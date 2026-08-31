@@ -7,9 +7,13 @@ export interface PuterModel {
   whyThisModel: string;
 }
 
+/** Working Puter Qwen id (fallback when Claude / GPT / DeepSeek fail). */
+export const QWEN_MODEL_ID = "qwen/qwen3.7-plus";
+export const FALLBACK_MODEL_ID = QWEN_MODEL_ID;
+
 export const PUTER_MODELS: PuterModel[] = [
   {
-    id: "qwen/qwen3.7-plus",
+    id: QWEN_MODEL_ID,
     name: "Qwen 3.7 Plus (Default)",
     description: "Excellent balance of speed, cost, and JSON reliability.",
     recommendedFor: "General feasibility studies & market research",
@@ -49,16 +53,54 @@ export const PUTER_MODELS: PuterModel[] = [
 
 export const DEFAULT_MODEL = PUTER_MODELS[0].id;
 
+/** Older KV / docs ids → catalog ids. */
+const LEGACY_MODEL_ALIASES: Record<string, string> = {
+  "qwen/qwen-plus": QWEN_MODEL_ID,
+  "qwen-plus": QWEN_MODEL_ID,
+  "qwen/qwen-2.5-plus": QWEN_MODEL_ID,
+  "anthropic/claude-sonnet-4.6": "anthropic/claude-sonnet-4-6",
+  "claude-sonnet-4-6": "anthropic/claude-sonnet-4-6",
+  "openai/gpt-4o": "openai/gpt-4o-2024-08-06",
+  "gpt-4o-2024-08-06": "openai/gpt-4o-2024-08-06",
+  "deepseek/deepseek-chat": "deepseek/deepseek-v3.2",
+  "deepseek-v3.2": "deepseek/deepseek-v3.2",
+};
+
 export function isKnownPuterModel(id: string): boolean {
   return PUTER_MODELS.some((model) => model.id === id);
 }
 
+export function resolvePuterModelId(id: unknown): string {
+  if (typeof id !== "string" || !id.trim()) return DEFAULT_MODEL;
+  const trimmed = id.trim();
+  const aliased = LEGACY_MODEL_ALIASES[trimmed];
+  if (aliased) return aliased;
+  if (isKnownPuterModel(trimmed)) return trimmed;
+  return DEFAULT_MODEL;
+}
+
 export function getPuterModel(id: string): PuterModel | undefined {
-  return PUTER_MODELS.find((model) => model.id === id);
+  return PUTER_MODELS.find((model) => model.id === resolvePuterModelId(id));
 }
 
 export function isClaudeModel(id: string): boolean {
   return /claude/i.test(id);
+}
+
+export function isQwenModel(id: string): boolean {
+  return /qwen/i.test(id);
+}
+
+export function getModelFamilyLabel(id: string): string {
+  if (/claude/i.test(id)) return "Claude";
+  if (/openai|gpt/i.test(id)) return "GPT";
+  if (/deepseek/i.test(id)) return "DeepSeek";
+  if (/qwen/i.test(id)) return "Qwen";
+  return getPuterModel(id)?.name ?? id;
+}
+
+export function buildQwenFallbackNotice(selectedModelId: string): string {
+  return `«${getModelFamilyLabel(selectedModelId)}» unavailable — used Qwen for this research`;
 }
 
 /** Preferred-model lookup lives in `puter-kv-preferences`; re-exported for catalog callers. */

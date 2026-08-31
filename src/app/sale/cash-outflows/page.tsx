@@ -50,6 +50,7 @@ import {
 } from "@/app/sale/data/recommendations";
 import type { StageAllocation, AiResearchData } from "@/store/useFinModelStore";
 import { useAiResearch } from "@/hooks/useAiResearch";
+import AiModelFallbackNotice from "@/components/AiModelFallbackNotice";
 import { useNeighborhoodLookupGate } from "@/hooks/useNeighborhoodLookupGate";
 import type { AiAssetType } from "@/lib/constants/aiPrompts";
 import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
@@ -251,7 +252,7 @@ function CashOutflowsPageContent() {
   const hasResearchedForSalesRef = useRef<string | null>(null);
   const [isAiResearching, setIsAiResearching] = useState(false);
 
-  const { performResearch } = useAiResearch();
+  const { performResearch, fallbackNotice } = useAiResearch();
 
   /** Avoid clobbering edits; `type="number"` + `Number(x) || 0` was persisting 0 mid-typing. */
   const constructionPeriodFocusedRef = useRef(false);
@@ -2235,6 +2236,8 @@ function CashOutflowsPageContent() {
             </div>
           </div>
         )}
+
+        {fallbackNotice && <AiModelFallbackNotice notice={fallbackNotice} />}
 
         {/* Step Content */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 space-y-8">

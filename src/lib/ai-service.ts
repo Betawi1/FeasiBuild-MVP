@@ -5,9 +5,12 @@ import {
   setCachedContent,
 } from "@/lib/cache-service";
 import { sendOpsAlert } from "@/lib/ops-monitor";
-import { extractJsonFromClaudeResponse } from "@/lib/extract-json-from-claude";
-import { DEFAULT_MODEL, getPreferredModel } from "@/lib/puter-kv-preferences";
-import { isClaudeModel } from "@/lib/puter-models";
+import {
+  chatWithPuterFallback,
+  parseJsonFromPuterText,
+  waitForPuter,
+} from "@/lib/puter-chat";
+import { FALLBACK_MODEL_ID, DEFAULT_MODEL } from "@/lib/puter-models";
 import {
   COMMENTARY_NO_QUOTES_CONSTRAINT,
   parseAIParagraphs,
@@ -44,7 +47,7 @@ export interface AIProvider {
 /** Centralized Puter model config for feasibility study commentary / charts. */
 export const AI_MODEL_CONFIG = {
   FEASIBILITY_STUDY: DEFAULT_MODEL,
-  FALLBACK: DEFAULT_MODEL,
+  FALLBACK: FALLBACK_MODEL_ID,
   TEMPERATURE: 0.6,
   MAX_TOKENS: 6000,
   /** REQUIRED for Qwen 3.7 Plus on Puter */
@@ -135,163 +138,6 @@ function resolveOptions(
   return options ?? {};
 }
 
-function extractChatText(response: unknown): string {
-  if (typeof response === "string") return response;
-  if (!response || typeof response !== "object") return "";
-  const r = response as {
-    message?: { content?: string | Array<{ text?: string }> };
-    text?: string;
-    content?: string;
-  };
-  const content = r.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => part.text ?? "").join("");
-  }
-  return r.text ?? r.content ?? "";
-}
-
-type StreamChunkShape = {
-  type?: string;
-  value?: string;
-  text?: string;
-  content?: string;
-  reasoning?: string;
-  message?:
-    | string
-    | { content?: string | Array<{ text?: string }> };
-  choices?: Array<{ delta?: { content?: string }; text?: string }>;
-};
-
-/**
- * Extract assistant *answer* text from a Puter ChatResponseChunk.
- * Skips reasoning/thinking tokens (type:"reasoning") so slides stay clean.
- * Throws when the stream emits type:"error".
- */
-function extractStreamChunkText(chunk: unknown): string {
-  if (typeof chunk === "string") return chunk;
-  if (!chunk || typeof chunk !== "object") return "";
-
-  const c = chunk as StreamChunkShape;
-  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
-
-  if (chunkType === "error") {
-    const errMsg =
-      (typeof c.message === "string" && c.message) ||
-      (typeof c.text === "string" && c.text) ||
-      (typeof c.content === "string" && c.content) ||
-      "Puter stream error chunk";
-    throw new Error(errMsg);
-  }
-
-  // Reasoning / metadata chunks must not pollute slide commentary
-  if (
-    chunkType === "reasoning" ||
-    chunkType === "usage" ||
-    chunkType === "compaction" ||
-    chunkType === "tool_use" ||
-    chunkType === "extra_content"
-  ) {
-    return "";
-  }
-
-  // Prefer OpenAI-compatible deltas when present
-  if (typeof c.choices?.[0]?.delta?.content === "string") {
-    return c.choices[0].delta.content;
-  }
-  if (typeof c.choices?.[0]?.text === "string") {
-    return c.choices[0].text;
-  }
-
-  // Puter typed text chunks: { type: "text", text: "..." }
-  if (chunkType === "text" || chunkType === "") {
-    if (typeof c.text === "string") return c.text;
-    if (typeof c.value === "string") return c.value;
-    if (typeof c.content === "string") return c.content;
-  }
-
-  if (typeof c.value === "string") return c.value;
-  if (typeof c.text === "string") return c.text;
-  if (typeof c.content === "string") return c.content;
-  if (typeof c.message === "string") return c.message;
-  if (typeof c.message?.content === "string") return c.message.content;
-  if (Array.isArray(c.message?.content)) {
-    return c.message.content.map((part) => part.text ?? "").join("");
-  }
-  return "";
-}
-
-/** Describe chunk shapes for debug logs when the stream yields no answer text. */
-function summarizeStreamChunk(chunk: unknown): string {
-  if (typeof chunk === "string") {
-    return `string(${chunk.length})`;
-  }
-  if (!chunk || typeof chunk !== "object") {
-    return String(chunk);
-  }
-  const c = chunk as StreamChunkShape;
-  const keys = Object.keys(c).slice(0, 8).join(",");
-  return `type=${c.type ?? "?"} keys=[${keys}]`;
-}
-
-/** Accumulate Puter streaming (or non-streaming fallback) into a single string. */
-async function handleStreamingResponse(response: unknown): Promise<string> {
-  if (
-    response &&
-    typeof response === "object" &&
-    Symbol.asyncIterator in response
-  ) {
-    let fullContent = "";
-    let reasoningOnly = "";
-    let chunkCount = 0;
-    let textChunkCount = 0;
-    const sampleShapes: string[] = [];
-
-    for await (const chunk of response as AsyncIterable<unknown>) {
-      chunkCount += 1;
-      if (sampleShapes.length < 5) {
-        sampleShapes.push(summarizeStreamChunk(chunk));
-      }
-
-      // Capture reasoning separately — only used if no answer text arrives
-      if (chunk && typeof chunk === "object") {
-        const c = chunk as StreamChunkShape;
-        const t = typeof c.type === "string" ? c.type.toLowerCase() : "";
-        if (t === "reasoning" && typeof c.reasoning === "string") {
-          reasoningOnly += c.reasoning;
-        } else if (t === "reasoning" && typeof c.text === "string") {
-          reasoningOnly += c.text;
-        }
-      }
-
-      const piece = extractStreamChunkText(chunk);
-      if (piece) textChunkCount += 1;
-      fullContent += piece;
-    }
-
-    if (!fullContent.trim() && reasoningOnly.trim()) {
-      console.warn(
-        "[AI Service] No type:text chunks — using reasoning stream as last resort (will be stripped of CoT markers)"
-      );
-      fullContent = reasoningOnly;
-    }
-
-    if (!fullContent.trim()) {
-      console.warn("[AI Service] Stream yielded no answer text:", {
-        chunkCount,
-        textChunkCount,
-        sampleShapes,
-        reasoningLength: reasoningOnly.length,
-      });
-    }
-
-    return fullContent;
-  }
-
-  if (typeof response === "string") return response;
-  return extractChatText(response);
-}
-
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -353,101 +199,16 @@ ${originalPrompt}
 `.trim();
 }
 
-async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
-  if (typeof window === "undefined") return undefined;
-
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (window.puter?.ai?.chat) return window.puter;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return undefined;
-}
-
 async function chatWithPuter(
   puter: NonNullable<typeof window.puter>,
   prompt: string,
-  extras?: { jsonMode?: boolean; maxTokens?: number }
+  extras?: { jsonMode?: boolean; maxTokens?: number; requireJson?: boolean }
 ): Promise<string> {
-  const model = await getPreferredModel();
-  const claude = isClaudeModel(model);
-  const temperature = extras?.jsonMode
-    ? 0.1
-    : claude
-      ? 0.3
-      : AI_MODEL_CONFIG.TEMPERATURE;
-  console.log(
-    "[AI Service] Generating with model:",
-    model,
-    "(stream:",
-    AI_MODEL_CONFIG.STREAM,
-    "temp:",
-    temperature,
-    ")"
-  );
-
-  const callOnce = async (stream: boolean): Promise<string> => {
-    const response = await puter.ai.chat(prompt, {
-      model,
-      stream,
-      temperature,
-      max_tokens: extras?.maxTokens ?? AI_MODEL_CONFIG.MAX_TOKENS,
-      ...(extras?.jsonMode
-        ? { response_format: { type: "json_object" as const } }
-        : {}),
-    });
-    return handleStreamingResponse(response);
-  };
-
-  try {
-    let content = await callOnce(AI_MODEL_CONFIG.STREAM);
-    console.log("[AI Service] Generated content length:", content.length);
-
-    // Qwen thinking models sometimes stream only reasoning tokens; retry non-stream.
-    if ((!content || !content.trim()) && AI_MODEL_CONFIG.STREAM) {
-      console.warn(
-        "[AI Service] Empty streaming response — retrying with stream:false"
-      );
-      content = await callOnce(false);
-      console.log(
-        "[AI Service] Non-stream retry content length:",
-        content.length
-      );
-    }
-
-    if (!content || !content.trim()) {
-      console.error("[AI Service] Invalid/empty Puter response:", {
-        model,
-        promptPreview: prompt?.substring(0, 200),
-        promptLength: prompt?.length ?? 0,
-        contentLength: content?.length ?? 0,
-      });
-      throw new Error(
-        `[AI Service] Invalid/empty streaming response for model ${model}`
-      );
-    }
-
-    console.log("[AI Service] Response received from model:", model);
-
-    return content;
-  } catch (error: unknown) {
-    console.error("[AI Service] Streaming error:", error);
-    const err = error as {
-      message?: string;
-      error?: unknown;
-      response?: { data?: unknown };
-    };
-    if (err?.response?.data) {
-      console.error("[AI Service] API Error Details:", err.response.data);
-    }
-    const message =
-      err?.message ||
-      (typeof err?.error === "string" ? err.error : undefined) ||
-      (error instanceof Error ? error.message : JSON.stringify(error));
-    throw new Error(
-      typeof message === "string" ? message : "Unknown streaming error"
-    );
+  const result = await chatWithPuterFallback(puter, prompt, extras);
+  if (result.fallbackNotice) {
+    console.warn("[AI Service]", result.fallbackNotice);
   }
+  return result.text;
 }
 
 class PuterAIProvider implements AIProvider {
@@ -620,20 +381,17 @@ class PuterAIProvider implements AIProvider {
       }
 
       const chartPrompt = `${prompt}\n\nRespond with compact raw JSON only. Do NOT wrap the JSON in quotation marks. Do NOT use markdown fences. Keep the reply under 3,500 tokens. The response must start with { or [.`;
-      const content = await chatWithPuter(puter, chartPrompt, {
+      const result = await chatWithPuterFallback(puter, chartPrompt, {
         jsonMode: true,
+        requireJson: true,
         maxTokens: 8000,
+        temperature: 0.1,
       });
-
-      let parsed: unknown;
-      try {
-        parsed = extractJsonFromClaudeResponse(content, { quiet: true });
-      } catch {
-        console.warn(
-          "[generateChartData] chart JSON unavailable — skipping chart."
-        );
-        return null;
+      if (result.fallbackNotice) {
+        console.warn("[AI Service]", result.fallbackNotice);
       }
+
+      const parsed = result.json ?? parseJsonFromPuterText(result.text);
 
       console.log(`[AI Service] Chart data parsed for: ${logKey}`);
 

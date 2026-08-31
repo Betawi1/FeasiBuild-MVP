@@ -106,6 +106,7 @@ import WarehouseReviewSummaryStep from "./steps/WarehouseReviewSummaryStep";
 import WarehouseBenchmarkBar from "./steps/WarehouseBenchmarkBar";
 import { logAuditChange } from "@/lib/audit-utils";
 import { useAiResearch } from "@/hooks/useAiResearch";
+import AiModelFallbackNotice from "@/components/AiModelFallbackNotice";
 import { useNeighborhoodLookupGate } from "@/hooks/useNeighborhoodLookupGate";
 import { CITY_LEVEL_LOOKUP_NOTICE } from "@/lib/reverse-geocode";
 import { normalizeAiResearchData, type AiAssetType } from "@/lib/constants/aiPrompts";
@@ -773,7 +774,7 @@ function CashOutflowsPageContent() {
     [patchUpdateCashInflows]
   );
 
-  const { performResearch, isLoading: isAiLoading, error: aiError } =
+  const { performResearch, isLoading: isAiLoading, error: aiError, fallbackNotice } =
     useAiResearch();
 
   /** Phase 1 runner — used by the Step 5 auto-trigger. */
@@ -5099,6 +5100,8 @@ function CashOutflowsPageContent() {
             </div>
           </div>
         )}
+
+        {fallbackNotice && <AiModelFallbackNotice notice={fallbackNotice} />}
 
         {aiError && (
           <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">

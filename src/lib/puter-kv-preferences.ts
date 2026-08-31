@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL, isKnownPuterModel } from "./puter-models";
+import { DEFAULT_MODEL, resolvePuterModelId } from "./puter-models";
 import { getSecureKvUserId, secureKv } from "./secure-puter-kv";
 
 export { DEFAULT_MODEL };
@@ -12,7 +12,7 @@ export interface UserPreferences {
 let cachedModel: string | null = null;
 
 function resolveModelId(id: unknown): string {
-  return typeof id === "string" && isKnownPuterModel(id) ? id : DEFAULT_MODEL;
+  return resolvePuterModelId(id);
 }
 
 function parsePreferences(stored: unknown): UserPreferences | null {

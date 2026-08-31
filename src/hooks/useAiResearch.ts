@@ -8,122 +8,15 @@ import {
   type AiResearchOptions,
   type AiResearchResult,
 } from "@/lib/constants/aiPrompts";
-import { extractJsonFromClaudeResponse } from "@/lib/extract-json-from-claude";
 import { sendOpsAlert } from "@/lib/ops-monitor";
+import {
+  chatWithPuterFallback,
+  waitForPuter,
+} from "@/lib/puter-chat";
 import { getPreferredModel } from "@/lib/puter-kv-preferences";
 import { isClaudeModel } from "@/lib/puter-models";
 
 export type { AiResearchOptions, AiResearchResult } from "@/lib/constants/aiPrompts";
-
-function extractChatText(response: unknown): string {
-  if (typeof response === "string") return response;
-  if (!response || typeof response !== "object") return "";
-  const r = response as {
-    message?: { content?: string | Array<{ text?: string }> };
-    text?: string;
-    content?: string;
-  };
-
-  const content = r.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => part.text ?? "").join("");
-  }
-
-  return r.text ?? r.content ?? "";
-}
-
-function extractStreamChunkText(chunk: unknown): string {
-  if (typeof chunk === "string") return chunk;
-  if (!chunk || typeof chunk !== "object") return "";
-
-  const c = chunk as {
-    type?: string;
-    value?: string;
-    text?: string;
-    content?: string;
-    reasoning?: string;
-    message?: { content?: string | Array<{ text?: string }> };
-    choices?: Array<{ delta?: { content?: string }; text?: string }>;
-  };
-
-  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
-  // Reasoning / CoT must not be mixed into the JSON parse buffer
-  if (
-    chunkType === "reasoning" ||
-    chunkType === "usage" ||
-    chunkType === "compaction" ||
-    chunkType === "tool_use" ||
-    chunkType === "extra_content"
-  ) {
-    return "";
-  }
-
-  if (typeof c.choices?.[0]?.delta?.content === "string") {
-    return c.choices[0].delta.content;
-  }
-  if (typeof c.value === "string") return c.value;
-  if (typeof c.text === "string") return c.text;
-  if (typeof c.content === "string") return c.content;
-  if (typeof c.message?.content === "string") return c.message.content;
-  if (Array.isArray(c.message?.content)) {
-    return c.message.content.map((part) => part.text ?? "").join("");
-  }
-  return "";
-}
-
-function extractReasoningChunkText(chunk: unknown): string {
-  if (!chunk || typeof chunk !== "object") return "";
-  const c = chunk as { type?: string; reasoning?: string; text?: string };
-  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
-  if (chunkType !== "reasoning") return "";
-  if (typeof c.reasoning === "string") return c.reasoning;
-  if (typeof c.text === "string") return c.text;
-  return "";
-}
-
-/** Accumulate Puter streaming or non-streaming chat responses into one string. */
-async function accumulateChatResponse(response: unknown): Promise<string> {
-  if (
-    response &&
-    typeof response === "object" &&
-    Symbol.asyncIterator in response
-  ) {
-    let fullResponse = "";
-    let reasoningOnly = "";
-    for await (const chunk of response as AsyncIterable<unknown>) {
-      reasoningOnly += extractReasoningChunkText(chunk);
-      fullResponse += extractStreamChunkText(chunk);
-    }
-    if (reasoningOnly.trim()) {
-      console.log("🧠 AI Reasoning:\n", reasoningOnly.trim());
-    }
-    // If the provider streamed only CoT, keep it so the extractor can still try
-    return fullResponse.trim() ? fullResponse : reasoningOnly;
-  }
-
-  if (typeof response === "string") return response;
-  return extractChatText(response);
-}
-
-async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
-  if (typeof window === "undefined") return undefined;
-
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (window.puter?.ai?.chat) return window.puter;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return undefined;
-}
-
-function parseResearchJson(rawText: string): AiResearchResult {
-  const parsed = extractJsonFromClaudeResponse(rawText);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("AI response JSON was not an object");
-  }
-  return parsed as AiResearchResult;
-}
 
 /** Safety clamp to prevent UI-breaking hallucinations */
 const clamp = (val: number, min: number, max: number) => {
@@ -140,8 +33,6 @@ function sanitizeAiData(
   const currency = (projectCurrency || "USD").toUpperCase();
   console.log(`🛡️ Running AI Sanity Checks for Currency: ${currency}`);
 
-  // CONDITIONAL FX LOGIC:
-  // If user selected USD, force rate to 1. Otherwise, use the AI's researched rate.
   const researchedFx =
     typeof data.fx_rate_to_usd === "number" &&
     Number.isFinite(data.fx_rate_to_usd) &&
@@ -152,7 +43,6 @@ function sanitizeAiData(
   data.fx_rate_to_usd = fxRate;
   console.log(`💱 Applied FX Rate (1 USD = ${fxRate} ${currency})`);
 
-  // USD-based base clamps
   const USD_CLAMPS = {
     buildingRate: { min: 50, max: 5000 },
     parkingRate: { min: 20, max: 3000 },
@@ -231,11 +121,13 @@ function sanitizeAiData(
 export const useAiResearch = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
   const performResearch = useCallback(
     async (options: AiResearchOptions): Promise<AiResearchResult | null> => {
       setIsLoading(true);
       setError(null);
+      setFallbackNotice(null);
 
       try {
         const puter = await waitForPuter();
@@ -250,75 +142,36 @@ export const useAiResearch = () => {
         const systemPrompt = getSystemPrompt(options.assetType, model);
         const userPrompt = buildUserPrompt(options);
 
-        const chatOptions = {
-          model,
-          stream: true, // REQUIRED for Qwen 3.7 Plus
-          temperature: 0.1,
-          max_tokens: claude ? 12000 : 8000,
-          ...(claude
-            ? { response_format: { type: "json_object" as const } }
-            : {}),
-        };
-
-        console.log("🚀 Sending payload to AI (stream)...", model);
-        let response = await puter.ai.chat(
+        console.log("🚀 Sending payload to AI...", model);
+        const result = await chatWithPuterFallback(
+          puter,
           [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          chatOptions
-        );
-
-        let rawText = await accumulateChatResponse(response);
-        console.log("🔍 Complete AI Response:", rawText);
-
-        const reasoningMatch = rawText.match(
-          /<reasoning>([\s\S]*?)<\/reasoning>/i
-        );
-        if (reasoningMatch?.[1]) {
-          console.log("🧠 AI Reasoning:\n", reasoningMatch[1].trim());
-        }
-
-        if (!rawText.trim()) {
-          throw new Error("Empty response from AI research");
-        }
-
-        let parsedRaw: AiResearchResult;
-        try {
-          parsedRaw = parseResearchJson(rawText);
-          console.log("✅ Successfully parsed AI data:", parsedRaw);
-        } catch (parseError) {
-          console.warn(
-            "⚠️ Streamed response was not parseable JSON — retrying without stream",
-            parseError
-          );
-          response = await puter.ai.chat(
-            [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-            { ...chatOptions, stream: false }
-          );
-          rawText = await accumulateChatResponse(response);
-          console.log("🔍 Non-stream retry response:", rawText);
-          try {
-            parsedRaw = parseResearchJson(rawText);
-            console.log("✅ Successfully parsed AI data (retry):", parsedRaw);
-          } catch (retryError) {
-            console.error("❌ JSON Parse Error:", retryError);
-            console.error("Raw Response:", rawText);
-            throw new Error(
-              "Failed to parse AI response. Please try again or check console for details."
-            );
+          {
+            jsonMode: true,
+            requireJson: true,
+            temperature: 0.1,
+            maxTokens: claude ? 12000 : 8000,
           }
+        );
+
+        console.log("🔍 Complete AI Response:", result.text);
+        if (result.fallbackNotice) {
+          setFallbackNotice(result.fallbackNotice);
         }
 
-        // Data-centre AI payload uses a specialised schema (especially for Phase 1 basics).
-        // `normalizeAiResearchData` rebuilds `c1_development` and can drop those fields.
-        // For `operational-data-centre`, keep the raw parsed JSON and rely on `sanitizeAiData`.
-        const aiData = options.assetType === "operational-data-centre"
-          ? parsedRaw
-          : normalizeAiResearchData(parsedRaw);
+        const parsedRaw = result.json as AiResearchResult;
+        if (!parsedRaw || typeof parsedRaw !== "object") {
+          throw new Error("AI response JSON was not an object");
+        }
+        console.log("✅ Successfully parsed AI data:", parsedRaw);
+
+        const aiData =
+          options.assetType === "operational-data-centre"
+            ? parsedRaw
+            : normalizeAiResearchData(parsedRaw);
 
         const parsedData = sanitizeAiData(
           aiData,
@@ -327,14 +180,16 @@ export const useAiResearch = () => {
         console.log("🎉 Successfully normalized AI data:", parsedData);
         setIsLoading(false);
         return parsedData;
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("❌ AI Research Failed:");
-
-        // Log the raw error object to see Puter's exact response
         console.error("Raw Error Object:", err);
 
-        // Puter sometimes puts the error message in err.message or err.error
-        const errorMessage = err?.message || err?.error || JSON.stringify(err);
+        const errorMessage =
+          err && typeof err === "object" && "message" in err
+            ? String((err as { message?: unknown }).message)
+            : err && typeof err === "object" && "error" in err
+              ? String((err as { error?: unknown }).error)
+              : String(err);
         console.error("Extracted Error Message:", errorMessage);
 
         void sendOpsAlert(err instanceof Error ? err : String(errorMessage), {
@@ -343,7 +198,7 @@ export const useAiResearch = () => {
         });
 
         setError(
-          typeof errorMessage === "string"
+          typeof errorMessage === "string" && errorMessage
             ? errorMessage
             : "AI research failed. Check console for details."
         );
@@ -356,6 +211,7 @@ export const useAiResearch = () => {
 
   const reset = useCallback(() => {
     setError(null);
+    setFallbackNotice(null);
     setIsLoading(false);
   }, []);
 
@@ -363,6 +219,7 @@ export const useAiResearch = () => {
     performResearch,
     isLoading,
     error,
+    fallbackNotice,
     reset,
   };
 };

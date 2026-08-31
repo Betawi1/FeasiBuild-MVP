@@ -1,4 +1,8 @@
-import { DEFAULT_MODEL } from "@/lib/puter-models";
+import {
+  extractPuterMessageContent,
+  waitForPuter,
+} from "@/lib/puter-chat";
+import { FALLBACK_MODEL_ID } from "@/lib/puter-models";
 
 const OPS_SYSTEM_PROMPT =
   "You are an expert DevOps assistant. Summarize the following application error into a 2-sentence plain-English alert. Include the likely cause and a 1-sentence suggested fix. Do not use markdown formatting.";
@@ -137,63 +141,18 @@ async function summarizeWithPuter(
       { role: "user", content: userPrompt },
     ],
     {
-      model: DEFAULT_MODEL,
+      model: FALLBACK_MODEL_ID,
       stream: false,
       temperature: 0.2,
       max_tokens: 256,
     }
   );
 
-  const text = (await resolveChatText(response)).trim();
+  const text = (await extractPuterMessageContent(response)).trim();
   if (!text) {
     throw new Error("Empty Puter response");
   }
   return stripMarkdown(text);
-}
-
-async function waitForPuter(
-  timeoutMs: number
-): Promise<typeof window.puter | undefined> {
-  if (typeof window === "undefined") return undefined;
-
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (window.puter?.ai?.chat) return window.puter;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return window.puter?.ai?.chat ? window.puter : undefined;
-}
-
-function extractChatText(response: unknown): string {
-  if (typeof response === "string") return response;
-  if (!response || typeof response !== "object") return "";
-  const r = response as {
-    message?: { content?: string | Array<{ text?: string }> };
-    text?: string;
-    content?: string;
-  };
-
-  const content = r.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => part.text ?? "").join("");
-  }
-  return r.text ?? r.content ?? "";
-}
-
-async function resolveChatText(response: unknown): Promise<string> {
-  if (
-    response &&
-    typeof response === "object" &&
-    Symbol.asyncIterator in response
-  ) {
-    let full = "";
-    for await (const chunk of response as AsyncIterable<unknown>) {
-      full += extractChatText(chunk);
-    }
-    return full;
-  }
-  return extractChatText(response);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

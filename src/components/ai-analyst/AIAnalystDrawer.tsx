@@ -15,91 +15,11 @@ import {
   buildWizardSupportContext,
 } from "@/lib/constants/support";
 import { useAnalystContext } from "@/hooks/useAnalystContext";
-import { getPreferredModel } from "@/lib/puter-models";
+import { chatWithPuterFallback, waitForPuter } from "@/lib/puter-chat";
 import { useAnalystStore } from "@/store/useAnalystStore";
 
 const ANALYST_TEMPERATURE = 0.3;
 const ANALYST_MAX_TOKENS = 4000;
-
-type StreamChunkShape = {
-  type?: string;
-  value?: string;
-  text?: string;
-  content?: string;
-  reasoning?: string;
-  message?: string | { content?: string | Array<{ text?: string }> };
-  choices?: Array<{ delta?: { content?: string }; text?: string }>;
-};
-
-function extractStreamChunkText(chunk: unknown): string {
-  if (typeof chunk === "string") return chunk;
-  if (!chunk || typeof chunk !== "object") return "";
-
-  const c = chunk as StreamChunkShape;
-  const chunkType = typeof c.type === "string" ? c.type.toLowerCase() : "";
-
-  if (chunkType === "error") {
-    const errMsg =
-      (typeof c.message === "string" && c.message) ||
-      (typeof c.text === "string" && c.text) ||
-      (typeof c.content === "string" && c.content) ||
-      "Puter stream error";
-    throw new Error(errMsg);
-  }
-
-  if (
-    chunkType === "reasoning" ||
-    chunkType === "usage" ||
-    chunkType === "compaction" ||
-    chunkType === "tool_use" ||
-    chunkType === "extra_content"
-  ) {
-    return "";
-  }
-
-  if (typeof c.choices?.[0]?.delta?.content === "string") {
-    return c.choices[0].delta.content;
-  }
-  if (typeof c.choices?.[0]?.text === "string") {
-    return c.choices[0].text;
-  }
-  if (typeof c.value === "string") return c.value;
-  if (typeof c.text === "string") return c.text;
-  if (typeof c.content === "string") return c.content;
-  if (typeof c.message === "string") return c.message;
-  if (typeof c.message?.content === "string") return c.message.content;
-  if (Array.isArray(c.message?.content)) {
-    return c.message.content.map((part) => part.text ?? "").join("");
-  }
-
-  return "";
-}
-
-function extractChatText(response: unknown): string {
-  if (typeof response === "string") return response;
-  if (!response || typeof response !== "object") return "";
-  const r = response as {
-    message?: { content?: string | Array<{ text?: string }> };
-    text?: string;
-    content?: string;
-  };
-  const content = r.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content.map((part) => part.text ?? "").join("");
-  }
-  return r.text ?? r.content ?? "";
-}
-
-async function waitForPuter(timeoutMs = 15000): Promise<typeof window.puter> {
-  if (typeof window === "undefined") return undefined;
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (window.puter?.ai?.chat) return window.puter;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return undefined;
-}
 
 function stepBadgeLabel(
   component: string | null,
@@ -204,7 +124,6 @@ export default function AIAnalystDrawer() {
           );
         }
 
-        const model = await getPreferredModel();
         const history = useAnalystStore
           .getState()
           .messages.filter((m) => m.content.length > 0);
@@ -233,53 +152,31 @@ export default function AIAnalystDrawer() {
           })),
         ];
 
-        const chatOptions = {
-          model,
-          stream: true as const,
+        const result = await chatWithPuterFallback(puter, payload, {
           temperature: ANALYST_TEMPERATURE,
-          max_tokens: ANALYST_MAX_TOKENS,
-        };
-
-        const consume = async (stream: boolean): Promise<string> => {
-          const response = await puter.ai.chat(payload, {
-            ...chatOptions,
-            stream,
-          });
-
-          if (
-            response &&
-            typeof response === "object" &&
-            Symbol.asyncIterator in response
-          ) {
-            let assembled = "";
-            for await (const chunk of response as AsyncIterable<unknown>) {
-              if (useAnalystStore.getState().generation !== gen) return assembled;
-              const piece = extractStreamChunkText(chunk);
-              if (!piece) continue;
-              assembled += piece;
-              appendToLastAssistant(piece);
+          maxTokens: ANALYST_MAX_TOKENS,
+          onFallbackStart: () => {
+            if (useAnalystStore.getState().generation === gen) {
+              replaceLastAssistant("");
             }
-            return assembled;
-          }
-
-          const textBody = extractChatText(response);
-          if (textBody && useAnalystStore.getState().generation === gen) {
-            replaceLastAssistant(textBody);
-          }
-          return textBody;
-        };
-
-        let assembled = await consume(true);
-        if (!assembled.trim() && useAnalystStore.getState().generation === gen) {
-          assembled = await consume(false);
-        }
+          },
+          onToken: (piece) => {
+            if (useAnalystStore.getState().generation !== gen) return;
+            appendToLastAssistant(piece);
+          },
+        });
 
         if (useAnalystStore.getState().generation !== gen) return;
 
-        if (!assembled.trim()) {
+        const body = result.fallbackNotice
+          ? `${result.fallbackNotice}\n\n${result.text}`
+          : result.text;
+        if (!body.trim()) {
           replaceLastAssistant(
             "No response was returned. Check the Puter connection and selected model, then retry."
           );
+        } else {
+          replaceLastAssistant(body);
         }
       } catch (error) {
         if (useAnalystStore.getState().generation !== gen) return;

@@ -142,6 +142,7 @@ import useFinModelStore from "@/store/useFinModelStore";
 import type { AiResearchData, CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
 import { normalizeAiResearchData, type AiAssetType } from "@/lib/constants/aiPrompts";
 import { useAiResearch } from "@/hooks/useAiResearch";
+import AiModelFallbackNotice from "@/components/AiModelFallbackNotice";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import { logBenchmarkValues, logResetToBenchmark } from "@/lib/audit-batch";
 import { logAuditChange } from "@/lib/audit-utils";
@@ -2161,7 +2162,7 @@ function OperationalCashInflowsPageContent() {
     (data: Partial<CashOutflows>) => patchUpdateCashOutflows(data, "operational"),
     [patchUpdateCashOutflows]
   );
-  const { performResearch, isLoading: isAiLoading } = useAiResearch();
+  const { performResearch, isLoading: isAiLoading, fallbackNotice } = useAiResearch();
 
   const aiC2 = useMemo(() => {
     const raw = cashOutflows.aiResearchData;
@@ -3698,6 +3699,8 @@ function OperationalCashInflowsPageContent() {
             </div>
           </div>
         )}
+
+        {fallbackNotice && <AiModelFallbackNotice notice={fallbackNotice} />}
 
         <div className="space-y-8 rounded-xl border border-slate-800 bg-slate-900 p-8">
           {currentStep === 0 &&
