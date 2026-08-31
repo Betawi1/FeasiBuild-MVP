@@ -17,6 +17,32 @@ type LocationMapPickerProps = {
   savedPin?: { lat: number; lng: number } | null;
 };
 
+const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_ATTRIBUTION = "© OpenStreetMap";
+
+/** Recalc tile viewport after late layout / hidden mounts (tabs, flex, delayed height). */
+function MapInvalidateSize() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    const invalidate = () => {
+      map.invalidateSize();
+    };
+
+    const timeoutId = window.setTimeout(invalidate, 0);
+    const observer = new ResizeObserver(invalidate);
+    observer.observe(container);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      observer.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
 function MapController({ country, city }: { country: string; city: string }) {
   const map = useMap();
 
@@ -124,7 +150,7 @@ export default function LocationMapPicker({
     }
   }, [mounted, mapCenter]);
 
-  if (!mounted || !mapCenter) return <div className="h-[300px] w-full rounded-lg bg-slate-800 animate-pulse" />;
+  if (!mounted || !mapCenter) return <div className="relative z-0 h-[420px] w-full rounded-lg bg-slate-800 animate-pulse" />;
 
   return (
     <div className="mt-6 space-y-3">
@@ -134,18 +160,21 @@ export default function LocationMapPicker({
         </label>
         <span className="text-xs text-slate-500">Click map to drop pin</span>
       </div>
-      <div className="h-[300px] w-full rounded-lg border border-slate-700 overflow-hidden z-0">
+      <div className="relative z-0 h-[420px] w-full overflow-hidden rounded-lg border border-slate-700">
         <MapContainer
           center={[mapCenter.lat, mapCenter.lng]}
           zoom={11}
-          style={{ height: "100%", width: "100%" }}
+          className="relative z-0 h-[420px] w-full"
+          style={{ height: "420px", width: "100%" }}
           scrollWheelZoom={true}
           ref={mapRef}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution={OSM_ATTRIBUTION}
+            url={OSM_TILE_URL}
+            crossOrigin="anonymous"
           />
+          <MapInvalidateSize />
           {/* This component handles auto-centering when country/city changes */}
           <MapController country={country} city={city} />
 

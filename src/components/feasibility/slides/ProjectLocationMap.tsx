@@ -20,10 +20,19 @@ const markerIcon = L.icon({
 function MapInvalidateSize() {
   const map = useMap();
   useEffect(() => {
-    const id = window.setTimeout(() => {
+    const container = map.getContainer();
+    const invalidate = () => {
       map.invalidateSize();
-    }, 100);
-    return () => window.clearTimeout(id);
+    };
+
+    const timeoutId = window.setTimeout(invalidate, 0);
+    const observer = new ResizeObserver(invalidate);
+    observer.observe(container);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      observer.disconnect();
+    };
   }, [map]);
   return null;
 }
@@ -45,13 +54,13 @@ export default function ProjectLocationMap({ lat, lng }: Props) {
       zoomControl={false}
       attributionControl={false}
       keyboard={false}
-      className="h-full w-full z-0"
+      className="relative z-0 h-full w-full"
       style={{ pointerEvents: "none", height: "100%", width: "100%" }}
     >
       <MapInvalidateSize />
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution="© OpenStreetMap"
+        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         crossOrigin="anonymous"
       />
       <Marker position={[lat, lng]} icon={markerIcon} />
