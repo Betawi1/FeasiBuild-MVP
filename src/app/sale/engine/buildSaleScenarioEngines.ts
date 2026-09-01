@@ -1,3 +1,4 @@
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import { buildFinancingEnginePreview } from "@/app/sale/preview/financing/financing-cash-flow-engine-bridge";
 import { buildSaleCashflowDetailProfile } from "@/lib/sale-cash-preview-profile";
 import {
@@ -134,11 +135,10 @@ export function applySaleShocksToSnapshot(
   const co = out.cashOutflows;
   const fin = out.financing;
 
-  const constructionMonths =
-    Math.max(
-      Number(co.constructionPeriod ?? 0) || 0,
-      Number(fin.constructionPeriodMonths ?? 0) || 0
-    ) || 30;
+  const constructionMonths = resolveActualConstructionEndMonth(
+    co,
+    buildCashOutflowProfile(co).construction
+  );
 
   const schedule = Array.isArray(ci.monthlyInflowSchedule)
     ? ci.monthlyInflowSchedule.map((p) => ({ ...p }))
@@ -261,12 +261,11 @@ export function applySaleScenarioPreset(
 export function computeSaleUnleveredProjectMetrics(
   snap: SaleScenarioSnapshot
 ): { unleveredIrrPct: number; unleveredPaybackMonths: number } {
-  const { projectInfo, cashInflows, cashOutflows, financing } = snap;
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const { projectInfo, cashInflows, cashOutflows } = snap;
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    buildCashOutflowProfile(cashOutflows).construction
+  );
   const totalMonths = constructionPeriod + 6;
 
   const detail = buildSaleCashflowDetailProfile(cashOutflows, projectInfo);
@@ -384,11 +383,10 @@ export function runSaleScenarioEngines(
 ): SaleScenarioEngineResult | null {
   try {
     const { projectInfo, cashInflows, cashOutflows, financing } = snap;
-    const constructionPeriod =
-      Math.max(
-        cashOutflows.constructionPeriod ?? 0,
-        financing.constructionPeriodMonths ?? 0
-      ) || 30;
+    const constructionPeriod = resolveActualConstructionEndMonth(
+      cashOutflows,
+      buildCashOutflowProfile(cashOutflows).construction
+    );
 
     const detail = buildSaleCashflowDetailProfile(cashOutflows, projectInfo);
     const baseOutflowProfile = buildCashOutflowProfile(cashOutflows);

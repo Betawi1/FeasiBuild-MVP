@@ -22,6 +22,7 @@ import { computeReimbursementMilestones } from "@/lib/milestone-drawdown";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import useFinModelStore, {
   buildCashOutflowProfile,
   calculateOperationsStartMonth,
@@ -312,7 +313,7 @@ function FinancingPageContent() {
     loanToCostPercent: 60,
     maxLtvPercent: 60,
 
-    constructionPeriodMonths: 30, // would be auto‑filled from Component 1
+    constructionPeriodMonths: cashOutflows.constructionPeriod || 30,
     amortizationYears: 10,
     hasBalloon: false,
     balloonPercent: 0,
@@ -351,13 +352,14 @@ function FinancingPageContent() {
   const [errors, setErrors] = useState<Errors>({});
 
   // Construction timeline (align with Component 3 helpers)
-  const constructionPeriod = useMemo(() => {
-    const cp = Math.max(0, cashOutflows.constructionPeriod || 0);
-    // constructionEndMonth = operationsStart - preOpBuffer - 1 = cp
-    return (
-      calculateOperationsStartMonth(cp) - PRE_OPERATION_BUFFER_MONTHS - 1
-    );
-  }, [cashOutflows.constructionPeriod]);
+  const constructionPeriod = useMemo(
+    () =>
+      resolveActualConstructionEndMonth(
+        cashOutflows,
+        buildCashOutflowProfile(cashOutflows).construction
+      ),
+    [cashOutflows]
+  );
 
   // Step 4: Drawdown Structure State (tabbed)
   const [activeTab, setActiveTab] = useState<
@@ -1103,7 +1105,10 @@ function FinancingPageContent() {
         : "LTC";
 
   const constructionPeriodForFlows =
-    cashOutflows.constructionPeriod || formData.constructionPeriodMonths || 30;
+    resolveActualConstructionEndMonth(
+      cashOutflows,
+      buildCashOutflowProfile(cashOutflows).construction
+    ) || formData.constructionPeriodMonths;
   /** Step 3: amortization 3–15 years (form + financing store fallback) */
   // Operational stream: Component 2 hotel operations are 10 years, so we
   // lock amortization to 10Y (120 months) even if persisted inputs differ.
@@ -1997,7 +2002,11 @@ function FinancingPageContent() {
     }
 
     if (currentStep === totalSteps - 1) {
-      const constructionPeriodMonths = cashOutflows.constructionPeriod || formData.constructionPeriodMonths || 30;
+      const constructionPeriodMonths =
+        resolveActualConstructionEndMonth(
+          cashOutflows,
+          buildCashOutflowProfile(cashOutflows).construction
+        ) || formData.constructionPeriodMonths;
       const amortizationYears = formData.amortizationYears || financing.amortizationYears || 7;
       const amortizationMonths = amortizationYears * 12;
 
@@ -2146,7 +2155,10 @@ function FinancingPageContent() {
 
       // Store debt service schedule (cash interest + principal), primarily for DSCR illustrations.
       const totalMonths = Math.min(240, constructionPeriodMonths + amortizationMonths);
-      const repaymentStartMonth = constructionPeriodMonths + 1;
+      const repaymentStartMonth =
+        finStream === "operational"
+          ? calculateOperationsStartMonth(constructionPeriodMonths)
+          : constructionPeriodMonths + 1;
       let outstanding = loanAtCompletion;
       let monthlyDebtServiceWithPrincipal = 0;
 

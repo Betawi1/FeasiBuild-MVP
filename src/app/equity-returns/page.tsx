@@ -23,7 +23,9 @@ import {
   calculatePreferenceAdjustments,
 } from "@/lib/preference-simple";
 import { allocateWaterfallCashFlows } from "@/lib/waterfall";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import useFinModelStore, {
+  buildCashOutflowProfile,
   DEFAULT_PREFERENCE_TENOR_MONTHS,
   getOperationalYearMonthRange,
   PRE_OPERATION_BUFFER_MONTHS,
@@ -251,11 +253,10 @@ function EquityReturnsPageContent() {
   );
 
   // Must match `/preview/equity-returns` and `/preview/financing` month indexing for op-year FYEs.
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    buildCashOutflowProfile(cashOutflows).construction
+  );
 
   const commonEquityHeadline = useMemo(
     () =>

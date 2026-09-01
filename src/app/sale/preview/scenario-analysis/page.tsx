@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import useFinModelStore from "@/store/useFinModelStore";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
+import useFinModelStore, { buildCashOutflowProfile } from "@/store/useFinModelStore";
 import useScenarioStore from "@/store/useScenarioStore";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { exportToCSV } from "@/lib/downloads/exportToCSV";
@@ -150,10 +151,10 @@ export default function PreviewScenarioAnalysisPage() {
   /** Same pipeline as `/sale/preview/project-irr` — avoids stale ~23% in store. */
   const previewUnleveredIrrPct = useMemo(() => {
     if (finStream !== "sale") return null;
-    const cp = Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+    const cp = resolveActualConstructionEndMonth(
+      cashOutflows,
+      buildCashOutflowProfile(cashOutflows).construction
+    );
     const totalMonths = cp + 6;
     const detail = buildSaleCashflowDetailProfile(cashOutflows, projectInfo);
     const inflowByMonth = new Map<number, number>();
@@ -267,14 +268,10 @@ export default function PreviewScenarioAnalysisPage() {
   /** Same horizon / column cadence as `/preview/financing` and `/preview/equity-returns`. */
   const POST_COMPLETION_BUFFER_MONTHS = 6;
   const stabilizationMonths = POST_COMPLETION_BUFFER_MONTHS;
-  // Component 1: `cashOutflows.constructionPeriod`. Component 4:
-  // `financing.constructionPeriodMonths`. Use max so a stale 30 in one slice does
-  // not shrink the grid (e.g. M36 vs M38 when the other path has 32).
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    buildCashOutflowProfile(cashOutflows).construction
+  );
   /** Last month index for construction + stabilization (e.g. 32 + 6 → M38). */
   const totalMonthlyPeriod = constructionPeriod + stabilizationMonths;
   const stabilizationEndMonth = totalMonthlyPeriod;

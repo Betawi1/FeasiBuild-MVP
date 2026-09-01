@@ -9,6 +9,7 @@ import useFinModelStore, {
   OPERATIONAL_PERIOD_YEARS,
   PRE_OPERATION_BUFFER_MONTHS,
 } from "@/store/useFinModelStore";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import { computeReimbursementMilestones } from "@/lib/milestone-drawdown";
 import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import { exportToCSV } from "@/lib/downloads/exportToCSV";
@@ -175,11 +176,14 @@ export default function FinancingPreviewPage({
       (sum, p) => sum + (p.amount || 0),
       0
     ) || 0);
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const outflowProfile = useMemo(
+    () => buildCashOutflowProfile(cashOutflows),
+    [cashOutflows]
+  );
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    outflowProfile.construction
+  );
   const holdPeriodYears = financing.holdPeriodYears || 10;
   /** Last month of pre-op buffer (M41–M46 for 40M); operations begin next month — see `calculateOperationsStartMonth`. */
   const stabilizationEndMonth = calculateOperationsStartMonth(constructionPeriod) - 1;
@@ -239,11 +243,6 @@ export default function FinancingPreviewPage({
   const repaymentStructure = financing.repaymentStructure || "fully-amortizing";
   const interestOnlyPeriodYears = financing.interestOnlyPeriodYears || 0;
 
-  const outflowProfile = useMemo(
-    () => buildCashOutflowProfile(cashOutflows),
-    [cashOutflows]
-  );
-
   /** Single source of truth for construction-month total cash cost out (M0..M{constructionPeriod}); from `buildCashOutflowProfile`. */
   const calculateTotalOutflow = useMemo(
     () => outflowProfile.monthlyTotal,
@@ -253,7 +252,7 @@ export default function FinancingPreviewPage({
   /** M0..hold. Same length as engine monthly series / Total Outflow index space. */
   const previewHorizonMonths = totalHoldPeriodMonths + 1;
   /** C1 construction end (S-curve length). Do not use `Math.max` with stale financing 30. */
-  const constructionCostEndMonth = Math.max(0, cashOutflows.constructionPeriod || 0);
+  const constructionCostEndMonth = constructionPeriod;
 
   const constructionCostRow = useMemo(
     () =>
@@ -3919,17 +3918,19 @@ const ffeMonthly = useMemo(
           MONTHLY CASH FLOWS ({projectInfo.currency} &apos;000)
         </h2>
         <p className="mb-4 text-slate-500 text-xs">
+          Hotel operations start <span className="text-slate-300">M{operationsStartMonth}</span>
+          ; pre-op buffer ({PRE_OPERATION_BUFFER_MONTHS} mo) ends M{stabilizationEndMonth}.
           {useProjectIrrColumnLayout ? (
             <>
+              {" "}
               Column layout matches Project IRR: M0–M{constructionPeriod}, pre-operating M
               {constructionPeriod + 1}–M{stabilizationEndMonth}, then FYE markers{" "}
               {operationalYearMonthMap.slice(0, 3).map((r) => r.label).join(", ")}…
             </>
           ) : (
             <>
-              Hotel operations start <span className="text-slate-300">M{operationsStartMonth}</span>
-              ; pre-op buffer ({PRE_OPERATION_BUFFER_MONTHS} mo) ends M{stabilizationEndMonth}. FYE
-              columns: {operationalYearMonthMap.slice(0, 3).map((r) => r.label).join(", ")}…
+              {" "}
+              FYE columns: {operationalYearMonthMap.slice(0, 3).map((r) => r.label).join(", ")}…
             </>
           )}
         </p>

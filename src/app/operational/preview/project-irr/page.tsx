@@ -20,6 +20,7 @@ import {
   useStreamPrefix,
   withStreamPrefix,
 } from "@/lib/stream-path";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import { OPERATIONAL_ROOM_REVENUE_YEARS } from "@/lib/operational-cash-inflows-chart";
 import {
   computeOperationalProjectIrrPnl,
@@ -207,11 +208,13 @@ export default function OperationalPreviewProjectIRRPage() {
   );
   const updateProjectIRR = useFinModelStore((s) => s.updateProjectIRR);
   const ffeInvestment = cashOutflows.ffe || 0;
-  const constructionPeriod = Math.max(0, cashOutflows.constructionPeriod || 0);
-
   const outflowProfile = useMemo(
     () => buildCashOutflowProfile(cashOutflows),
     [cashOutflows]
+  );
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    outflowProfile.construction
   );
 
   const npvColumns = useMemo((): NpvTimelineColumn[] => {

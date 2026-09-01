@@ -13,6 +13,7 @@ import useFinModelStore, {
   type Financing,
 } from "@/store/useFinModelStore";
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import { buildSaleCashflowDetailProfile } from "@/lib/sale-cash-preview-profile";
 import { buildConstructionCostPreviewRow } from "@/lib/financing-preview-rows";
 import {
@@ -280,10 +281,10 @@ function FinancingPreviewPageContent({
       (sum, p) => sum + (p.amount || 0),
       0
     ) || 0);
-  const constructionPeriod =
-    cashOutflows.constructionPeriod ??
-    financing.constructionPeriodMonths ??
-    30;
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    buildCashOutflowProfile(cashOutflows).construction
+  );
   const holdPeriodYears = financing.holdPeriodYears || 10;
   /** Last month of pre-op buffer (M41–M46 for 40M); operations begin next month — see `calculateOperationsStartMonth`. */
   const stabilizationEndMonth = calculateOperationsStartMonth(constructionPeriod) - 1;
@@ -390,7 +391,7 @@ function FinancingPreviewPageContent({
     [outflowProfile.monthlyTotal]
   );
 
-  const constructionCostEndMonth = Math.max(0, cashOutflows.constructionPeriod || 0);
+  const constructionCostEndMonth = constructionPeriod;
   const constructionCostSchedule = useMemo(
     () =>
       buildConstructionCostPreviewRow({

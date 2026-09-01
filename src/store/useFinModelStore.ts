@@ -24,6 +24,7 @@ import {
 } from "@/lib/operational-pnl";
 import type { FinancingMetrics, ProjectMetrics } from "./financingStore";
 import type { FieldValueSource } from "@/lib/field-value-source";
+import { alignStaleFinancingConstructionPeriod } from "@/lib/construction-end";
 import { buildRecommendationQuery } from "../app/sale/utils/db-mapping";
 import {
   getRecommendations,
@@ -3483,19 +3484,28 @@ const useFinModelStore = create<FinModelStore>()(
               },
             }),
           };
-          const syncConstructionToFinancing =
+          const nextPeriod =
             typeof data.constructionPeriod === "number" &&
             Number.isFinite(data.constructionPeriod) &&
-            data.constructionPeriod > 0;
+            data.constructionPeriod > 0
+              ? data.constructionPeriod
+              : null;
+          const sliceFinancing = nextPeriod
+            ? {
+                ...state[key].financing,
+                constructionPeriodMonths: nextPeriod,
+              }
+            : state[key].financing;
           return {
             [key]: {
               ...state[key],
               cashOutflows,
+              ...(nextPeriod ? { financing: sliceFinancing } : {}),
             },
-            ...(syncConstructionToFinancing && {
+            ...(nextPeriod && {
               financing: {
                 ...state.financing,
-                constructionPeriodMonths: data.constructionPeriod!,
+                constructionPeriodMonths: nextPeriod,
               },
             }),
           } as Partial<FinModelState>;
@@ -3971,13 +3981,25 @@ const useFinModelStore = create<FinModelStore>()(
 
         set((state) => {
           const currentSlice = state[stream];
+          const c1Period = Math.max(
+            0,
+            Math.floor(Number(savedData.cashOutflows?.constructionPeriod) || 0)
+          );
+          const savedFin = savedData.financing;
+          const financingAligned = {
+            ...savedFin,
+            constructionPeriodMonths: alignStaleFinancingConstructionPeriod(
+              savedFin?.constructionPeriodMonths,
+              c1Period
+            ),
+          };
           const hydratedSlice: FinModelStreamSlice = {
             ...currentSlice,
             projectInfo: savedData.projectInfo,
             buildingConfig: savedData.projectInfo.buildingConfig,
             cashOutflows: savedData.cashOutflows,
             cashInflows: savedData.cashInflows,
-            financing: savedData.financing,
+            financing: financingAligned,
             projectIRR: savedData.projectIRR,
             equityReturns:
               collected?.equityReturns ?? currentSlice.equityReturns,
@@ -4003,7 +4025,7 @@ const useFinModelStore = create<FinModelStore>()(
             [stream]: hydratedSlice,
             cashInflows: savedData.cashInflows,
             projectIRR: savedData.projectIRR,
-            financing: savedData.financing,
+            financing: financingAligned,
             equityReturns: collected?.equityReturns ?? state.equityReturns,
             scenarioAnalysis:
               collected?.scenarioAnalysis ?? state.scenarioAnalysis,
@@ -4081,7 +4103,7 @@ const useFinModelStore = create<FinModelStore>()(
     }),
     {
       name: "finmodel-storage",
-      version: 8,
+      version: 9,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== "object") {
@@ -4221,6 +4243,61 @@ const useFinModelStore = create<FinModelStore>()(
               },
             },
           };
+        }
+
+        {
+          const stAlign = (next as { state?: FinModelState }).state;
+          if (stAlign) {
+            const patchSlice = (slice: FinModelStreamSlice | undefined) => {
+              if (!slice?.financing) return slice;
+              const actual = Math.max(
+                0,
+                Math.floor(Number(slice.cashOutflows?.constructionPeriod) || 0)
+              );
+              return {
+                ...slice,
+                financing: {
+                  ...slice.financing,
+                  constructionPeriodMonths: alignStaleFinancingConstructionPeriod(
+                    slice.financing.constructionPeriodMonths,
+                    actual
+                  ),
+                },
+              };
+            };
+            const op = stAlign.operational
+              ? patchSlice(stAlign.operational)
+              : stAlign.operational;
+            const sale = stAlign.sale ? patchSlice(stAlign.sale) : stAlign.sale;
+            const topActual =
+              (stAlign.operational?.cashOutflows?.constructionPeriod as
+                | number
+                | undefined) ??
+              (stAlign.sale?.cashOutflows?.constructionPeriod as
+                | number
+                | undefined) ??
+              0;
+            next = {
+              ...next,
+              state: {
+                ...stAlign,
+                ...(op ? { operational: op } : {}),
+                ...(sale ? { sale } : {}),
+                ...(stAlign.financing
+                  ? {
+                      financing: {
+                        ...stAlign.financing,
+                        constructionPeriodMonths:
+                          alignStaleFinancingConstructionPeriod(
+                            stAlign.financing.constructionPeriodMonths,
+                            topActual
+                          ),
+                      },
+                    }
+                  : {}),
+              },
+            };
+          }
         }
 
         const stFinal = (next as { state?: Record<string, unknown> }).state;

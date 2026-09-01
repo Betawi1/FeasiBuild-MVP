@@ -11,6 +11,7 @@ import {
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
 import { computeOperationalProjectIrrPnl } from "@/lib/operational-project-irr-pnl";
 import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import { buildConstructionCostPreviewRow } from "@/lib/financing-preview-rows";
 import {
   buildCashOutflowProfile,
@@ -235,15 +236,11 @@ export function applyOperationalScenario(
         amount: (Number(p?.amount) || 0) * 0.9,
       }));
     }
-    const fin = out.financing;
-    fin.constructionPeriodMonths =
-      Math.round(Number(fin.constructionPeriodMonths ?? 0) || 0) + 3;
     const co = out.cashOutflows;
     co.constructionPeriod =
-      Math.max(
-        Number(co.constructionPeriod ?? 0) || 0,
-        fin.constructionPeriodMonths
-      ) || fin.constructionPeriodMonths;
+      Math.round(Number(co.constructionPeriod ?? 0) || 0) + 3;
+    const fin = out.financing;
+    fin.constructionPeriodMonths = co.constructionPeriod;
   }
 
   return out;
@@ -342,12 +339,9 @@ export function applyDriverShocksToOperationalSnapshot(
 
   const extraMonths = Math.round(legacy.constructionDuration ?? 0);
   if (extraMonths !== 0) {
-    fin.constructionPeriodMonths =
-      Math.round(Number(fin.constructionPeriodMonths) || 0) + extraMonths;
-    co.constructionPeriod = Math.max(
-      Number(co.constructionPeriod) || 0,
-      fin.constructionPeriodMonths
-    );
+    co.constructionPeriod =
+      Math.round(Number(co.constructionPeriod) || 0) + extraMonths;
+    fin.constructionPeriodMonths = co.constructionPeriod;
   }
 
   if (t === "warehouse") {
@@ -440,11 +434,11 @@ export function buildOperationalLeveredEngineArgs(
       0
     ) || 0);
 
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const outflowProfile = buildCashOutflowProfile(cashOutflows);
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    outflowProfile.construction
+  );
 
   const holdPeriodYears = financing.holdPeriodYears || 10;
   const operationsStartMonth = calculateOperationsStartMonth(constructionPeriod);
@@ -505,11 +499,7 @@ export function buildOperationalLeveredEngineArgs(
     return loadFromSessionStorage<any[]>(STORAGE_KEYS.amortization, []);
   })();
 
-  const outflowProfile = buildCashOutflowProfile(cashOutflows);
-  const constructionCostEndMonth = Math.max(
-    0,
-    cashOutflows.constructionPeriod || 0
-  );
+  const constructionCostEndMonth = constructionPeriod;
   const constructionCostSchedule = buildConstructionCostPreviewRow({
     profileConstruction: outflowProfile.construction,
     sparseSchedule: (cashOutflows as { constructionSchedule?: unknown })

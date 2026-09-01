@@ -24,7 +24,9 @@ import { annualIrrPercentFromMonthlySeries } from "@/lib/equity-irr";
 import { calculateCommonEquityMetrics } from "@/lib/equity-metrics";
 import { computeTrueCommonDistributionsFromFyeNcf } from "@/lib/true-common-distributions";
 import { solveAnnualIRRPreferred, type CashFlowPoint } from "@/lib/irr-calculations";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import useFinModelStore, {
+  buildCashOutflowProfile,
   DEFAULT_PREFERENCE_TENOR_MONTHS,
   getOperationalYearMonthRange,
 } from "@/store/useFinModelStore";
@@ -160,11 +162,10 @@ export default function EquityReturnsPreviewPage() {
   const cumulativeNcfLength =
     projectIRR.cumulativeNcfPostFinancingByMonth?.length ?? 0;
   const equityInjectionLength = projectIRR.equityInjectionByMonth?.length ?? 0;
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    buildCashOutflowProfile(cashOutflows).construction
+  );
   const POST_COMPLETION_BUFFER_MONTHS = 6;
   const holdPeriodYears = financing.holdPeriodYears || 10;
   const stabilizationEndMonth = constructionPeriod + POST_COMPLETION_BUFFER_MONTHS;

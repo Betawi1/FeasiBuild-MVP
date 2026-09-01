@@ -31,6 +31,7 @@ import PreviewFloatingBar from "@/components/PreviewFloatingBar";
 import Step4PreferenceShares, {
   type PrefSharesReturnType,
 } from "./steps/Step4-PreferenceShares";
+import { alignStaleFinancingConstructionPeriod, resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import useFinModelStore, {
   buildCashOutflowProfile,
   calculateOperationsStartMonth,
@@ -506,7 +507,12 @@ function FinancingPageContent() {
     maxLtvPercent: financing.maxLtvPercent ?? 60,
 
     constructionPeriodMonths:
-      cashOutflows.constructionPeriod ?? financing.constructionPeriodMonths ?? 30,
+      resolveActualConstructionEndMonth(
+        cashOutflows,
+        buildCashOutflowProfile(cashOutflows).construction
+      ) ||
+      financing.constructionPeriodMonths ||
+      30,
     amortizationYears: financing.amortizationYears ?? 10,
     hasBalloon: financing.hasBalloon ?? false,
     balloonPercent: financing.balloonPercent ?? 0,
@@ -575,13 +581,35 @@ function FinancingPageContent() {
   const financingStepVisitLogged = useRef<Set<number>>(new Set());
 
   // Construction timeline (align with Component 3 helpers)
-  const constructionPeriod = useMemo(() => {
-    const cp = Math.max(0, cashOutflows.constructionPeriod || 0);
-    // constructionEndMonth = operationsStart - preOpBuffer - 1 = cp
-    return (
-      calculateOperationsStartMonth(cp) - PRE_OPERATION_BUFFER_MONTHS - 1
+  const constructionPeriod = useMemo(
+    () =>
+      resolveActualConstructionEndMonth(
+        cashOutflows,
+        buildCashOutflowProfile(cashOutflows).construction
+      ),
+    [cashOutflows]
+  );
+
+  useEffect(() => {
+    if (constructionPeriod <= 0) return;
+    const aligned = alignStaleFinancingConstructionPeriod(
+      financing.constructionPeriodMonths,
+      constructionPeriod
     );
-  }, [cashOutflows.constructionPeriod]);
+    if (aligned !== financing.constructionPeriodMonths) {
+      updateFinancing({ constructionPeriodMonths: aligned }, finStream);
+    }
+    setFormData((prev) =>
+      prev.constructionPeriodMonths === constructionPeriod
+        ? prev
+        : { ...prev, constructionPeriodMonths: constructionPeriod }
+    );
+  }, [
+    constructionPeriod,
+    financing.constructionPeriodMonths,
+    updateFinancing,
+    finStream,
+  ]);
 
   // Step 4: Drawdown Structure State (tabbed)
   const [activeTab, setActiveTab] = useState<
@@ -1662,8 +1690,7 @@ function FinancingPageContent() {
     cashEquityRequiredResolved,
   ]);
 
-  const constructionPeriodForPrefTenor =
-    cashOutflows.constructionPeriod || formData.constructionPeriodMonths || 30;
+  const constructionPeriodForPrefTenor = constructionPeriod;
 
   const persistPreferenceShares = useCallback(() => {
     const prefReturnTypeStore: PreferenceShares["returnType"] =
@@ -1816,7 +1843,7 @@ function FinancingPageContent() {
   ]);
 
   const constructionPeriodForFlows =
-    cashOutflows.constructionPeriod || formData.constructionPeriodMonths || 30;
+    constructionPeriod || formData.constructionPeriodMonths;
   /** Step 3: amortization 3–15 years (form + financing store fallback) */
   // Operational stream: Component 2 hotel operations are 10 years, so we
   // lock amortization to 10Y (120 months) even if persisted inputs differ.
@@ -3002,7 +3029,8 @@ function FinancingPageContent() {
     }
 
     if (currentStep === totalSteps - 1) {
-      const constructionPeriodMonths = cashOutflows.constructionPeriod || formData.constructionPeriodMonths || 30;
+      const constructionPeriodMonths =
+        constructionPeriod || formData.constructionPeriodMonths;
       const amortizationYears = formData.amortizationYears || financing.amortizationYears || 7;
       const amortizationMonths = amortizationYears * 12;
 
@@ -3151,7 +3179,10 @@ function FinancingPageContent() {
 
       // Store debt service schedule (cash interest + principal), primarily for DSCR illustrations.
       const totalMonths = Math.min(240, constructionPeriodMonths + amortizationMonths);
-      const repaymentStartMonth = constructionPeriodMonths + 1;
+      const repaymentStartMonth =
+        finStream === "operational"
+          ? calculateOperationsStartMonth(constructionPeriodMonths)
+          : constructionPeriodMonths + 1;
       let outstanding = loanAtCompletion;
       let monthlyDebtServiceWithPrincipal = 0;
 

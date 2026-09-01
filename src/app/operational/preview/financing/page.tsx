@@ -22,6 +22,7 @@ import {
   useStreamPrefix,
   withStreamPrefix,
 } from "@/lib/stream-path";
+import { alignStaleFinancingConstructionPeriod, resolveActualConstructionEndMonth } from "@/lib/construction-end";
 import { monthlyIrrFromSeries } from "@/lib/equity-irr";
 import { calculateOperationalLeveredModel } from "@/app/operational/engine/c4.levered.engine";
 import { buildOperationalFinancingEquityWaterfall } from "@/lib/operational-financing-equity-waterfall";
@@ -413,16 +414,36 @@ export default function FinancingPreviewPage({
       (sum, p) => sum + (p.amount || 0),
       0
     ) || 0);
-  const constructionPeriod =
-    Math.max(
-      cashOutflows.constructionPeriod ?? 0,
-      financing.constructionPeriodMonths ?? 0
-    ) || 30;
+  const outflowProfile = useMemo(
+    () => buildCashOutflowProfile(cashOutflows),
+    [cashOutflows]
+  );
+  /** Last S-curve / C1 construction month — same source as Component 3. Never financing's default 30. */
+  const constructionPeriod = resolveActualConstructionEndMonth(
+    cashOutflows,
+    outflowProfile.construction
+  );
   const holdPeriodYears = financing.holdPeriodYears || 10;
-  /** Last month of pre-op buffer (M41–M46 for 40M); operations begin next month — see `calculateOperationsStartMonth`. */
+  /** Last month of pre-op buffer; operations begin next month — see `calculateOperationsStartMonth`. */
   const stabilizationEndMonth = calculateOperationsStartMonth(constructionPeriod) - 1;
   /** First month of hotel Operating Year 1 (same as Project IRR `npvColumns`). */
   const operationsStartMonth = calculateOperationsStartMonth(constructionPeriod);
+  useEffect(() => {
+    if (!isClient || constructionPeriod <= 0) return;
+    const aligned = alignStaleFinancingConstructionPeriod(
+      financing.constructionPeriodMonths,
+      constructionPeriod
+    );
+    if (aligned !== financing.constructionPeriodMonths) {
+      updateFinancing({ constructionPeriodMonths: aligned }, finStream);
+    }
+  }, [
+    isClient,
+    constructionPeriod,
+    financing.constructionPeriodMonths,
+    updateFinancing,
+    finStream,
+  ]);
   const repaymentHorizonMonths = Math.round(holdPeriodYears * 12);
   // Hold/repayment length (Step 7) runs after stabilization; keep legacy floor (c + 90) for short holds.
   const totalHoldPeriodMonths = Math.max(
@@ -766,11 +787,6 @@ export default function FinancingPreviewPage({
     return [];
   }, [financing]);
 
-  const outflowProfile = useMemo(
-    () => buildCashOutflowProfile(cashOutflows),
-    [cashOutflows]
-  );
-
   /** Single source of truth for construction-month total cash cost out (M0..M{constructionPeriod}); from `buildCashOutflowProfile`. */
   const calculateTotalOutflow = useMemo(
     () => outflowProfile.monthlyTotal,
@@ -779,8 +795,8 @@ export default function FinancingPreviewPage({
 
   /** M0..hold. Same length as engine monthly series / Total Outflow index space. */
   const previewHorizonMonths = totalHoldPeriodMonths + 1;
-  /** C1 construction end (S-curve length). Do not use `Math.max` with stale financing 30. */
-  const constructionCostEndMonth = Math.max(0, cashOutflows.constructionPeriod || 0);
+  /** C1 / S-curve construction end (same as `constructionPeriod`). */
+  const constructionCostEndMonth = constructionPeriod;
 
   // Same array for Construction Cost cells, row total, funding stack, and C4 engine.
   // No post-completion remainder plug — that is not a cash-flow month.
@@ -4587,17 +4603,19 @@ const ffeMonthly = useMemo(
           MONTHLY CASH FLOWS ({projectInfo.currency} &apos;000)
         </h2>
         <p className="mb-4 text-slate-500 text-xs">
+          Hotel operations start <span className="text-slate-300">M{operationsStartMonth}</span>
+          ; pre-op buffer ({PRE_OPERATION_BUFFER_MONTHS} mo) ends M{stabilizationEndMonth}.
           {useProjectIrrColumnLayout ? (
             <>
+              {" "}
               Column layout matches Project IRR: M0–M{constructionPeriod}, pre-operating M
               {constructionPeriod + 1}–M{stabilizationEndMonth}, then FYE markers{" "}
               {operationalYearMonthMap.slice(0, 3).map((r) => r.label).join(", ")}…
             </>
           ) : (
             <>
-              Hotel operations start <span className="text-slate-300">M{operationsStartMonth}</span>
-              ; pre-op buffer ({PRE_OPERATION_BUFFER_MONTHS} mo) ends M{stabilizationEndMonth}. FYE
-              columns: {operationalYearMonthMap.slice(0, 3).map((r) => r.label).join(", ")}…
+              {" "}
+              FYE columns: {operationalYearMonthMap.slice(0, 3).map((r) => r.label).join(", ")}…
             </>
           )}
         </p>
