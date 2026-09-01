@@ -103,6 +103,7 @@ CRITICAL RULES:
 3. Explain EBITDA margin stabilization from Year 1 to Year 3.
 4. Explain the largest Net Income spike year (often depreciation schedule effects).
 5. Exactly 3-4 sentences. Institutional tone.
+6. Do NOT include any source, citation, or benchmark attribution footer lines.
 
 OUTPUT: JSON { "commentary": string } — single paragraph only.
 `.trim();

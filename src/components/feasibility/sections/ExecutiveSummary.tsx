@@ -7,6 +7,7 @@ import {
 } from "@/components/feasibility/AiContentWarning";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
 import { generateDataCentreCommentaryFallback } from "@/lib/feasibility/generate-data-centre-commentary";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 import EditableTextBlock from "../EditableTextBlock";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
@@ -23,17 +24,7 @@ function pct(n: number): string {
 }
 
 function isDataCentreProject(projectData: FeasibilityProjectBundle): boolean {
-  const bt = (projectData.buildingType ?? "").toLowerCase();
-  const at = (projectData.assetType ?? "").toLowerCase();
-  return (
-    bt.includes("data_centre") ||
-    bt.includes("datacentre") ||
-    bt.includes("data centre") ||
-    at.includes("data centre") ||
-    at.includes("data_centre") ||
-    at.includes("datacentre") ||
-    (projectData.dataCentreMetrics?.itLoadMw ?? 0) > 0
-  );
+  return resolveOperationalAssetType(projectData.buildingType ?? "") === "datacentre";
 }
 
 /** Detect stale warehouse / BTR commentary cached onto shared exec-1 slide. */

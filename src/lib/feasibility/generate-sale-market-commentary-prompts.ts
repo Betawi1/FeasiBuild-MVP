@@ -20,7 +20,7 @@ PROJECT:
 - Equity Multiple: ${bundle.component4.equityMultiple.toFixed(2)}x
 - Construction: ${m.constructionMonths} months
 
-CRITICAL: ALWAYS reference ${subMarket} when discussing location, competition, or market dynamics. DO NOT include thinking process or prompt instructions in output.
+CRITICAL: ALWAYS reference ${subMarket} when discussing location, competition, or market dynamics. DO NOT include thinking process or prompt instructions in output. Do NOT include any source, citation, or benchmark attribution footer lines.
 `.trim();
 }
 

@@ -10,6 +10,7 @@ import {
 } from "@/components/feasibility/AiContentWarning";
 import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
 import { generateDataCentreCommentaryFallback } from "@/lib/feasibility/generate-data-centre-commentary";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
@@ -23,17 +24,7 @@ interface Props {
 
 function isDataCentreProject(projectData?: FeasibilityProjectBundle): boolean {
   if (!projectData) return false;
-  const bt = (projectData.buildingType ?? "").toLowerCase();
-  const at = (projectData.assetType ?? "").toLowerCase();
-  return (
-    bt.includes("data_centre") ||
-    bt.includes("datacentre") ||
-    bt.includes("data centre") ||
-    at.includes("data centre") ||
-    at.includes("data_centre") ||
-    at.includes("datacentre") ||
-    (projectData.dataCentreMetrics?.itLoadMw ?? 0) > 0
-  );
+  return resolveOperationalAssetType(projectData.buildingType ?? "") === "datacentre";
 }
 
 function looksLikeWrongAssetCommentary(paragraphs: string[]): boolean {

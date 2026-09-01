@@ -15,4 +15,6 @@ DO NOT:
 - Use placeholders like "Charts and visualizations are included in the interactive version"
 - Repeat the same information across bullet points
 - Wrap bullet points or sentences in quotation marks ("..." or '...')
+- Include any source, citation, or benchmark attribution footer lines
+- Write lines that start with "Source:" or "Sources:"
 `.trim();

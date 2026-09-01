@@ -1,6 +1,10 @@
 "use client";
 
 import EditableTextBlock from "./EditableTextBlock";
+import {
+  isSourceAttributionLine,
+  stripSourceAttributionLines,
+} from "@/lib/feasibility/clean-ai-content";
 
 interface EditableSlideParagraphsProps {
   paragraphs: string[];
@@ -17,13 +21,19 @@ export default function EditableSlideParagraphs({
   className = "space-y-3",
   itemClassName = "text-sm text-slate-700 leading-relaxed",
 }: EditableSlideParagraphsProps) {
-  if (paragraphs.length === 0 && !isEditing) return null;
+  const visible = isEditing
+    ? paragraphs.length > 0
+      ? paragraphs
+      : [""]
+    : paragraphs
+        .map((p) => stripSourceAttributionLines(p))
+        .filter((p) => p.trim().length > 0 && !isSourceAttributionLine(p));
 
-  const items = paragraphs.length > 0 ? paragraphs : [""];
+  if (visible.length === 0 && !isEditing) return null;
 
   return (
     <div className={className}>
-      {items.map((p, i) => (
+      {visible.map((p, i) => (
         <EditableTextBlock
           key={i}
           text={p}

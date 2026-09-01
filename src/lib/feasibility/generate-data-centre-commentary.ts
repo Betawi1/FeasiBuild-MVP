@@ -1,5 +1,6 @@
 import type { FeasibilityProjectBundle } from "@/types/feasibility";
 import { INSTITUTIONAL_COMMENTARY_REQUIREMENTS } from "@/lib/feasibility/commentary-prompt-utils";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 import {
   generateMacroCommentaryFallback,
   type MacroCommentaryContext,
@@ -92,19 +93,9 @@ export function assertDataCentreBundle(
   bundle: FeasibilityProjectBundle,
   context: string
 ): void {
-  const bt = (bundle.buildingType ?? "").toLowerCase();
-  const at = (bundle.assetType ?? "").toLowerCase();
-  const hasDcMetrics = (bundle.dataCentreMetrics?.itLoadMw ?? 0) > 0;
   const isDc =
-    bt.includes("data_centre") ||
-    bt.includes("datacentre") ||
-    bt.includes("data centre") ||
-    bt.includes("datacenter") ||
-    at.includes("data centre") ||
-    at.includes("data_centre") ||
-    at.includes("datacentre") ||
-    at.includes("datacenter") ||
-    hasDcMetrics;
+    resolveOperationalAssetType(bundle.buildingType ?? "") === "datacentre";
+  const hasDcMetrics = (bundle.dataCentreMetrics?.itLoadMw ?? 0) > 0;
 
   if (!isDc) {
     console.error(

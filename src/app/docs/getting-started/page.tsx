@@ -57,7 +57,7 @@ export default function GettingStarted() {
               <li>
                 <strong className="text-white">Bring Your Own AI:</strong> You
                 connect your own Puter account to access our AI engine — choose
-                from Qwen (default), Claude, OpenAI, or DeepSeek in your dashboard.
+                from Qwen (default), Claude, or OpenAI in your dashboard.
               </li>
               <li>
                 <strong className="text-white">Bring Your Own Database:</strong>{" "}
@@ -78,8 +78,9 @@ export default function GettingStarted() {
               Which AI models power FeasiBuild?
             </h3>
             <p className="text-slate-300 text-sm leading-relaxed mb-3">
-              FeasiBuild gives you a choice of world-class large language models,
-              all accessed through your own Puter account:
+              FeasiBuild gives you a choice of world-class large language models —
+              choose from Qwen (default), Claude, or OpenAI, all accessed through
+              your own Puter account:
             </p>
             <ul className="ml-4 list-disc space-y-2 text-sm text-slate-400">
               <li>
@@ -94,10 +95,6 @@ export default function GettingStarted() {
               <li>
                 <strong className="text-white">OpenAI (GPT)</strong> —
                 industry-leading general reasoning and market research.
-              </li>
-              <li>
-                <strong className="text-white">DeepSeek (Cost-Effective)</strong>{" "}
-                — high-quality analysis at a fraction of the compute cost.
               </li>
             </ul>
             <p className="mt-3 text-sm leading-relaxed text-slate-300">

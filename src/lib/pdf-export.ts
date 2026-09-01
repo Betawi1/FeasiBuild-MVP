@@ -2,6 +2,7 @@ import { domToPng } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
+import { requestFitSlideRemeasure } from "@/components/feasibility/fit-slide-events";
 
 const SLIDE_WIDTH = 1280;
 const SLIDE_HEIGHT = 720;
@@ -57,6 +58,19 @@ async function waitForLeafletTiles(container: HTMLElement): Promise<void> {
   await delay(MAP_EXTRA_SETTLE_MS);
 }
 
+async function waitForFitSlide(container: HTMLElement): Promise<void> {
+  requestFitSlideRemeasure();
+  const start = Date.now();
+  while (Date.now() - start < 1500) {
+    const fit = container.querySelector("[data-fit-slide]");
+    if (fit?.getAttribute("data-fit-ready") === "true") {
+      await delay(50);
+      return;
+    }
+    await delay(50);
+  }
+}
+
 async function waitBeforeCapture(slide: FeasibilitySlide): Promise<void> {
   // Always settle so charts / fonts / layout finish painting
   await delay(SLIDE_SETTLE_MS);
@@ -107,6 +121,7 @@ export async function exportToPDF(options: ExportOptions): Promise<void> {
       };
 
       applyCaptureStyles(element);
+      await waitForFitSlide(element);
 
       const dataUrl = await domToPng(element, {
         width: SLIDE_WIDTH,

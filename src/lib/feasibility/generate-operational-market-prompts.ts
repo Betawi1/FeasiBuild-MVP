@@ -53,7 +53,8 @@ REQUIREMENTS:
 4. Discuss ${country}-specific regulations, policies, and market institutions BY NAME
 5. Provide quantified metrics — no generic ranges copied across countries
 6. DO NOT include thinking process, analysis steps, or prompt instructions in output
-7. Minimum 6 detailed bullet points (250+ words total)
+7. Do NOT include any source, citation, or benchmark attribution footer lines (no "Source:" / "Sources:" lines)
+8. Minimum 6 detailed bullet points (250+ words total)
 ${tableFormat}
 Return JSON: { "paragraphs": string[] }
 

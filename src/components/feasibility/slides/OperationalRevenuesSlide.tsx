@@ -118,9 +118,6 @@ export default function OperationalRevenuesSlide({
               className="list-disc pl-5 space-y-2"
               itemClassName="text-sm text-slate-700 leading-relaxed"
             />
-            <p className="mt-3 text-[9px] text-slate-400 italic">
-              Source: Component 2 Operational Assumptions
-            </p>
           </div>
         </div>
       </div>

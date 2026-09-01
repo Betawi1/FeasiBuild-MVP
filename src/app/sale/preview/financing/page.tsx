@@ -14,6 +14,7 @@ import useFinModelStore, {
 } from "@/store/useFinModelStore";
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
 import { buildSaleCashflowDetailProfile } from "@/lib/sale-cash-preview-profile";
+import { buildConstructionCostPreviewRow } from "@/lib/financing-preview-rows";
 import {
   buildFinancingEnginePreview,
   financingEngineTimelineLastMonth,
@@ -389,39 +390,23 @@ function FinancingPreviewPageContent({
     [outflowProfile.monthlyTotal]
   );
 
-  // Construction cost schedule aligned to month index (M0 = 0, M1..Mn align to index 1..n)
-  // If the store ever provides a precomputed schedule, prefer it; otherwise fall back to
-  // the exact same schedule used by `/preview/cash-outflows` (via `buildCashOutflowProfile`).
-  const constructionCostSchedule = useMemo(() => {
-    const schedule = Array(totalHoldPeriodMonths + 1).fill(0);
-    const scheduleMaybe = (cashOutflows as any)?.constructionSchedule;
-
-    if (Array.isArray(scheduleMaybe)) {
-      for (const entry of scheduleMaybe) {
-        const month = Number(entry?.month ?? entry?.m ?? 0);
-        const amount = Number(entry?.amount ?? entry?.value ?? 0);
-        if (Number.isFinite(month) && month >= 0 && month < schedule.length) {
-          schedule[month] += Number.isFinite(amount) ? amount : 0;
-        }
-      }
-    } else {
-      // Fallback: aligned array from `buildCashOutflowProfile`
-      for (let m = 0; m < schedule.length; m++) {
-        schedule[m] = outflowProfile.construction?.[m] || 0;
-      }
-    }
-
-    // Reconcile construction schedule to exact total (same intent as cash-outflows preview).
-    const expected = cashOutflows.constructionCost || 0;
-    const actual = schedule.reduce((sum, v) => sum + (v || 0), 0);
-    const diff = expected - actual;
-    const lastConstructionMonth = Math.min(constructionPeriod, schedule.length - 1);
-    if (Math.abs(diff) > 1 && lastConstructionMonth >= 0) {
-      schedule[lastConstructionMonth] += diff;
-    }
-
-    return schedule;
-  }, [cashOutflows, outflowProfile.construction, totalHoldPeriodMonths]);
+  const constructionCostEndMonth = Math.max(0, cashOutflows.constructionPeriod || 0);
+  const constructionCostSchedule = useMemo(
+    () =>
+      buildConstructionCostPreviewRow({
+        profileConstruction: outflowProfile.construction,
+        sparseSchedule: (cashOutflows as { constructionSchedule?: unknown })
+          .constructionSchedule,
+        horizonMonths: totalHoldPeriodMonths + 1,
+        constructionEndMonth: constructionCostEndMonth,
+      }),
+    [
+      cashOutflows,
+      constructionCostEndMonth,
+      outflowProfile.construction,
+      totalHoldPeriodMonths,
+    ]
+  );
 
   // Component 2 already generates the monthly inflow schedule for the sale timing.
   // For this preview we split each month's total inflow into "unit" vs "bulk"
@@ -2068,8 +2053,7 @@ function FinancingPreviewPageContent({
       // Land cost is always a full project outflow at M0.
       // Slider changes funding source split (equity vs refinanced debt), not the cost itself.
       const landCostOutflow = m === 0 ? totalLandCost : 0;
-      const constructionCostOutflow =
-        m <= constructionPeriod ? constructionCostSchedule[m] || 0 : 0;
+      const constructionCostOutflow = constructionCostSchedule[m] || 0;
       const softCostsOutflow =
         m <= constructionPeriod ? outflowProfile.softCosts[m] || 0 : 0;
       const powcOutflow =

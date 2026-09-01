@@ -50,6 +50,7 @@ CRITICAL:
 - DO mention ${country}-specific institutions, policies, or economic characteristics
 - Include at least ONE specific statistic or fact unique to ${country}
 - DO NOT include thinking process, analysis steps, or prompt instructions in output
+- Do NOT include any source, citation, or benchmark attribution footer lines
 - Minimum 6 detailed bullet points (200+ words total)
 
 Return JSON: { "paragraphs": string[] }
@@ -83,6 +84,7 @@ CRITICAL:
 - DO NOT use identical sentence structures across countries
 - DO mention ${country}'s unique inflation dynamics
 - DO NOT include thinking process, analysis steps, or prompt instructions in output
+- Do NOT include any source, citation, or benchmark attribution footer lines
 - Minimum 6 detailed bullet points (200+ words total)
 
 Return JSON: { "paragraphs": string[] }
@@ -116,6 +118,7 @@ CRITICAL:
 - DO NOT use generic "expatriate inflows" without naming actual visa programs
 - DO mention ${country}-specific initiatives (e.g. MM2H, Golden Visa, skilled migration)
 - DO NOT include thinking process, analysis steps, or prompt instructions in output
+- Do NOT include any source, citation, or benchmark attribution footer lines
 - Minimum 6 detailed bullet points (200+ words total)
 
 Return JSON: { "paragraphs": string[] }
@@ -153,6 +156,7 @@ CRITICAL:
 - DO NOT use identical opportunity/risk categories across countries
 - DO mention ${country}-specific factors with names and numbers
 - DO NOT include thinking process, analysis steps, or prompt instructions in output
+- Do NOT include any source, citation, or benchmark attribution footer lines
 - Minimum 6 detailed bullet points (250+ words total)
 
 Return JSON: { "paragraphs": string[] }

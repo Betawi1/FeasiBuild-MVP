@@ -222,11 +222,6 @@ export default function OperationalExpensesSlide({
           </table>
         </div>
 
-        <p className="text-[9px] text-slate-500 shrink-0">
-          Source: HotelBenchmark 2007, Deloitte analysis, Component 2 Operational
-          Assumptions
-        </p>
-
         <EditableSlideParagraphs
           paragraphs={paragraphs}
           isEditing={isEditing}

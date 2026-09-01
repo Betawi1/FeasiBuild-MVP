@@ -18,6 +18,10 @@ import { useReportExportGate } from "@/hooks/useReportExportGate";
 import { SlideCaptureProvider } from "@/components/feasibility/SlideContainer";
 import { generateOperationalSlidesWithPuter } from "@/lib/feasibility/enrich-operational-slides-puter";
 import {
+  buildRegenerateFeasibilityConfirmMessage,
+  resolveOperationalAssetType,
+} from "@/lib/feasibility/operational-asset-class";
+import {
   clearAllCaches,
   clearStoredHashes,
   getStoredHashes,
@@ -44,118 +48,39 @@ const SECTION_LABEL: Record<FeasibilitySlide["section"], string> = {
   financial: "D",
 };
 
-function isHotelBuildingType(buildingType: string, assetType?: string): boolean {
-  if (isDataCentreBuildingType(buildingType, assetType)) return false;
-  const bt = buildingType.toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return bt === "hotel" || at.includes("hotel");
+function storedBuildingType(): string {
+  return useFinModelStore.getState().operational.projectInfo.buildingType;
 }
 
-function isOfficeBuildingType(buildingType: string, assetType?: string): boolean {
-  if (isDataCentreBuildingType(buildingType, assetType)) return false;
-  const bt = buildingType.toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return bt === "office" || at.includes("office");
+function feasibilityEndpoint(buildingType: string): string {
+  switch (resolveOperationalAssetType(buildingType)) {
+    case "office":
+      return "/api/feasibility/generate-office";
+    case "mall":
+      return "/api/feasibility/generate-mall";
+    case "btr":
+      return "/api/feasibility/generate-btr";
+    default:
+      // Hotel, warehouse, and data centre use the market generator as Puter fallback.
+      return "/api/feasibility/generate-market";
+  }
 }
 
-function isBTRBuildingType(buildingType: string, assetType?: string): boolean {
-  if (isDataCentreBuildingType(buildingType, assetType)) return false;
-  if (isHotelBuildingType(buildingType, assetType)) return false;
-  if (isOfficeBuildingType(buildingType, assetType)) return false;
-  const bt = buildingType.toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return bt === "residential" || at.includes("residential") || at.includes("btr");
-}
-
-function isRetailBuildingType(buildingType: string, assetType?: string): boolean {
-  if (isDataCentreBuildingType(buildingType, assetType)) return false;
-  if (isOfficeBuildingType(buildingType, assetType)) return false;
-  if (isBTRBuildingType(buildingType, assetType)) return false;
-  const bt = buildingType.toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return (
-    bt === "retail" ||
-    at.includes("retail") ||
-    at.includes("mall") ||
-    at.includes("shopping")
-  );
-}
-
-function feasibilityEndpoint(
-  buildingType: string,
-  assetType?: string
-): string {
-  if (isDataCentreBuildingType(buildingType, assetType)) {
-    // No dedicated server route yet — client Puter path is primary.
-    // Fall back to market generator only if Puter fails.
-    return "/api/feasibility/generate-market";
+function feasibilityStudyTitle(buildingType: string): string {
+  switch (resolveOperationalAssetType(buildingType)) {
+    case "datacentre":
+      return "Data Centre Feasibility Study";
+    case "office":
+      return "Office & Retail Feasibility Study";
+    case "mall":
+      return "Shopping Mall Feasibility Study";
+    case "btr":
+      return "Residential BTR Feasibility Study";
+    case "warehouse":
+      return "Warehouse & Industrial Feasibility Study";
+    default:
+      return "Hotel Feasibility Study";
   }
-  if (isOfficeBuildingType(buildingType, assetType)) {
-    return "/api/feasibility/generate-office";
-  }
-  if (isRetailBuildingType(buildingType, assetType)) {
-    return "/api/feasibility/generate-mall";
-  }
-  if (isBTRBuildingType(buildingType, assetType)) {
-    return "/api/feasibility/generate-btr";
-  }
-  return "/api/feasibility/generate-market";
-}
-
-function isWarehouseBuildingType(buildingType: string, assetType?: string): boolean {
-  if (isDataCentreBuildingType(buildingType, assetType)) return false;
-  const bt = buildingType.toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return (
-    bt === "warehouse" ||
-    bt === "industrial" ||
-    at.includes("warehouse") ||
-    at.includes("industrial") ||
-    at.includes("logistics")
-  );
-}
-
-function isDataCentreBuildingType(buildingType: string, assetType?: string): boolean {
-  const bt = (buildingType ?? "").toLowerCase();
-  const at = (assetType ?? "").toLowerCase();
-  return (
-    bt === "data_centre" ||
-    bt === "datacentre" ||
-    bt === "data-centre" ||
-    bt === "datacenter" ||
-    bt.includes("data_centre") ||
-    bt.includes("datacentre") ||
-    bt.includes("data centre") ||
-    bt.includes("data-centre") ||
-    bt.includes("datacenter") ||
-    bt.includes("data center") ||
-    at.includes("data centre") ||
-    at.includes("data_centre") ||
-    at.includes("datacentre") ||
-    at.includes("data-centre") ||
-    at.includes("datacenter") ||
-    at.includes("data center")
-  );
-}
-
-function feasibilityStudyTitle(buildingType: string, assetType?: string): string {
-  // Data Centre before BTR/warehouse — same priority as resolveOperationalAssetType
-  if (isDataCentreBuildingType(buildingType, assetType)) {
-    return "Data Centre Feasibility Study";
-  }
-  if (isOfficeBuildingType(buildingType, assetType)) {
-    return "Office & Retail Feasibility Study";
-  }
-  if (isRetailBuildingType(buildingType, assetType)) {
-    return "Shopping Mall Feasibility Study";
-  }
-  if (isBTRBuildingType(buildingType, assetType)) {
-    return "Residential BTR Feasibility Study";
-  }
-  if (isWarehouseBuildingType(buildingType, assetType)) {
-    return "Warehouse & Industrial Feasibility Study";
-  }
-  return "Hotel Feasibility Study";
 }
 
 export default function FeasibilityStudyPage() {
@@ -198,12 +123,13 @@ export default function FeasibilityStudyPage() {
       const projectData = getFeasibilityProjectBundle();
       setProjectBundle(projectData);
 
+      const liveBuildingType = storedBuildingType();
+
       console.log("[Feasibility Study] generateReport", {
-        buildingType,
+        buildingType: liveBuildingType,
         bundleBuildingType: projectData.buildingType,
         bundleAssetType: projectData.assetType,
-        projectInfoBuildingTypeEqualsDataCentre:
-          buildingType === "data_centre",
+        route: resolveOperationalAssetType(liveBuildingType),
         dataCentreMetricsPresent: !!projectData.dataCentreMetrics,
       });
 
@@ -224,7 +150,7 @@ export default function FeasibilityStudyPage() {
       try {
         const result = await generateOperationalSlidesWithPuter(
           projectData,
-          buildingType,
+          liveBuildingType,
           { forceRegenerate, oldHashes }
         );
         slidesResult = result.slides;
@@ -236,17 +162,15 @@ export default function FeasibilityStudyPage() {
         console.log("[Feasibility Study] generated slide IDs", {
           count: slidesResult.length,
           ids: slidesResult.slice(0, 12).map((s) => s.id),
-          buildingType,
+          buildingType: liveBuildingType,
+          route: resolveOperationalAssetType(liveBuildingType),
         });
       } catch (puterErr) {
         console.warn(
           "Puter.js generation failed, falling back to server API:",
           puterErr
         );
-        const endpoint = feasibilityEndpoint(
-          buildingType,
-          projectData.assetType
-        );
+        const endpoint = feasibilityEndpoint(liveBuildingType);
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -423,7 +347,7 @@ export default function FeasibilityStudyPage() {
       <div className="no-print sticky top-0 z-50 border-b border-slate-800 bg-slate-900/90 px-6 py-3 backdrop-blur">
         <div className="mx-auto max-w-[1280px]">
           <h1 className="text-2xl font-bold text-white">
-            {feasibilityStudyTitle(buildingType, bundle.assetType)}
+            {feasibilityStudyTitle(buildingType)}
           </h1>
           <p className="mt-1 text-sm text-slate-400">
             Part {SECTION_LABEL[currentSlide.section]} ·{" "}
@@ -503,27 +427,19 @@ export default function FeasibilityStudyPage() {
           <button
             type="button"
             onClick={async () => {
+              const bt = storedBuildingType();
               const isConfirmed = window.confirm(
-                "⚠️ Regenerate Data Centre feasibility from scratch?\n\n" +
-                  "This clears AI cache and force-regenerates every slide with Data Centre–specific prompts (IT load, PUE, Tier, $/kW).\n\n" +
-                  "This may take 30–60 seconds."
+                buildRegenerateFeasibilityConfirmMessage(bt)
               );
 
               if (!isConfirmed) return;
 
-              const bt =
-                useFinModelStore.getState().operational.projectInfo
-                  .buildingType;
               console.log(
                 "[Feasibility Study] Force regenerate — buildingType:",
-                bt
+                bt,
+                "route:",
+                resolveOperationalAssetType(bt)
               );
-              if (bt !== "data_centre") {
-                console.error(
-                  "ERROR: Feasibility study generator received wrong asset type:",
-                  bt
-                );
-              }
 
               await clearAllCaches(user?.id);
               await clearStoredHashes(OPERATIONAL_HASHES_STORAGE_KEY, user?.id);

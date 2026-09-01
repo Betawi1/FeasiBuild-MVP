@@ -14,6 +14,7 @@ import { FALLBACK_MODEL_ID, DEFAULT_MODEL } from "@/lib/puter-models";
 import {
   COMMENTARY_NO_QUOTES_CONSTRAINT,
   parseAIParagraphs,
+  stripSourceAttributionLines,
   stripThinkingAndPromptArtifacts,
   validateSlideContent,
 } from "@/lib/feasibility/clean-ai-content";
@@ -76,6 +77,8 @@ CRITICAL LENGTH CONSTRAINTS:
 - Content must fit within a 16:9 slide with charts/tables
 - Be concise and impactful, not verbose
 - DO NOT wrap bullet points in quotation marks — use plain text only
+- Do NOT include any source, citation, or benchmark attribution footer lines
+- Do NOT write lines that start with "Source:" or "Sources:"
 `.trim();
 
 export const COMMENTARY_FORMAT_CONSTRAINT = COMMENTARY_NO_QUOTES_CONSTRAINT;
@@ -191,6 +194,7 @@ You MUST generate UNIQUE, SPECIFIC content with:
 - NO WTDC/STR template phrases like "Travel & Tourism Demand in [Country] reached approximately"
 - NO generic phrases like "charts and visualizations"
 - NO placeholder text
+- NO source, citation, or benchmark attribution footer lines (no "Source:" lines)
 
 Generate 5-6 detailed bullet points with location-specific facts.
 
@@ -258,9 +262,12 @@ class PuterAIProvider implements AIProvider {
               /["'],?\s*$/.test(p)
           );
           // Cached commentary is stored already-cleaned; only re-parse when artifacts remain
-          const paragraphs = hasJsonArtifacts
+          const paragraphs = (hasJsonArtifacts
             ? parseAIParagraphs(cached.join("\n"))
-            : cached;
+            : cached
+          )
+            .map((p) => stripSourceAttributionLines(p))
+            .filter((p) => p.trim().length > 0);
 
           if (!hasPlaceholderContent(paragraphs)) {
             console.log(`[AI Service] ✅ Cache HIT: ${cacheKey}`);

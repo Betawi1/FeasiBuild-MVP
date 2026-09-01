@@ -8,7 +8,7 @@ import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import useScenarioStore from "@/store/useScenarioStore";
 import { getFeasibilityProjectBundle } from "@/lib/feasibility/data-aggregator";
 import { getSaleFeasibilityBundle } from "@/lib/feasibility/sale/sale-context";
-import { resolveOperationalAssetType } from "@/lib/feasibility/enrich-operational-slides-puter";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 import {
   buildCommentaryCacheKey,
   buildOperationalBundleHashes,

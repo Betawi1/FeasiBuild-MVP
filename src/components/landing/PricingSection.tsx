@@ -138,7 +138,7 @@ const comparison: {
     group: "Platform & Architecture",
     rows: [
       { label: "Zero-Knowledge BYO Infrastructure", values: [true, true, true] },
-      { label: "BYO-AI Integration (Qwen, Claude, OpenAI, Deepseek via Puter)", values: [true, true, true] },
+      { label: "BYO-AI Integration (Qwen, Claude, OpenAI via Puter)", values: [true, true, true] },
       { label: "Full Platform Access", values: [true, true, true] },
     ],
   },

@@ -3,6 +3,7 @@ import type {
   FeasibilitySlide,
   ProjectLocationSlideData,
 } from "@/types/feasibility";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 
 export function isProjectLocationSlideData(
   data: unknown
@@ -39,13 +40,8 @@ export function buildProjectLocationSlideData(
   const assetType = formatAssetLabel(bundle);
 
   const locationDescription = (() => {
-    const bt = (bundle.buildingType ?? "").toLowerCase();
-    const at = (bundle.assetType || "").toLowerCase();
     const isDc =
-      bt.includes("data_centre") ||
-      bt.includes("datacentre") ||
-      at.includes("data centre") ||
-      at.includes("datacentre");
+      resolveOperationalAssetType(bundle.buildingType ?? "") === "datacentre";
     const fiberPower = isDc
       ? " with proximity to power interconnection capacity and diverse fiber routes"
       : "";

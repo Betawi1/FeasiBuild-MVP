@@ -328,8 +328,7 @@ function runOperationalLeveredModel(
       // Land cost is always a full project outflow at M0.
       // Slider changes funding source split (equity vs refinanced debt), not the cost itself.
       const landCostOutflow = m === 0 ? totalLandCost : 0;
-      const constructionCostOutflow =
-        m <= constructionPeriod ? constructionCostSchedule[m] || 0 : 0;
+      const constructionCostOutflow = constructionCostSchedule[m] || 0;
       const softCostsOutflow =
         m <= constructionPeriod ? outflowProfile.softCosts[m] || 0 : 0;
       const powcOutflow =

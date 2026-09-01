@@ -62,6 +62,7 @@ CRITICAL REQUIREMENTS — READ CAREFULLY:
 8. ALWAYS reference the specific sub-market when discussing location, competition, or market dynamics
 9. DO NOT include thinking process, analysis steps, or prompt instructions in output
 10. For risk and success factors, provide DETAILED analysis — never generic labels like "Market threat"
+11. Do NOT include any source, citation, or benchmark attribution footer lines. Do NOT write lines that start with "Source:" or "Sources:"
 `.trim();
 
 export const HOTEL_WTDC_STRICT_CONSTRAINT = `

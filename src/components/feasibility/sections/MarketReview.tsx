@@ -5,7 +5,7 @@ import {
   AiContentWarningBanner,
   aiParagraphClassName,
 } from "@/components/feasibility/AiContentWarning";
-import { cleanParagraphsForDisplay } from "@/lib/feasibility/clean-ai-content";
+import { cleanParagraphsForDisplay, stripSourceAttributionLines } from "@/lib/feasibility/clean-ai-content";
 import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import SlideContainer from "../SlideContainer";
 import SlideHeader from "../SlideHeader";
@@ -39,6 +39,10 @@ interface Props {
 
 const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"];
 
+function attributionSafeFooter(footer?: string): string {
+  return stripSourceAttributionLines(footer ?? "");
+}
+
 function ParagraphBlock({
   slide,
   isEditing,
@@ -64,11 +68,14 @@ function ParagraphBlock({
       />
       {slide.bulletPoints ? (
         <ul className="list-disc pl-5 space-y-1 mt-2">
-          {slide.bulletPoints.map((bp, i) => (
-            <li key={i} className="text-sm text-slate-700">
-              {bp}
-            </li>
-          ))}
+          {slide.bulletPoints
+            .map((bp) => stripSourceAttributionLines(bp))
+            .filter((bp) => bp.trim().length > 0)
+            .map((bp, i) => (
+              <li key={i} className="text-sm text-slate-700">
+                {bp}
+              </li>
+            ))}
         </ul>
       ) : null}
     </div>
@@ -249,8 +256,10 @@ export default function MarketReview({
                   ))}
                 </tbody>
               </table>
-              {table.footer ? (
-                <p className="text-[10px] text-slate-500 mt-1">{table.footer}</p>
+              {attributionSafeFooter(table.footer) ? (
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {attributionSafeFooter(table.footer)}
+                </p>
               ) : null}
             </div>
           ))}
@@ -319,8 +328,10 @@ export default function MarketReview({
                     ))}
                   </tbody>
                 </table>
-                {table.footer ? (
-                  <p className="text-[10px] text-slate-500 mt-1">{table.footer}</p>
+                {attributionSafeFooter(table.footer) ? (
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {attributionSafeFooter(table.footer)}
+                  </p>
                 ) : null}
               </div>
             ))}

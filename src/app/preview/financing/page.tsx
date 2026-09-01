@@ -25,6 +25,13 @@ import {
   monthlyIrrFromSeries,
   paybackMonthCrossingFromNegative,
 } from "@/lib/equity-irr";
+import {
+  alignMonthlyPreviewRow,
+  assertFinancingPreviewRow,
+  buildConstructionCostPreviewRow,
+  logConstructionRowVsCalc,
+  sumMonthlyRow,
+} from "@/lib/financing-preview-rows";
 
 /** Aligns with Component 4 Step 6 / `normalizeSeniorLoanType` in `src/app/financing/page.tsx`. */
 type PreviewSeniorLoanType =
@@ -243,39 +250,55 @@ export default function FinancingPreviewPage({
     [outflowProfile.monthlyTotal]
   );
 
-  // Construction cost schedule aligned to month index (M0 = 0, M1..Mn align to index 1..n)
-  // If the store ever provides a precomputed schedule, prefer it; otherwise fall back to
-  // the exact same schedule used by `/preview/cash-outflows` (via `buildCashOutflowProfile`).
-  const constructionCostSchedule = useMemo(() => {
-    const schedule = Array(totalHoldPeriodMonths + 1).fill(0);
-    const scheduleMaybe = (cashOutflows as any)?.constructionSchedule;
+  /** M0..hold. Same length as engine monthly series / Total Outflow index space. */
+  const previewHorizonMonths = totalHoldPeriodMonths + 1;
+  /** C1 construction end (S-curve length). Do not use `Math.max` with stale financing 30. */
+  const constructionCostEndMonth = Math.max(0, cashOutflows.constructionPeriod || 0);
 
-    if (Array.isArray(scheduleMaybe)) {
-      for (const entry of scheduleMaybe) {
-        const month = Number(entry?.month ?? entry?.m ?? 0);
-        const amount = Number(entry?.amount ?? entry?.value ?? 0);
-        if (Number.isFinite(month) && month >= 0 && month < schedule.length) {
-          schedule[month] += Number.isFinite(amount) ? amount : 0;
-        }
-      }
-    } else {
-      // Fallback: aligned array from `buildCashOutflowProfile`
-      for (let m = 0; m < schedule.length; m++) {
-        schedule[m] = outflowProfile.construction?.[m] || 0;
-      }
-    }
+  const constructionCostRow = useMemo(
+    () =>
+      buildConstructionCostPreviewRow({
+        profileConstruction: outflowProfile.construction,
+        sparseSchedule: (cashOutflows as { constructionSchedule?: unknown })
+          .constructionSchedule,
+        horizonMonths: previewHorizonMonths,
+        constructionEndMonth: constructionCostEndMonth,
+      }),
+    [
+      cashOutflows,
+      constructionCostEndMonth,
+      outflowProfile.construction,
+      previewHorizonMonths,
+    ]
+  );
+  const constructionCostSchedule = constructionCostRow;
 
-    // Reconcile construction schedule to exact total (same intent as cash-outflows preview).
-    const expected = cashOutflows.constructionCost || 0;
-    const actual = schedule.reduce((sum, v) => sum + (v || 0), 0);
-    const diff = expected - actual;
-    const lastConstructionMonth = Math.min(constructionPeriod, schedule.length - 1);
-    if (Math.abs(diff) > 1 && lastConstructionMonth >= 0) {
-      schedule[lastConstructionMonth] += diff;
-    }
-
-    return schedule;
-  }, [cashOutflows, outflowProfile.construction, totalHoldPeriodMonths]);
+  const landCostRow = useMemo(
+    () => {
+      const row = new Array(previewHorizonMonths).fill(0);
+      if (previewHorizonMonths > 0) row[0] = totalLandCost;
+      return row;
+    },
+    [previewHorizonMonths, totalLandCost]
+  );
+  const softCostRow = useMemo(
+    () =>
+      alignMonthlyPreviewRow(
+        outflowProfile.softCosts,
+        previewHorizonMonths,
+        constructionCostEndMonth
+      ),
+    [constructionCostEndMonth, outflowProfile.softCosts, previewHorizonMonths]
+  );
+  const powcRow = useMemo(
+    () =>
+      alignMonthlyPreviewRow(
+        outflowProfile.powc,
+        previewHorizonMonths,
+        constructionCostEndMonth
+      ),
+    [constructionCostEndMonth, outflowProfile.powc, previewHorizonMonths]
+  );
 
   // Component 2 already generates the monthly inflow schedule for the sale timing.
   // For this preview we split each month's total inflow into "unit" vs "bulk"
@@ -1922,8 +1945,7 @@ export default function FinancingPreviewPage({
       // Land cost is always a full project outflow at M0.
       // Slider changes funding source split (equity vs refinanced debt), not the cost itself.
       const landCostOutflow = m === 0 ? totalLandCost : 0;
-      const constructionCostOutflow =
-        m <= constructionPeriod ? constructionCostSchedule[m] || 0 : 0;
+      const constructionCostOutflow = constructionCostSchedule[m] || 0;
       const softCostsOutflow =
         m <= constructionPeriod ? outflowProfile.softCosts[m] || 0 : 0;
       const powcOutflow =
@@ -3590,13 +3612,15 @@ export default function FinancingPreviewPage({
     return { start: r.startMonth, end: r.endMonth };
   };
 
-// ✅ NEW (uses actual data from outflowProfile, with fallback):
-const ffeMonthly = useMemo(() => {
-  // Single source of truth: use the already-built monthly profile (same as Cash-Outflows).
-  const requiredLen = constructionMonths.length;
-  const fromProfile = outflowProfile.ffe || [];
-  return Array.from({ length: requiredLen }, (_, i) => Number(fromProfile[i] ?? 0));
-}, [outflowProfile.ffe, constructionMonths]);
+const ffeMonthly = useMemo(
+  () =>
+    alignMonthlyPreviewRow(
+      outflowProfile.ffe,
+      previewHorizonMonths,
+      constructionCostEndMonth
+    ),
+  [constructionCostEndMonth, outflowProfile.ffe, previewHorizonMonths]
+);
 
   /** TOTAL INFLOW − TOTAL OUTFLOW (matches spreadsheet rows; FFE reno in Y9 only). */
   const financingPreviewSpreadsheetNcfGrandTotal = useMemo(() => {
@@ -3636,12 +3660,75 @@ const ffeMonthly = useMemo(() => {
     changeInWorkingCapitalYearly,
   ]);
 
+  const constructionCostRowTotal = sumMonthlyRow(constructionCostRow);
   const constructionTotalThousandsDisplayed = roundTo1dp(
-    (cashOutflows.constructionCost || 0) / 1000
+    constructionCostRowTotal / 1000
   );
-  const previousConstructionMonthsSumThousandsDisplayed = constructionCostSchedule
-    .slice(0, Math.min(constructionPeriod, constructionCostSchedule.length))
-    .reduce((sum, v) => sum + roundTo1dp((v || 0) / 1000), 0);
+  const landCostRowTotal = sumMonthlyRow(landCostRow);
+  const softCostRowTotal = sumMonthlyRow(softCostRow);
+  const powcRowTotal = sumMonthlyRow(powcRow);
+  const ffeRowTotal = sumMonthlyRow(ffeMonthly);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    logConstructionRowVsCalc({
+      constructionRow: constructionCostRow,
+      profileConstruction: outflowProfile.construction,
+      monthlyTotal: outflowProfile.monthlyTotal,
+      constructionEndMonth: constructionCostEndMonth,
+      horizonMonths: previewHorizonMonths,
+    });
+    assertFinancingPreviewRow({
+      label: "Construction Cost",
+      row: constructionCostRow,
+      horizonMonths: previewHorizonMonths,
+      displayedTotal: constructionCostRowTotal,
+      constructionEndMonth: constructionCostEndMonth,
+    });
+    assertFinancingPreviewRow({
+      label: "Land Cost",
+      row: landCostRow,
+      horizonMonths: previewHorizonMonths,
+      displayedTotal: landCostRowTotal,
+      constructionEndMonth: constructionCostEndMonth,
+    });
+    assertFinancingPreviewRow({
+      label: "FFE",
+      row: ffeMonthly,
+      horizonMonths: previewHorizonMonths,
+      displayedTotal: ffeRowTotal,
+      constructionEndMonth: constructionCostEndMonth,
+    });
+    assertFinancingPreviewRow({
+      label: "Soft Costs",
+      row: softCostRow,
+      horizonMonths: previewHorizonMonths,
+      displayedTotal: softCostRowTotal,
+      constructionEndMonth: constructionCostEndMonth,
+    });
+    assertFinancingPreviewRow({
+      label: "POWC",
+      row: powcRow,
+      horizonMonths: previewHorizonMonths,
+      displayedTotal: powcRowTotal,
+      constructionEndMonth: constructionCostEndMonth,
+    });
+  }, [
+    constructionCostEndMonth,
+    constructionCostRow,
+    constructionCostRowTotal,
+    ffeMonthly,
+    ffeRowTotal,
+    landCostRow,
+    landCostRowTotal,
+    outflowProfile.construction,
+    outflowProfile.monthlyTotal,
+    powcRow,
+    powcRowTotal,
+    previewHorizonMonths,
+    softCostRow,
+    softCostRowTotal,
+  ]);
 
   const totals = useMemo(() => {
     const opMonths = monthlyData.filter((d) => d.month >= operationsStartMonth);
@@ -4199,8 +4286,7 @@ const ffeMonthly = useMemo(() => {
                           </td>
                         );
                       }
-                      const d = safeMonthlyRow(spec.month);
-                      const v = d?.landCostOutflow ?? 0;
+                      const v = landCostRow[spec.month] ?? 0;
                       return (
                         <td
                           key={`m-land-${spec.k}`}
@@ -4213,8 +4299,7 @@ const ffeMonthly = useMemo(() => {
                   : (
                       <>
                         {constructionMonths.map((m) => {
-                          const d = safeMonthlyRow(m);
-                          const v = d?.landCostOutflow ?? 0;
+                          const v = landCostRow[m] ?? 0;
                           return (
                             <td
                               key={`m-land-${m}`}
@@ -4236,7 +4321,7 @@ const ffeMonthly = useMemo(() => {
                       </>
                     )}
                 <td className="sticky right-0 z-40 bg-slate-950 px-4 py-3 text-right text-sm font-semibold text-red-400 border-l-2 border-emerald-500">
-                  {(totals.landCostOutflow / 1000).toFixed(0)}
+                  {(landCostRowTotal / 1000).toFixed(0)}
                 </td>
               </tr>
 
@@ -4258,58 +4343,31 @@ const ffeMonthly = useMemo(() => {
                         );
                       }
                       const m = spec.month;
-                      if (m > constructionPeriod) {
-                        return (
-                          <td
-                            key={`m-cc-${spec.k}`}
-                            className="px-2 py-3 text-center text-xs text-red-400 border-r border-slate-700/50"
-                          >
-                            -
-                          </td>
-                        );
-                      }
-                      const isLastConstructionMonth = m === constructionPeriod;
-                      const baseDisplayedThousands = roundTo1dp(
-                        ((outflowProfile.construction?.[m] || 0) as number) / 1000
-                      );
-                      const pluggedDisplayedThousands = isLastConstructionMonth
-                        ? roundTo1dp(
-                            constructionTotalThousandsDisplayed -
-                              previousConstructionMonthsSumThousandsDisplayed
-                          )
-                        : baseDisplayedThousands;
+                      const raw = m > constructionCostEndMonth ? 0 : constructionCostRow[m] ?? 0;
+                      const displayedThousands = roundTo1dp(raw / 1000);
                       return (
                         <td
                           key={`m-cc-${spec.k}`}
                           className="px-2 py-3 text-center text-xs text-red-400 border-r border-slate-700/50"
                         >
-                          {pluggedDisplayedThousands > 0
-                            ? formatNumber(pluggedDisplayedThousands)
-                            : "-"}
+                          {raw > 0 ? formatNumber(displayedThousands) : "-"}
                         </td>
                       );
                     })
                   : (
                       <>
                         {constructionMonths.map((m) => {
-                          const isLastConstructionMonth = m === constructionPeriod;
-                          const baseDisplayedThousands = roundTo1dp(
-                            ((outflowProfile.construction?.[m] || 0) as number) / 1000
-                          );
-                          const pluggedDisplayedThousands = isLastConstructionMonth
-                            ? roundTo1dp(
-                                constructionTotalThousandsDisplayed -
-                                  previousConstructionMonthsSumThousandsDisplayed
-                              )
-                            : baseDisplayedThousands;
+                          const raw =
+                            m > constructionCostEndMonth
+                              ? 0
+                              : constructionCostRow[m] ?? 0;
+                          const displayedThousands = roundTo1dp(raw / 1000);
                           return (
                             <td
                               key={`m-cc-${m}`}
                               className="px-2 py-3 text-center text-xs text-red-400 border-r border-slate-700/50"
                             >
-                              {pluggedDisplayedThousands > 0
-                                ? formatNumber(pluggedDisplayedThousands)
-                                : "-"}
+                              {raw > 0 ? formatNumber(displayedThousands) : "-"}
                             </td>
                           );
                         })}
@@ -4383,7 +4441,7 @@ const ffeMonthly = useMemo(() => {
                       </>
                     )}
                 <td className="sticky right-0 z-40 bg-slate-950 px-4 py-3 text-right text-sm font-semibold text-red-400 border-l-2 border-emerald-500">
-                  {roundTo1dp(((cashOutflows.ffe || 0) / 1000)).toFixed(1)}
+                  {roundTo1dp(ffeRowTotal / 1000).toFixed(1)}
                 </td>
               </tr>
 
@@ -4453,7 +4511,7 @@ const ffeMonthly = useMemo(() => {
                           </td>
                         );
                       }
-                      const v = outflowProfile.softCosts?.[spec.month] ?? 0;
+                      const v = softCostRow[spec.month] ?? 0;
                       return (
                         <td
                           key={`m-soft-${spec.k}`}
@@ -4466,7 +4524,7 @@ const ffeMonthly = useMemo(() => {
                   : (
                       <>
                         {constructionMonths.map((m) => {
-                          const v = outflowProfile.softCosts?.[m] ?? 0;
+                          const v = softCostRow[m] ?? 0;
                           return (
                             <td
                               key={`m-soft-${m}`}
@@ -4488,7 +4546,7 @@ const ffeMonthly = useMemo(() => {
                       </>
                     )}
                 <td className="sticky right-0 z-40 bg-slate-950 px-4 py-3 text-right text-sm font-semibold text-red-400 border-l-2 border-emerald-500">
-                  {(totals.softCostsOutflow / 1000).toFixed(0)}
+                  {(softCostRowTotal / 1000).toFixed(0)}
                 </td>
               </tr>
 
@@ -4509,7 +4567,7 @@ const ffeMonthly = useMemo(() => {
                           </td>
                         );
                       }
-                      const v = outflowProfile.powc?.[spec.month] ?? 0;
+                      const v = powcRow[spec.month] ?? 0;
                       return (
                         <td
                           key={`m-powc-${spec.k}`}
@@ -4522,7 +4580,7 @@ const ffeMonthly = useMemo(() => {
                   : (
                       <>
                         {constructionMonths.map((m) => {
-                          const v = outflowProfile.powc?.[m] ?? 0;
+                          const v = powcRow[m] ?? 0;
                           return (
                             <td
                               key={`m-powc-${m}`}
@@ -4544,7 +4602,7 @@ const ffeMonthly = useMemo(() => {
                       </>
                     )}
                 <td className="sticky right-0 z-40 bg-slate-950 px-4 py-3 text-right text-sm font-semibold text-red-400 border-l-2 border-emerald-500">
-                  {(totals.powcOutflow / 1000).toFixed(0)}
+                  {(powcRowTotal / 1000).toFixed(0)}
                 </td>
               </tr>
 

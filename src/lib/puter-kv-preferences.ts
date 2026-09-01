@@ -54,7 +54,9 @@ export async function loadUserPreferences(
 
   try {
     if (!uid || typeof window === "undefined" || !window.puter?.kv) {
-      return { preferredModel: cachedModel ?? DEFAULT_MODEL };
+      return {
+        preferredModel: resolveModelId(cachedModel ?? DEFAULT_MODEL),
+      };
     }
 
     const stored = await secureKv.get(uid, PREFERENCES_KEY);
@@ -69,7 +71,7 @@ export async function loadUserPreferences(
       error
     );
   }
-  return { preferredModel: cachedModel ?? DEFAULT_MODEL };
+  return { preferredModel: resolveModelId(cachedModel ?? DEFAULT_MODEL) };
 }
 
 export async function saveUserPreferences(
@@ -101,11 +103,11 @@ export async function saveUserPreferences(
 export async function getPreferredModel(
   userId?: string | null
 ): Promise<string> {
-  if (cachedModel) return cachedModel;
+  if (cachedModel) return resolveModelId(cachedModel);
 
   try {
     const prefs = await loadUserPreferences(userId);
-    cachedModel = prefs.preferredModel;
+    cachedModel = resolveModelId(prefs.preferredModel);
     return cachedModel;
   } catch (error) {
     console.warn(

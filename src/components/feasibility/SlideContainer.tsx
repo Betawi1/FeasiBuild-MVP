@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import FitSlide from "./FitSlide";
 import SlideWatermark, { useSlideWatermark } from "./SlideWatermark";
 
 interface SlideContainerProps {
@@ -47,9 +48,9 @@ export default function SlideContainer({
         flexShrink: 0,
       }}
     >
-      <div className="flex h-full w-full min-h-0 flex-col overflow-hidden p-12">
+      <FitSlide className="p-12">
         {children}
-      </div>
+      </FitSlide>
       {watermark && <SlideWatermark />}
     </div>
   );

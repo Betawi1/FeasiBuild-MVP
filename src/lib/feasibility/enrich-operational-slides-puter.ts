@@ -45,14 +45,12 @@ import {
 } from "@/lib/feasibility/operational-market-charts";
 import { enrichHospitalityMarketCharts } from "@/lib/feasibility/hospitality-market-charts";
 import { sendOpsAlert } from "@/lib/ops-monitor";
+import {
+  resolveOperationalAssetType,
+  type OperationalAssetType,
+} from "@/lib/feasibility/operational-asset-class";
 
-export type OperationalAssetType =
-  | "hotel"
-  | "mall"
-  | "office"
-  | "btr"
-  | "warehouse"
-  | "datacentre";
+export { resolveOperationalAssetType, type OperationalAssetType };
 
 export interface EnrichOperationalSlidesOptions {
   oldHashes?: Record<string, string>;
@@ -73,99 +71,6 @@ export {
   WAREHOUSE_AI_SLIDE_SECTIONS,
   DATACENTRE_AI_SLIDE_SECTIONS,
 };
-
-export function resolveOperationalAssetType(
-  buildingType: string,
-  assetType?: string
-): OperationalAssetType {
-  const bt = (buildingType ?? "").toLowerCase().trim();
-  const at = (assetType ?? "").toLowerCase().trim();
-
-  const isDataCentre =
-    bt === "data_centre" ||
-    bt === "datacentre" ||
-    bt === "data-centre" ||
-    bt === "datacenter" ||
-    bt.includes("data_centre") ||
-    bt.includes("datacentre") ||
-    bt.includes("data centre") ||
-    bt.includes("data-centre") ||
-    bt.includes("datacenter") ||
-    bt.includes("data center") ||
-    at === "data_centre" ||
-    at === "datacentre" ||
-    at.includes("data_centre") ||
-    at.includes("datacentre") ||
-    at.includes("data centre") ||
-    at.includes("data-centre") ||
-    at.includes("datacenter") ||
-    at.includes("data center");
-
-  // Data Centre must win before residential/BTR/warehouse — leftover
-  // residentialHoldSnapshot or prior assetType strings must not steal the route.
-  if (isDataCentre) {
-    console.log("[Feasibility AssetType] resolved → datacentre", {
-      buildingType,
-      assetType,
-    });
-    return "datacentre";
-  }
-
-  if (bt === "hotel" || at.includes("hotel")) {
-    console.log("[Feasibility AssetType] resolved → hotel", {
-      buildingType,
-      assetType,
-    });
-    return "hotel";
-  }
-  if (bt === "office" || at.includes("office")) {
-    console.log("[Feasibility AssetType] resolved → office", {
-      buildingType,
-      assetType,
-    });
-    return "office";
-  }
-  if (
-    bt === "retail" ||
-    at.includes("retail") ||
-    at.includes("mall") ||
-    at.includes("shopping")
-  ) {
-    console.log("[Feasibility AssetType] resolved → mall", {
-      buildingType,
-      assetType,
-    });
-    return "mall";
-  }
-  if (
-    bt === "residential" ||
-    (at.includes("residential") && !isDataCentre) ||
-    (at.includes("btr") && !isDataCentre)
-  ) {
-    console.log("[Feasibility AssetType] resolved → btr", {
-      buildingType,
-      assetType,
-    });
-    return "btr";
-  }
-  if (
-    bt.includes("warehouse") ||
-    bt.includes("industrial") ||
-    at.includes("warehouse") ||
-    at.includes("industrial")
-  ) {
-    console.log("[Feasibility AssetType] resolved → warehouse", {
-      buildingType,
-      assetType,
-    });
-    return "warehouse";
-  }
-  console.warn(
-    "[Feasibility AssetType] unresolved — defaulting to hotel",
-    { buildingType, assetType }
-  );
-  return "hotel";
-}
 
 /**
  * After asset commentary enrichment, overwrite macro-1/2/3 chart series with
@@ -498,8 +403,7 @@ async function enrichOperationalSlidesWithPuterImpl(
     case "datacentre":
       console.log("[Feasibility Router] generateDataCentreSlidesWithPuter");
       if (
-        (bundle.buildingType ?? "").toLowerCase() !== "data_centre" &&
-        !(bundle.dataCentreMetrics?.itLoadMw ?? 0)
+        resolveOperationalAssetType(bundle.buildingType ?? "") !== "datacentre"
       ) {
         console.error(
           "ERROR: Feasibility study generator received wrong asset type:",
@@ -507,6 +411,10 @@ async function enrichOperationalSlidesWithPuterImpl(
         );
       }
       result = await generateDataCentreSlidesWithPuter(bundle, cacheOpts);
+      break;
+    case "hotel":
+      console.log("[Feasibility Router] generateHotelSlidesWithPuter");
+      result = await generateHotelSlidesWithPuter(bundle, cacheOpts);
       break;
     default:
       console.log("[Feasibility Router] generateHotelSlidesWithPuter (default)");
@@ -592,20 +500,21 @@ export async function generateOperationalSlidesWithPuter(
   buildingType: string,
   options: Omit<EnrichOperationalSlidesOptions, "assetType"> = {}
 ): Promise<EnrichOperationalSlidesResult> {
-  // Prefer live model buildingType; fall back to bundle fields.
-  const resolvedBuildingType =
-    buildingType ||
-    bundle.buildingType ||
-    bundle.aggregate?.assetType ||
-    "";
-  const resolvedAssetHint =
-    bundle.buildingType || bundle.assetType || bundle.aggregate?.assetType;
+  // Stored projectInfo.buildingType is the only source of truth. Do not fall
+  // back to aggregate.assetType — that is a display label and leftover
+  // "Data Centre" strings must not override hotel / office / etc.
+  const resolvedBuildingType = (buildingType || bundle.buildingType || "").trim();
+  const assetHint = resolvedBuildingType
+    ? undefined
+    : bundle.assetType || bundle.aggregate?.assetType;
 
   console.log("[Feasibility AssetType] detect inputs", {
     pageBuildingType: buildingType,
     bundleBuildingType: bundle.buildingType,
     bundleAssetType: bundle.assetType,
     aggregateAssetType: bundle.aggregate?.assetType,
+    resolvedBuildingType,
+    assetHint,
     dataCentreMetrics: bundle.dataCentreMetrics
       ? {
           itLoadMw: bundle.dataCentreMetrics.itLoadMw,
@@ -619,11 +528,11 @@ export async function generateOperationalSlidesWithPuter(
 
   const assetType = resolveOperationalAssetType(
     resolvedBuildingType,
-    resolvedAssetHint
+    assetHint
   );
 
   console.log(
-    `[Feasibility AssetType] projectInfo.buildingType=${JSON.stringify(buildingType)} → route=${assetType}`
+    `[Feasibility AssetType] projectInfo.buildingType=${JSON.stringify(resolvedBuildingType)} → route=${assetType}`
   );
 
   return enrichOperationalSlidesWithPuter(bundle, {

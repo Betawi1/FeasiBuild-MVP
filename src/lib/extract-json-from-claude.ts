@@ -91,7 +91,7 @@ function repairTruncatedJson(text: string): string {
 
 /**
  * Unescape a quoted JSON string body: \\" → ", \\n → newline, \\\\ → \\.
- * Works when the outer closing quote is missing (truncated DeepSeek payloads).
+ * Works when the outer closing quote is missing (truncated quoted payloads).
  */
 function unescapeQuotedTruncatedPayload(text: string): string {
   let t = text.trim();
@@ -184,7 +184,7 @@ function cutLastCompleteElementThenClose(text: string): string {
 }
 
 /**
- * DeepSeek V3.2 chart shape: a quoted JSON string (often truncated mid-object).
+ * Quoted JSON-string chart shape (often truncated mid-object).
  * Returns the parsed object, or undefined if this shape does not apply.
  */
 function salvageDoubleSerializedTruncated(raw: string): unknown | undefined {
@@ -310,7 +310,7 @@ function firstParsable(
 }
 
 /**
- * Extracts pure JSON from model responses (Qwen / DeepSeek / Claude / GPT).
+ * Extracts pure JSON from model responses (Qwen / Claude / GPT).
  * Also works when they wrap JSON in fences, CoT tags, or a quoted JSON string.
  *
  * `quiet`: skip console.error on failure (chart path). Still throws so callers
@@ -382,7 +382,7 @@ export function extractJsonFromClaudeResponse(
     if (repaired) return repaired;
   }
 
-  // S5: double-serialized + truncated (DeepSeek V3.2) — unescape then cut/close
+  // S5: double-serialized + truncated — unescape then cut/close
   for (const candidate of [trimmed, withoutReasoning, unwrappedTrimmed]) {
     const salvaged = salvageDoubleSerializedTruncated(candidate);
     if (salvaged) {

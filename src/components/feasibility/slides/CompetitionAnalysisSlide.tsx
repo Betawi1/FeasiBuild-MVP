@@ -120,9 +120,6 @@ export default function CompetitionAnalysisSlide({
             ))}
           </tbody>
         </table>
-        <p className="text-[10px] text-slate-500 mt-2">
-          Source: QWEN AI Market Research, {new Date().getFullYear()}
-        </p>
       </div>
     </SlideContainer>
   );

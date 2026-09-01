@@ -11,6 +11,7 @@ import {
 import { computeOperationalHotelHoldPnl } from "@/lib/operational-pnl";
 import { computeOperationalProjectIrrPnl } from "@/lib/operational-project-irr-pnl";
 import { resolveWarehouseCapexBases } from "@/lib/warehouse-pnl-series";
+import { buildConstructionCostPreviewRow } from "@/lib/financing-preview-rows";
 import {
   buildCashOutflowProfile,
   calculateDataCentreOpEx,
@@ -505,35 +506,17 @@ export function buildOperationalLeveredEngineArgs(
   })();
 
   const outflowProfile = buildCashOutflowProfile(cashOutflows);
-
-  const constructionCostSchedule = (() => {
-    const schedule = Array(totalHoldPeriodMonths + 1).fill(0);
-    const scheduleMaybe = (cashOutflows as any)?.constructionSchedule;
-    if (Array.isArray(scheduleMaybe)) {
-      for (const entry of scheduleMaybe) {
-        const month = Number(entry?.month ?? entry?.m ?? 0);
-        const amount = Number(entry?.amount ?? entry?.value ?? 0);
-        if (Number.isFinite(month) && month >= 0 && month < schedule.length) {
-          schedule[month] += Number.isFinite(amount) ? amount : 0;
-        }
-      }
-    } else {
-      for (let m = 0; m < schedule.length; m++) {
-        schedule[m] = outflowProfile.construction?.[m] || 0;
-      }
-    }
-    const expected = cashOutflows.constructionCost || 0;
-    const actual = schedule.reduce((sum, v) => sum + (v || 0), 0);
-    const diff = expected - actual;
-    const lastConstructionMonth = Math.min(
-      constructionPeriod,
-      schedule.length - 1
-    );
-    if (Math.abs(diff) > 1 && lastConstructionMonth >= 0) {
-      schedule[lastConstructionMonth] += diff;
-    }
-    return schedule;
-  })();
+  const constructionCostEndMonth = Math.max(
+    0,
+    cashOutflows.constructionPeriod || 0
+  );
+  const constructionCostSchedule = buildConstructionCostPreviewRow({
+    profileConstruction: outflowProfile.construction,
+    sparseSchedule: (cashOutflows as { constructionSchedule?: unknown })
+      .constructionSchedule,
+    horizonMonths: totalHoldPeriodMonths + 1,
+    constructionEndMonth: constructionCostEndMonth,
+  });
 
   const bulkShare =
     (cashInflows.bulkSales?.bulkSalesSharePercent ?? 0) / 100;

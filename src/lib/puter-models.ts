@@ -3,11 +3,11 @@ export interface PuterModel {
   name: string;
   description: string;
   recommendedFor: string;
-  tier: "recommended" | "premium" | "fast" | "budget";
+  tier: "recommended" | "premium" | "fast";
   whyThisModel: string;
 }
 
-/** Working Puter Qwen id (fallback when Claude / GPT / DeepSeek fail). */
+/** Working Puter Qwen id (fallback when Claude / GPT fail). */
 export const QWEN_MODEL_ID = "qwen/qwen3.7-plus";
 export const FALLBACK_MODEL_ID = QWEN_MODEL_ID;
 
@@ -40,20 +40,11 @@ export const PUTER_MODELS: PuterModel[] = [
     whyThisModel:
       "This stable GPT-4o version (not the newer 'o1' reasoning models) is optimized for speed and JSON reliability. Avoids the verbosity of reasoning models that can break financial data parsers.",
   },
-  {
-    id: "deepseek/deepseek-v3.2",
-    name: "DeepSeek V3.2 (Cost-Effective)",
-    description: "Powerful open-weight model with strong financial reasoning.",
-    recommendedFor: "Budget-conscious users who need quality output",
-    tier: "budget",
-    whyThisModel:
-      "DeepSeek V3.2 offers GPT-4 level performance at a fraction of the cost. Excellent for users running multiple feasibility studies while maintaining high JSON accuracy.",
-  },
 ];
 
 export const DEFAULT_MODEL = PUTER_MODELS[0].id;
 
-/** Older KV / docs ids → catalog ids. */
+/** Older KV / docs ids → catalog ids. Retired vendors map to Qwen. */
 const LEGACY_MODEL_ALIASES: Record<string, string> = {
   "qwen/qwen-plus": QWEN_MODEL_ID,
   "qwen-plus": QWEN_MODEL_ID,
@@ -62,8 +53,6 @@ const LEGACY_MODEL_ALIASES: Record<string, string> = {
   "claude-sonnet-4-6": "anthropic/claude-sonnet-4-6",
   "openai/gpt-4o": "openai/gpt-4o-2024-08-06",
   "gpt-4o-2024-08-06": "openai/gpt-4o-2024-08-06",
-  "deepseek/deepseek-chat": "deepseek/deepseek-v3.2",
-  "deepseek-v3.2": "deepseek/deepseek-v3.2",
 };
 
 export function isKnownPuterModel(id: string): boolean {
@@ -74,7 +63,7 @@ export function resolvePuterModelId(id: unknown): string {
   if (typeof id !== "string" || !id.trim()) return DEFAULT_MODEL;
   const trimmed = id.trim();
   const aliased = LEGACY_MODEL_ALIASES[trimmed];
-  if (aliased) return aliased;
+  if (aliased) return isKnownPuterModel(aliased) ? aliased : DEFAULT_MODEL;
   if (isKnownPuterModel(trimmed)) return trimmed;
   return DEFAULT_MODEL;
 }
@@ -92,11 +81,11 @@ export function isQwenModel(id: string): boolean {
 }
 
 export function getModelFamilyLabel(id: string): string {
-  if (/claude/i.test(id)) return "Claude";
-  if (/openai|gpt/i.test(id)) return "GPT";
-  if (/deepseek/i.test(id)) return "DeepSeek";
-  if (/qwen/i.test(id)) return "Qwen";
-  return getPuterModel(id)?.name ?? id;
+  const resolved = resolvePuterModelId(id);
+  if (/claude/i.test(resolved)) return "Claude";
+  if (/openai|gpt/i.test(resolved)) return "GPT";
+  if (/qwen/i.test(resolved)) return "Qwen";
+  return getPuterModel(resolved)?.name ?? resolved;
 }
 
 export function buildQwenFallbackNotice(selectedModelId: string): string {

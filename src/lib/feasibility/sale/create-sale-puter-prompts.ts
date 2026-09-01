@@ -11,6 +11,8 @@ CRITICAL INSTRUCTIONS:
 4. MUST reference actual comparable projects or developments in the target city
 5. MUST discuss country-specific market dynamics with numbers
 6. Generate 5 detailed bullet points with unique, location-specific content
+7. Do NOT include any source, citation, or benchmark attribution footer lines
+8. Do NOT write lines that start with "Source:" or "Sources:"
 `.trim();
 
 function isWarehouseAsset(config: SaleStreamConfig): boolean {

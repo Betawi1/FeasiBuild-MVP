@@ -1,3 +1,34 @@
+/** Shared prompt rule: never emit citation / benchmark attribution footers. */
+export const NO_SOURCE_ATTRIBUTION_CONSTRAINT = `
+Do NOT include any source, citation, or benchmark attribution footer lines.
+Do NOT write lines that start with "Source:" or "Sources:" (e.g. HotelBenchmark, Deloitte, QWEN AI Market Research).
+`.trim();
+
+/** True when the whole string is a "Source: …" attribution footer. */
+export function isSourceAttributionLine(text: string): boolean {
+  return /^\s*sources?\s*:\s*\S/i.test(text.trim());
+}
+
+/**
+ * Strip attribution footers from slide/AI text.
+ * Removes full lines starting with "Source:" / "Sources:" and a trailing
+ * " Source: …" suffix on a paragraph. Does not touch "Source of funds" etc.
+ */
+export function stripSourceAttributionLines(text: string): string {
+  if (!text) return "";
+  const stripped = text
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (/^sources?\s*:/i.test(trimmed)) return "";
+      return line.replace(/\s+sources?\s*:\s*\S.*$/i, "");
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return stripped;
+}
+
 /** Remove JSON wrapper artifacts from AI responses. */
 export function removeJsonArtifacts(content: string): string {
   let cleaned = content.trim();
@@ -77,6 +108,8 @@ export function stripThinkingAndPromptArtifacts(content: string): string {
   cleaned = cleaned.replace(/\[?WARNING:?[^\n]*placeholder[^\n]*\]?/gi, "");
   cleaned = cleaned.replace(/Some content may need refinement[^\n]*Regenerate[^\n]*/gi, "");
   cleaned = cleaned.replace(/⚠️\s*\[WARNING:[^\]]*\]/gi, "");
+
+  cleaned = stripSourceAttributionLines(cleaned);
 
   // Markdown noise common in leaked prompt echo
   cleaned = cleaned.replace(/#{4,}/g, "");
@@ -264,7 +297,9 @@ export function parseAIParagraphs(raw: string): string[] {
     paragraphs = [aggressiveCleanParagraph(content)];
   }
 
-  return fixSentenceBreakages(paragraphs);
+  return fixSentenceBreakages(paragraphs).filter(
+    (p) => p.length > 0 && !isSourceAttributionLine(p)
+  );
 }
 
 /**
@@ -284,7 +319,7 @@ export function cleanAIContent(content: string[]): string[] {
         if (!paragraph || typeof paragraph !== "string") return "";
         return aggressiveCleanParagraph(paragraph);
       })
-      .filter((p) => p.length > 0)
+      .filter((p) => p.length > 0 && !isSourceAttributionLine(p))
   );
 
   return cacheSet(arrayCleanCache, cacheKey, cleaned);
@@ -302,6 +337,7 @@ CRITICAL FORMATTING RULES:
 3. Write plain text only — one bullet per line, no leading or trailing quotes
 4. Each bullet point should be plain prose, not quoted speech
 5. DO NOT include thinking process, analysis steps, or prompt instructions in output
+6. ${NO_SOURCE_ATTRIBUTION_CONSTRAINT}
 
 CORRECT: The market demonstrates strong fundamentals with 15% annual growth.
 INCORRECT: "The market demonstrates strong fundamentals with 15% annual growth."

@@ -103,10 +103,6 @@ export default function SummaryOfHospitalityMarketSlide({
           ))}
         </div>
       </div>
-
-      <p className="text-[10px] text-slate-500 mt-2 shrink-0">
-        Source: QWEN AI Market Research, {new Date().getFullYear()}
-      </p>
     </SlideContainer>
   );
 }

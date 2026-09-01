@@ -13,6 +13,7 @@ import { buildMallBenchmarkTitleLabel } from "@/lib/feasibility/generate-shoppin
 import { buildOfficeBenchmarkTitleLabel } from "@/lib/feasibility/generate-office-report";
 import { buildBTRBenchmarkTitleLabel } from "@/lib/feasibility/generate-btr-report";
 import { getSaleStreamConfig } from "@/lib/feasibility/sale/sale-stream-config";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 
 const COUNTRY_DISPLAY: Record<string, string> = {
   UAE: "United Arab Emirates",
@@ -189,37 +190,12 @@ function isOfficeMixedUseBundle(bundle: FeasibilityProjectBundle): boolean {
 
 function isDataCentreBundle(bundle: FeasibilityProjectBundle): boolean {
   if (isSaleBundle(bundle)) return false;
-
-  const buildingType = (bundle.buildingType ?? "").toLowerCase();
-  if (
-    buildingType === "data_centre" ||
-    buildingType === "datacentre" ||
-    buildingType === "data-centre" ||
-    buildingType === "datacenter" ||
-    buildingType.includes("data_centre") ||
-    buildingType.includes("datacentre") ||
-    buildingType.includes("data centre") ||
-    buildingType.includes("data-centre") ||
-    buildingType.includes("datacenter") ||
-    buildingType.includes("data center")
-  ) {
-    return true;
-  }
-
-  // Also detect from metrics when buildingType is missing but DC model is populated
-  if ((bundle.dataCentreMetrics?.itLoadMw ?? 0) > 0) {
-    return true;
-  }
-
-  const at = (bundle.assetType || bundle.aggregate.assetType || "").toLowerCase();
+  const bt = (bundle.buildingType ?? "").trim();
   return (
-    at.includes("data_centre") ||
-    at.includes("datacentre") ||
-    at.includes("data centre") ||
-    at.includes("data-centre") ||
-    at.includes("datacenter") ||
-    at.includes("data center") ||
-    at === "data centre"
+    resolveOperationalAssetType(
+      bt,
+      bt ? undefined : bundle.assetType || bundle.aggregate?.assetType
+    ) === "datacentre"
   );
 }
 

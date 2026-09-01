@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { getPuterModel, PUTER_MODELS, DEFAULT_MODEL } from "@/lib/puter-models";
+import { getPuterModel, PUTER_MODELS, DEFAULT_MODEL, isKnownPuterModel } from "@/lib/puter-models";
 import {
   loadUserPreferences,
   saveUserPreferences,
@@ -12,7 +12,6 @@ const TIER_LABELS: Record<(typeof PUTER_MODELS)[number]["tier"], string> = {
   recommended: "Recommended",
   premium: "Premium",
   fast: "Fast",
-  budget: "Budget",
 };
 
 interface AIModelSelectorProps {
@@ -30,7 +29,10 @@ export default function AIModelSelector({
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !userId) return;
     loadUserPreferences(userId).then((prefs) => {
-      setSelectedModel(prefs.preferredModel);
+      const next = isKnownPuterModel(prefs.preferredModel)
+        ? prefs.preferredModel
+        : DEFAULT_MODEL;
+      setSelectedModel(next);
     });
   }, [isLoaded, isSignedIn, userId]);
 
@@ -43,9 +45,12 @@ export default function AIModelSelector({
       await saveUserPreferences({ preferredModel: newModelId }, userId);
     } catch {
       setError("Failed to save preference. Please try again.");
-      loadUserPreferences(userId).then((prefs) =>
-        setSelectedModel(prefs.preferredModel)
-      );
+      loadUserPreferences(userId).then((prefs) => {
+        const next = isKnownPuterModel(prefs.preferredModel)
+          ? prefs.preferredModel
+          : DEFAULT_MODEL;
+        setSelectedModel(next);
+      });
     } finally {
       setIsSaving(false);
     }
@@ -65,6 +70,9 @@ export default function AIModelSelector({
   }
 
   const selected = getPuterModel(selectedModel);
+  const selectValue = isKnownPuterModel(selectedModel)
+    ? selectedModel
+    : DEFAULT_MODEL;
 
   if (variant === "inline") {
     return (
@@ -73,7 +81,7 @@ export default function AIModelSelector({
           AI model
         </span>
         <select
-          value={selectedModel}
+          value={selectValue}
           onChange={(e) => void handleModelChange(e.target.value)}
           disabled={isSaving}
           aria-label="AI model preference"
@@ -98,7 +106,7 @@ export default function AIModelSelector({
       </p>
 
       <select
-        value={selectedModel}
+        value={selectValue}
         onChange={(e) => void handleModelChange(e.target.value)}
         disabled={isSaving}
         className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"

@@ -1,3 +1,5 @@
+import { cleanAIContent } from "@/lib/feasibility/clean-ai-content";
+
 export const MIN_COMMENTARY_PARAGRAPHS = 5;
 export const MAX_COMMENTARY_PARAGRAPHS = 6;
 
@@ -51,7 +53,8 @@ async function callQwen(
     const paragraphs = parsed.paragraphs
       .filter((p): p is string => typeof p === "string" && p.trim().length > 15)
       .slice(0, MAX_COMMENTARY_PARAGRAPHS);
-    return paragraphs.length > 0 ? paragraphs : null;
+    const cleaned = cleanAIContent(paragraphs);
+    return cleaned.length > 0 ? cleaned : null;
   } catch {
     return null;
   }
@@ -85,6 +88,7 @@ MANDATORY RETRY REQUIREMENTS:
 - Total content must not exceed 150 words
 - Return JSON: { "paragraphs": string[] }
 - NO placeholders, NO generic statements
+- Do NOT include any source, citation, or benchmark attribution footer lines
 `.trim();
 }
 

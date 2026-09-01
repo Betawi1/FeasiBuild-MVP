@@ -218,7 +218,7 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 |------|--------|
 | **Hook** | `src/hooks/useAiResearch.ts` → `performResearch()` |
 | **API** | Client `puter.ai.chat` (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`) |
-| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`, `deepseek/deepseek-v3.2`. Unknown / failed KV → default. **Public copy** (docs Getting Started, landing Technology Stack, privacy policy) must describe the four-model picker with Qwen as default — never imply Qwen is the only engine. Comparison-table row “BYO-AI Integration (Qwen, Claude, OpenAI, Deepseek via Puter)” stays as-is. |
+| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`. Unknown / failed / retired KV ids → Qwen default. **Public copy** (docs Getting Started, landing Technology Stack, privacy policy) must describe the three-model picker — Qwen (default), Claude, OpenAI — never imply Qwen is the only engine. Comparison-table row “BYO-AI Integration (Qwen, Claude, OpenAI via Puter)”. |
 | **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` (Claude **12000**). Claude also sends `response_format: { type: "json_object" }` when Puter forwards it. |
 | **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt(assetType, model?)` appends **Claude-strict JSON rules** when the id contains `claude`; plus `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
 | **JSON parse** | `extractJsonFromClaudeResponse` — strips `<reasoning>`, fenced ```json```, brace-balanced objects. Research **skips `type:"reasoning"` stream chunks** so markdown CoT is not parsed as JSON. Unparseable stream → retry `stream: false`. |
@@ -443,7 +443,7 @@ Snapshot as of **24 Aug 2026**. Prefer editing this file over scattering archite
 - **Terms of Service:** `src/app/terms/page.tsx` (`/terms`). Explorer / Professional / credits / Unlimited Pack, BYO Puter, PayPal, liability, contact `owner@feasibuild.app`. Last updated 24 Aug 2026.
 - **Refund Policy:** `src/app/refund-policy/page.tsx` (`/refund-policy`). 7-day Professional refund only if no clean report; credits and Unlimited Pack non-refundable; PayPal dispute suspends the account.
 - **Wiring:** Landing footer (`Footer.tsx`) → `/terms` and `/refund-policy`. `UpgradeModal` disclaimer under Unlimited Pack. Legacy `/terms-of-service` redirects to `/terms`.
-- **Multi-model copy:** Docs Getting Started (BYO-AI bullet + “Which AI models power FeasiBuild?” card), landing Technology Stack (“AI Engine (Qwen, Claude, OpenAI & DeepSeek)”), privacy policy. Comparison BYO-AI row left unchanged.
+- **Multi-model copy:** Docs Getting Started (BYO-AI bullet + “Which AI models power FeasiBuild?” card), landing Technology Stack (“AI Engine (Qwen, Claude & OpenAI)”), privacy policy. Comparison BYO-AI row: “Qwen, Claude, OpenAI via Puter”.
 
 ### Just finished (23 Aug 2026) — Sale C4 HDA deposit is Malaysia residential-only
 
@@ -501,7 +501,7 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 
 1. **HDA regression (carry-over):** Reload Sale C4 on Labu Warehouse — no **Capital—HDA deposit** row; cumulative capital **11,582,809.92**; M0 IRR excludes 428,613.12. Then confirm a **Malaysian residential** sale project is unchanged.
 2. **Legal smoke:** Open `/terms` and `/refund-policy` from the landing footer and from `UpgradeModal`. Confirm `/terms-of-service` redirects to `/terms`.
-3. **DeepSeek chart E2E:** Regenerate a Sale study with DeepSeek V3.2 — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
+3. **Chart E2E:** Regenerate a Sale study — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
 4. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
 5. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
 6. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
@@ -532,7 +532,7 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
 8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name. **HDA construction deposit** in C4 (engine + Malaysia table + Excel) is **Malaysia + residential for-sale only** — never warehouse / retail / office / hotel / data centre, even on Progress Drawdown.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
-10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`. Public marketing/docs copy must list **Qwen (default), Claude, OpenAI, and DeepSeek** — never imply Qwen-only.  
+10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`. Public marketing/docs copy must list **Qwen (default), Claude, or OpenAI** — never imply Qwen-only. Retired vendor KV ids remap to Qwen.  
 11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
 12. **Project save UX:** One Save control per stream layout; optimistic local write before vault sync; auto-save on study generation and export reuses the same pipeline; Explorer lock still gates new-id minting.  
 13. **AI Analyst:** Advisory only — never auto-write into `useFinModelStore`. Live docs are read server-side via `fs` (`/api/analyst-context`); skip Puter `reasoning` chunks; resolve the LLM via `getPreferredModel()`. Quote stored `reasoning_notes` verbatim when the snapshot header is present.  
@@ -545,7 +545,7 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.  
 21. **White-label logo:** Advisory always; Professional only with 100-Pack allowlist; Explorer never. Height 40–200px in Secure KV; title slide only.  
 22. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — first export per `proj_…` consumes; same-project re-exports free. Advisory — unlimited, no watermark. Failed PDFs do not consume.  
-23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads (DeepSeek V3.2); `generateChartData` logs a warn only.
+23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads; `generateChartData` logs a warn only.
 
 ---
 

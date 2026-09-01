@@ -43,7 +43,7 @@ export default function TechnologySection() {
             <span className="font-semibold text-white">Puter.js</span>—your
             bring-your-own infrastructure layer for both the{" "}
             <span className="font-semibold text-white">
-              AI Engine (Qwen, Claude, OpenAI &amp; DeepSeek)
+              AI Engine (Qwen, Claude &amp; OpenAI)
             </span>{" "}
             and{" "}
             <span className="font-semibold text-white">

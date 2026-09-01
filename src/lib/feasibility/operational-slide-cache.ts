@@ -12,6 +12,7 @@ import {
   resetDependencyChangeLog,
   shouldRegenerateSlide,
 } from "@/lib/slide-dependencies";
+import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 
 export interface OperationalSlideCacheOptions {
   forceRegenerate?: boolean;
@@ -84,11 +85,9 @@ export async function enrichOperationalSlidesWithCache(
       const cached = await getCachedContent<string[]>(cacheKey);
       if (cached?.length) {
         // Reject cross-asset cache pollution (e.g. warehouse exec-1 on DC deck)
-        const bt = (bundle.buildingType ?? "").toLowerCase();
         const isDc =
-          bt.includes("data_centre") ||
-          bt.includes("datacentre") ||
-          bt.includes("data centre");
+          resolveOperationalAssetType(bundle.buildingType ?? "") ===
+          "datacentre";
         const joined = cached.join(" ").toLowerCase();
         const wrongAssetForDc =
           isDc &&
