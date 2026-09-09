@@ -36,7 +36,7 @@ export default function OperationalProjectIRRPage() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-8">
           <h1 className="mb-2 text-3xl font-bold text-white">
-            FinModel App — Component 3
+            Component 3
           </h1>
           <p className="text-slate-400">Project IRR — Exit Assumptions</p>
         </div>

@@ -281,7 +281,7 @@ function EquityReturnsPageContent() {
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm">
         <div className="mx-auto max-w-7xl px-6 py-4">
           <h1 className="mb-2 text-3xl font-bold text-white">
-            FinModel App — Component 5
+            Component 5
           </h1>
           <p className="text-slate-400">Equity Returns (read-only)</p>
           <div className="mt-4 h-2 w-full rounded-full bg-slate-800">

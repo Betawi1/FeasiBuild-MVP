@@ -153,7 +153,7 @@ export default function SaleProjectIrrPage() {
         <div className="mb-8">
           {/* Main Title */}
           <h1 className="mb-2 text-3xl font-bold text-white">
-            FinModel App — Component 3
+            Component 3
           </h1>
 
           {/* Subtitle */}

@@ -548,7 +548,7 @@ export default function ScenarioAnalysisPage() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white mb-2">
-              FinModel App — Component 6
+              Component 6
             </h1>
             <p className="text-slate-400">
               Scenario Analysis — stress-test key drivers from Components 1–5.

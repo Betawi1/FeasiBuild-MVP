@@ -4,6 +4,7 @@ import Script from "next/script";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ToastProvider } from "@/components/ui/Toast";
 import PuterErrorSuppressor from "@/components/PuterErrorSuppressor";
+import WizardDocumentTitle from "@/components/WizardDocumentTitle";
 import { SecureKvUserBinder } from "@/lib/secure-puter-kv";
 import { PuterKvMigrationTrigger } from "@/lib/migrate-puter-kv";
 import "./globals.css";
@@ -42,6 +43,7 @@ export default function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
           <PuterErrorSuppressor />
+          <WizardDocumentTitle />
           <SecureKvUserBinder />
           <PuterKvMigrationTrigger />
           <ToastProvider>{children}</ToastProvider>

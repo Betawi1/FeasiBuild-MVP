@@ -941,7 +941,7 @@ function EquityReturnsPageContent() {
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-white mb-2">
-              FinModel App — Component 5
+              Component 5
             </h1>
             <p className="text-slate-400">Equity Returns</p>
           </div>

@@ -18,7 +18,7 @@ export default function AppHomePage() {
       <div className="w-full max-w-4xl">
         <div className="mb-12 text-center">
           <h1 className="mb-4 text-4xl font-bold text-white md:text-5xl">
-            FinModel App
+            FeasiBuild
           </h1>
           <p className="text-lg text-slate-400">
             Real Estate Development Financial Modeling

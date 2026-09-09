@@ -3662,7 +3662,7 @@ function OperationalCashInflowsPageContent() {
       <div className="mx-auto max-w-5xl">
         <div className="mb-8">
           <h1 className="mb-2 text-3xl font-bold text-white">
-            FinModel App — Component 2
+            Component 2
           </h1>
           <p className="text-slate-400">Operating Financials</p>
         </div>

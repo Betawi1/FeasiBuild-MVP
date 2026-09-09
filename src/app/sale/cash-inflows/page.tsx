@@ -1090,7 +1090,7 @@ function CashInflowsPageContent() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">
-            FinModel App — Component 2
+            Component 2
           </h1>
           <p className="text-slate-400">Cash Inflows Model (Sale Development)</p>
         </div>

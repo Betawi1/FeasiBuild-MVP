@@ -36,6 +36,7 @@ FeasiBuild runs **two parallel financial streams**, selected from the dashboard.
 - Product docs: `src/app/docs/operational-stream/`, `src/app/docs/sale-stream/`
 - Marketing: landing (`src/app/page.tsx`) includes **`#pricing`** (`PricingSection`); comparison is `/comparison` (anonymous category names only — no real competitor brands)
 - Legal: `/terms` (`src/app/terms/page.tsx`), `/refund-policy` (`src/app/refund-policy/page.tsx`), `/privacy-policy`. Legacy `/terms-of-service` **redirects** to `/terms`. Footer + `UpgradeModal` link to Terms and Refund Policy.
+- **Clerk waitlist is DISABLED** — open sign-ups.
 
 ### 2.2 Six Component wizards (data input & selection)
 
@@ -94,8 +95,13 @@ Warehouse CapEx lives in store `cashOutflows.warehouseCosts` / `warehousePhasing
 - Warehouse sale: C2 shows conditional **FF&E** between Construction and Soft Costs in pre-financing cash-flow preview  
 - **Data Centre C2 UI:** `c2s1`–`c2s4` under `operational/cash-inflows/components/` (`*-data-centre.tsx`); P&L series `src/lib/data-centre-pnl-series.ts`; table `DataCentrePnlTable.tsx`; AI helpers `src/lib/data-centre-ai.ts`
 
-**C3–C5** mostly configure or review engines already fed by C1/C2 (+ financing inputs in C4).  
-**C6** applies base / downside / upside shocks and re-runs C1–C5 engines. Operational C6 uses `ASSET_SPECIFIC_FACTORS` in `src/app/operational/scenario-analysis/config/shockFactors.ts` keyed by `buildingType` (hotel, retail, office, BTR, **warehouse**, **data_centre**). Unmapped assets show **Common Factors only** — they must not silently fall back to Hotel. Warehouse shocks: base rent psf, occupancy, rent escalation, lease-up. Data Centre shocks: power lease rate, white-space rent, utilization/occupancy, PUE.
+**C3–C5** mostly configure or review engines already fed by C1/C2 (+ financing inputs in C4).
+
+**Sale C4** is **one 8-step wizard for every sale asset class** (`src/app/sale/financing/residential-wizard.tsx`): 1 Project Summary → 2 Debt Sizing (LTC & LTV) → 3 Land Ownership & Equity → 4 Preference Shares → 5 Escrow Withdrawal Config → 6 Drawdown Structure → 7 Interest, IDC & Escrow Income → 8 Sales & Escrow Recycling. Location + asset class only **pre-select** the escrow default; all four rules stay selectable. Projects saved without an escrow rule pick up the current location/class default on next open.
+
+**C4 timing (both streams):** construction end = last non-zero month of the C1 S-curve (`resolveActualConstructionEndMonth` in `src/lib/construction-end.ts`) — the **same source as C3**. `operationsStart = actualConstructionEnd + 6-month pre-op buffer + 1`. Never derive the month grid from `financing.constructionPeriodMonths`. That field is **initialized from C1** on project create/load (and when C1 period is saved); the user may still override the stored field, but preview/engine calendars follow the S-curve. C3 and C4 pre-operating bands and operations-start month must stay identical for the same project.
+
+**C6** applies base / downside / upside shocks and re-runs C1–C5 engines. Operational C6 uses `ASSET_SPECIFIC_FACTORS` in `src/app/operational/scenario-analysis/config/shockFactors.ts` keyed by `buildingType` (hotel, retail, office, BTR, **warehouse**, **data_centre**). Unmapped assets show **Common Factors only** — they must not silently fall back to Hotel. Warehouse shocks: base rent psf, occupancy, rent escalation, lease-up. Data Centre shocks: power lease rate, white-space rent, utilization/occupancy, PUE. Delay shocks add months to **C1 `constructionPeriod`**, then copy into financing.
 
 ### 2.3 Four core cash-flow tables
 
@@ -106,7 +112,7 @@ Wizard inputs land in Zustand (`useFinModelStore`) and profile builders; preview
 | **1. Costs** | Development / capital outflows (land, construction, soft costs, POWC, FF&E), monthly S-curve | `/operational/preview/cash-outflows` | `/sale/preview/cash-outflows` | Store `buildCashOutflowProfile`; timing helpers `cash-outflow-powc-timing.ts`, `cash-outflow-ffe-timing.ts`; sale `sale-cash-preview-profile.ts` (warehouse CapEx breakdown + FF&E) |
 | **2. Income** | Ops: recurring P&L; Sale: sales proceeds schedule | `/operational/preview/pnl` | `/sale/preview/cash-inflows` | `operational-pnl.ts` + asset P&L tables; sale C2 schedules in store |
 | **3. Pre-financing Project Cash Flows** | Unlevered NCF → Project IRR | `/operational/preview/project-irr` | `/sale/preview/project-irr` (+ graphs on `/sale/project-irr`) | **Single NCF source:** `buildSalePreFinancingCashFlows()` in `sale-cash-preview-profile.ts` (warehouse includes land + CC + soft + POWC + FF&E). Used by cash-inflows preview, project-irr preview, and C3 Step 1 graphs — **do not recalculate NCF separately**. |
-| **4. Post-financing Project Cash Flows** | Debt draws, IDC, equity gap-fill, waterfall, levered equity CF | `/operational/preview/financing` | `/sale/preview/financing` | Ops: `c4.levered.engine.ts` + waterfall libs; Sale: `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, financing bridge. Warehouse sale: optional monthly **`ffe`** in engine `monthlyCosts` + conditional FF&E row in MY/UAE/AU tables. **HDA construction deposit** (`capitalHdaDeposit`) is computed in `generate-cash-flow.ts` and shown on the Malaysia/progress table + Excel export **only** for Malaysian residential for-sale; commercial assets (warehouse, retail, office, hotel, data centre) omit the row and exclude the amount from cumulative capital / M0 IRR. |
+| **4. Post-financing Project Cash Flows** | Debt draws, IDC, equity gap-fill, waterfall, levered equity CF | `/operational/preview/financing` | `/sale/preview/financing` | Ops: `c4.levered.engine.ts` + waterfall libs; Sale: `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, financing bridge. Display rows from **horizon-aligned arrays** (`src/lib/financing-preview-rows.ts`) — same series as totals/NCF (no post-completion remainder plug). Dev asserts `row.length === horizon` and `sum(row) === displayed total`. Warehouse sale: optional monthly **`ffe`** in engine `monthlyCosts` + conditional FF&E row in MY/UAE/AU tables. **HDA construction deposit** (`capitalHdaDeposit`) is computed in `generate-cash-flow.ts` and shown on the Malaysia/progress table + Excel export **only** for Malaysian residential for-sale; commercial cumulative capital = land + cash injection only. |
 
 Feasibility builders reuse the same series:
 
@@ -147,22 +153,25 @@ Scenario engines:
 | **Sale feasibility stream config** | `src/lib/feasibility/sale/sale-stream-config.ts` — `SALE_CONFIG` + `SUBTYPE_TO_CONFIG_KEY` (includes **`Commercial-Strata-Warehouse`** ↔ `commercial_strata_warehouse`); drives title, market slide titles, commentary asset label via `getSaleStreamConfig` |
 | **Sale feasibility generators** | `src/lib/feasibility/sale/generate-sale-report.ts`, `enrich-sale-slides-puter.ts`, `create-sale-puter-prompts.ts`, `build-sale-financial-data.ts`, `sale-context.ts` |
 | **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts`, `useAnalystStore.ts` (AI Analyst UI/chat — not financial data) |
-| **Calculation engine** | `src/lib/irr-calculations.ts`, `equity-irr.ts`, `operational-pnl.ts`, `operational-project-irr-pnl.ts`, `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, `src/app/operational/engine/c4.levered.engine.ts`, `c5.equity.engine.ts` |
-| **Report generator** | `src/lib/feasibility/**`, `src/types/feasibility.ts`, `src/components/feasibility/**`, `src/app/api/feasibility/**`, `src/lib/pdf-export.ts` |
-| **User AI preference (Puter KV)** | `src/lib/puter-models.ts` (curated catalog), `src/lib/puter-kv-preferences.ts` (logical key `user_preferences` via Secure KV), `src/components/settings/AIModelSelector.tsx`, `src/app/dashboard/settings/page.tsx`; compact selector also in `src/components/dashboard/Header.tsx` |
+| **Calculation engine** | `src/lib/irr-calculations.ts`, `equity-irr.ts`, `operational-pnl.ts`, `operational-project-irr-pnl.ts`, `sale-financing-engine.ts`, `financing-engine/generate-cash-flow.ts`, `src/lib/construction-end.ts` (C3/C4 construction-end month), `src/lib/financing-preview-rows.ts` (horizon-aligned C4 display rows), `src/app/operational/engine/c4.levered.engine.ts`, `c5.equity.engine.ts` |
+| **Report generator** | `src/lib/feasibility/**`, `src/types/feasibility.ts`, `src/components/feasibility/**` (`FitSlide.tsx` auto-fit 16:9 wrapper), `src/app/api/feasibility/**`, `src/lib/pdf-export.ts` |
+| **User AI preference (Puter KV)** | `src/lib/puter-models.ts` (Qwen default, Claude Sonnet 4.6, GPT-4o), `src/lib/puter-kv-preferences.ts` (logical key `user_preferences` via Secure KV), `src/lib/puter-chat.ts` (`chatWithPuterFallback`: selected → Qwen), `src/components/settings/AIModelSelector.tsx`, `src/app/dashboard/settings/page.tsx`; compact selector also in `src/components/dashboard/Header.tsx` |
 | **AI Analyst (advisory drawer)** | `src/store/useAnalystStore.ts` (UI/chat only — never writes `useFinModelStore`), `src/lib/constants/aiAnalystPrompts.ts`, `src/lib/analyst-doc-routes.ts`, `src/lib/analyst-research-snapshot.ts` (component-scoped snapshot + stored `reasoning_notes`), `src/lib/doc-text-extractor.ts`, `src/hooks/useAnalystContext.ts`, `src/components/ai-analyst/AIAnalystDrawer.tsx` (footer: “Still stuck? Talk to a human on Telegram”), `GET /api/analyst-context?stepId=` (live `fs` read of `src/app/docs/**/page.tsx`); mounted in operational/sale layouts; hidden on Dashboard, Settings, and Feasibility Study |
 | **Support Telegram links** | `src/lib/constants/support.ts` (`SUPPORT_TELEGRAM_URL` = `https://t.me/FeasiBuild_Support_Bot`, `buildSupportLink`, `buildWizardSupportContext` e.g. `ops-C1-S6`), `src/hooks/useSupportWizardContext.ts`, `src/components/support/WizardSupportButton.tsx` (lifebuoy next to Audit trail on ops/sale layouts) |
 | **Customer support agents** | Telegram Concierge: `POST /api/support/telegram` (`src/app/api/support/telegram/route.ts`). Priority email: `POST /api/support/email` (`src/app/api/support/email/route.ts`) + `src/lib/entitlements.ts` + `src/lib/support-resend.ts`. Ops Discord: `src/lib/ops-monitor.ts` (`sendOpsAlert`). |
-| **Entitlements / report gating** | `src/lib/entitlements.ts` (`getCustomerTier`, `hasWhiteLabelAccess`). Report/export rules: `src/lib/report-entitlements.ts` (`evaluateExport`, `recordExport`, `canCreateProject`). Hooks: `useReportExportGate`, `useCanCreateProject`. |
-| **White-label logo** | `src/lib/brand-logo.ts` (Secure KV `brand_logo` + `brand_logo_height`, 40–200px default 64). UI: `LogoUploadControl.tsx` on the title slide (Advisory always; Professional only with 100-Pack allowlist). |
-| **Feasibility chrome** | `SlideHeader.tsx` (page numbers via `SlidePaginationProvider`); `SlideWatermark.tsx` (Explorer only); `ReportUpgradeModal.tsx`; PDF capture hides upload/upsell via `data-pdf-hide`. |
-| **Landing / pricing / comparison / legal** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/components/landing/Footer.tsx`; `src/components/landing/TechnologySection.tsx`; `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing`; legal pages `/terms`, `/refund-policy`, `/privacy-policy`; `UpgradeModal` purchase disclaimer |
+| **Monetization / PayPal** | `src/lib/pricing.ts` (`ONE_TIME_PRODUCTS`), `src/lib/subscription-metadata.ts`, `src/lib/validity.ts` (`effectiveCredits`, `isUnlimitedActive`), `src/lib/paypal.ts`, `src/app/api/paypal/create-order/route.ts`, `capture-order/route.ts`, `src/app/api/webhooks/paypal/route.ts`, `src/components/ui/UpgradeModal.tsx`, `LowCreditBanner.tsx` |
+| **Entitlements / report gating** | `src/lib/entitlements.ts` (`getCustomerTier`, `hasWhiteLabelAccess`). Report/export: `src/lib/report-entitlements.ts` (`evaluateExport`, `recordExport`, `canCreateProject`); credit consume `src/app/api/subscription/consume-credit/route.ts`. Hooks: `useReportExportGate`, `useCanCreateProject`, `useSubscription`. |
+| **White-label logo** | `src/lib/brand-logo.ts` (Secure KV `brand_logo` + `brand_logo_height`, 40–200px default 64). UI: `LogoUploadControl.tsx` on the title slide (Unlimited Pack always; Professional only with 100-Pack). |
+| **Feasibility chrome** | `SlideHeader.tsx` (page numbers via `SlidePaginationProvider`); `SlideWatermark.tsx` (Explorer only); `FitSlide.tsx` (overflow scale-to-fit); `ReportUpgradeModal.tsx`; PDF capture hides upload/upsell via `data-pdf-hide`. |
+| **Landing / pricing / comparison / legal** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/components/landing/Footer.tsx`; `src/components/landing/TechnologySection.tsx` (“AI Engine (Qwen, Claude & OpenAI)”); `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing`; legal pages `/terms`, `/refund-policy`, `/privacy-policy`; `UpgradeModal` purchase disclaimer |
+| **Maps (Leaflet)** | `src/components/LocationMapPicker.tsx`, `src/components/feasibility/slides/ProjectLocationMap.tsx` — import `leaflet/dist/leaflet.css`; single-host OSM tiles `https://tile.openstreetmap.org/{z}/{x}/{y}.png`; `invalidateSize()` on mount/resize. |
+| **Field source tagging** | `src/lib/field-value-source.ts` (`ai` / `override` / `default`); `src/components/ui/AiInput.tsx` (blue AI / orange user-typed only / grey default; local string state while focused). |
 | **Secure Puter KV (Clerk isolation)** | `src/lib/secure-puter-kv.ts` — **only** module that calls `puter.kv.*`. Keys: `feasi_build_{clerkUserId}_{logicalKey}`. Strips legacy `feasibuild_{userId}_` / double prefixes via `toLogicalKvKey`. Retries get/set/del (3×, 1s→2s backoff). `SecureKvUserBinder` + `getSecureKvUserId()` for lib callers. Auth probe: `probePuterKvAccess`. |
 | **KV migration** | `src/lib/migrate-puter-kv.ts` — `migrateOldPuterKeys` + `PuterKvMigrationTrigger` (once per signed-in session). Copies legacy / double-prefixed keys → namespaced, then deletes old. Mounted in `src/app/layout.tsx`. |
 | **Project storage** | `src/lib/puter-storage.ts` (local-first write via `writeLocalKvValue`, then Secure KV), `src/lib/project-save.ts` (`buildAndSaveProject`, `saveProjectToKV`) |
 | **Optimistic save UI** | `src/hooks/useOptimisticProjectSave.ts`, `src/hooks/useNetworkStatus.ts`, `src/components/header/SaveProjectButton.tsx` (nav-bar only — no duplicate C1 page button). States: Saved Locally (≥500ms) → Syncing → Synced / Retry; auto-retry on reconnect. |
 | **JSON sanitizer (verbose LLMs)** | `src/lib/extract-json-from-claude.ts` — used by `useAiResearch.ts` and chart parsing in `ai-service.ts`. Unwraps double-serialized / quoted JSON, repairs truncated payloads; error copy is model-agnostic (“Model returned non-JSON…”). |
-| **Shared UI helpers** | `src/components/ui/AiInput.tsx` (override / reset baseline; avoid `string === number` comparisons under TS strict narrowing) |
+| **Shared UI helpers** | `src/components/ui/AiInput.tsx` (source badges + focused local string — no mid-typing reverts; avoid `string === number` comparisons under TS strict narrowing) |
 
 ### 2.6 BYO Puter storage & save UX
 
@@ -186,7 +195,7 @@ Two agents share the founder’s Telegram bot (`@FeasiBuild_Support_Bot`) as the
 | Agent | Who | Path | Behavior |
 |-------|-----|------|----------|
 | **Agent 2 — Telegram Concierge** | All users (free) | `POST /api/support/telegram` | Webhook secret `x-telegram-bot-api-secret-header` / `…-secret-token` vs `TELEGRAM_WEBHOOK_SECRET`. Dedupes last 100 `update_id`s. `/start` [payload] maps `ops-C1-S6` → “Operational · Component 1 · Step 6” (`describeSupportStartPayload`); stores `came_from` per chat for Discord escalations. FAQ via **server Puter** JSON triage (`BUG` / `BILLING` / `FEATURE` / `FAQ`). Founder-only `/reply <chat_id> <text>` (`FOUNDER_TELEGRAM_ID`). Always 200 to Telegram after the secret check. |
-| **Priority Email (Pro / Advisory)** | Paying tiers | `POST /api/support/email` | Resend `email.received` is **metadata only** — fetch body via `GET /emails/receiving/{id}` (`src/lib/support-resend.ts`). `getCustomerTier(email)` (`src/lib/entitlements.ts`): V1 hardcoded allowlist; unknown → **`explorer`**. Explorer auto-replies pointing at Telegram. Pro/Advisory: server Puter draft (`gpt-4o-mini`, 60s timeout) → founder Telegram block with `---DRAFT---` / `---END---`. Founder **must Reply** to that message: `/send`, edited text, or `/reject`. Bare `/send` without Reply is **not** triaged — bot explains the Reply gesture. Outbound from `FeasiBuild Support <owner@feasibuild.app>` with `In-Reply-To` / `References`. |
+| **Priority Email (Pro / Unlimited Pack)** | Paying tiers | `POST /api/support/email` | Resend `email.received` is **metadata only** — fetch body via `GET /emails/receiving/{id}` (`src/lib/support-resend.ts`). `getCustomerTier(email, subscription)` (`src/lib/entitlements.ts`): Clerk `publicMetadata.subscription` first; unknown → **`explorer`**. Explorer auto-replies pointing at Telegram. Pro / Unlimited Pack: server Puter draft (`gpt-4o-mini`, 60s timeout) → founder Telegram block with `---DRAFT---` / `---END---`. Founder **must Reply** to that message: `/send`, edited text, or `/reject`. Bare `/send` without Reply is **not** triaged — bot explains the Reply gesture. Outbound from `FeasiBuild Support <owner@feasibuild.app>` with `In-Reply-To` / `References`. |
 
 **Env:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `FOUNDER_TELEGRAM_ID`, `PUTER_AUTH_TOKEN`, `RESEND_API_KEY`, `DISCORD_OPS_WEBHOOK_URL`.
 
@@ -198,13 +207,43 @@ Applies to **both** Operational and Sale 16:9 decks. **No financial engines or `
 
 | Rule | Behavior |
 |------|----------|
-| **White-label logo** | Advisory: always. Professional (`pro`): only if email is on `PRO_LOGO_PACK_ALLOWLIST` (100-Pack). Explorer: never (upsell in edit mode). Logo data URL + height in Secure KV (`brand_logo`, `brand_logo_height`). Title slide: centred above the main title; slider 40–200px (default 64). |
+| **White-label logo** | Unlimited Pack: always. Professional: 100-Pack (`whiteLabel` on grant, or `PRO_LOGO_PACK_ALLOWLIST`). Explorer: never (upsell in edit mode). Logo data URL + height in Secure KV (`brand_logo`, `brand_logo_height`). Title slide: centred above the main title; slider 40–200px (default 64). |
 | **Page numbers** | Title slide (index 0) has none. Slide 2 of N is `Page 1 of N-1`. Number sits on the subtitle row, top-right, via `SlideHeader` + `SlidePaginationProvider`. |
-| **Explorer watermark** | Diagonal “FeasiBuild · Free Preview” + footer banner on every slide (incl. title). `pointer-events-none`. Present in PDF. Professional / Advisory: clean. |
-| **Export limits** | Explorer: **every** PDF download counts; max 1 (`fs_exports_used`); then “Upgrade to Export”. Professional: first export of a `proj_…` id consumes (`fs_exported_projects`); **re-exports of the same project are free forever**. Advisory: unlimited, nothing recorded. Failed PDF jobs do not increment. |
-| **Explorer dashboard lock** | After the free report is consumed, **no new project creation** (dashboard buttons, sidebar “New … Study”, minting a new `proj_…` on save). Existing projects stay openable / editable / regenerable. Exploration before the first download is unlimited. |
+| **FitSlide** | `src/components/feasibility/FitSlide.tsx` scales overflowing body (text, charts, tables) into the 16:9 canvas; PDF export uses the same scaled layout. |
+| **Charts** | Data-reactive — remount when series arrive (fixes first-run empty charts). `generateChartData` never fails the deck. |
+| **No source footers** | Prompts include `NO_SOURCE_ATTRIBUTION_CONSTRAINT`; parser/display strip lines starting with `Source:` / `Sources:` (`clean-ai-content.ts`). |
+| **Clear cache copy** | “Clear AI Cache & Regenerate” dialog text is **dynamic per asset class** — never hardcode Data Centre. |
+| **Explorer watermark** | Diagonal “FeasiBuild · Free Preview” + footer banner on every slide (incl. title). `pointer-events-none`. Present in PDF. Professional (credits) / Unlimited Pack: clean. |
+| **Export / credits** | **Clean PDF requires a credit (`effectiveCredits > 0`) or an active Unlimited Pack.** Explorer: one watermarked PDF (`fs_exports_used`), then lock. Unlimited Pack: never consumes credits. Failed PDF jobs do not consume. |
+| **Explorer dashboard lock** | After the free report is consumed, **no new project creation** (dashboard buttons, sidebar “New … Study”, minting a new `proj_…` on save). Existing projects stay openable / editable / regenerable. |
 
-`evaluateExport().consumesReport` is credit-ready: when checkout goes live, decrement a report credit only when that flag is true.
+### 2.9 Monetization & pricing
+
+One-time PayPal products only. **There is no monthly subscription SKU.**
+
+| Product | Price | What it unlocks |
+|---------|--------|-----------------|
+| **Explorer** | Free | 1 watermarked report; then dashboard lock |
+| **Professional** | **$99 one-time lifetime** | Unlocks pack / Unlimited Pack purchases; unlimited projects |
+| **1 / 10 / 50 / 100 credit packs** | **$49 / $390 / $1,450 / $1,900** | 12-month validity; **one active pack at a time**. 100-Pack includes logo branding |
+| **Unlimited Pack** | **$2,400 / 12 months** | Unlimited clean reports + white-label for 12 months from purchase |
+
+**Strict repurchase:** no pack or Unlimited Pack purchase while `effectiveCredits > 0`. Enforced in `create-order`, `capture-order`, **and** the PayPal webhook. Expired pack → `effectiveCredits = 0` (auto-unlocks repurchase). A new pack **replaces** the expired balance — never adds.
+
+**Clerk `publicMetadata.subscription`:** `{ plan, lifetime, unlimited, whiteLabel, reportCredits, packPurchasedAt, unlimitedPurchasedAt, processedOrderIds }`. ISO timestamps **must use uppercase `Z`** (Safari rejects lowercase `z`). `Date.toISOString()` is correct.
+
+**UI:** `UpgradeModal` amber lock + “Current pack expires on …” + disabled pack/Unlimited buttons when credits > 0. Low-balance banner at **1–2 credits** (`LowCreditBanner`, session-dismissible **per credit count**). Navbar badge: **`Pro • N credits`** / **`Advisory • Unlimited`** (display label for an active Unlimited Pack — not a separate SKU).
+
+**Code note:** `getCustomerTier` may return `"advisory"` meaning **active Unlimited Pack**. Do not add a monthly billing product.
+
+### 2.10 Payments (PayPal LIVE)
+
+- **One-time orders only** (`intent: CAPTURE`). No PayPal subscription plans.
+- **Env (all live):** `PAYPAL_MODE`, `NEXT_PUBLIC_PAYPAL_MODE`, `PAYPAL_CLIENT_ID`, `NEXT_PUBLIC_PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`.
+- **CRITICAL — webhook URL:** register **`https://www.feasibuild.app/api/webhooks/paypal`** (www). The apex host 308-redirects; PayPal does **not** follow redirects (that produced `FAIL_SOFT` deliveries).
+- **Event:** `PAYMENT.CAPTURE.COMPLETED`. Idempotent grants via `processedOrderIds` (+ private `paypalGrantedOrders`).
+- Checkout return/cancel: `src/lib/paypal.ts` (`PAYPAL_RETURN_URL` / `PAYPAL_CANCEL_URL`).
+- Legal: `/terms` + `/refund-policy` live; landing footer + upgrade modal.
 
 ---
 
@@ -218,12 +257,13 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 |------|--------|
 | **Hook** | `src/hooks/useAiResearch.ts` → `performResearch()` |
 | **API** | Client `puter.ai.chat` (script: `https://js.puter.com/v2/` in `src/app/layout.tsx`) |
-| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Default **`qwen/qwen3.7-plus`**. Also: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`. Unknown / failed / retired KV ids → Qwen default. **Public copy** (docs Getting Started, landing Technology Stack, privacy policy) must describe the three-model picker — Qwen (default), Claude, OpenAI — never imply Qwen is the only engine. Comparison-table row “BYO-AI Integration (Qwen, Claude, OpenAI via Puter)”. |
+| **Model** | User-selectable via Secure Puter KV (`getPreferredModel()` → logical key `user_preferences`); catalog in `src/lib/puter-models.ts`. Provider-prefixed ids: default **`qwen/qwen3.7-plus`** (keep the working id), `anthropic/claude-sonnet-4-6`, `openai/gpt-4o-2024-08-06`. Unknown / failed / retired KV ids → Qwen. Fallback chain: **selected model → Qwen** (`chatWithPuterFallback`) with a user-facing notice banner. **Public copy** (docs Getting Started, landing Technology Stack, privacy policy, comparison BYO-AI row) must list **Qwen (default), Claude, or OpenAI via Puter** — never a fourth vendor. |
+| **Extraction** | Puter `response.message.content`; strip markdown fences; `extractJsonFromClaudeResponse` for JSON. Research **skips `type:"reasoning"` stream chunks**. Unparseable stream → retry `stream: false`. |
 | **Options** | `stream: true`, `temperature: 0.1`, `max_tokens: 8000` (Claude **12000**). Claude also sends `response_format: { type: "json_object" }` when Puter forwards it. |
-| **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt(assetType, model?)` appends **Claude-strict JSON rules** when the id contains `claude`; plus `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS` |
-| **JSON parse** | `extractJsonFromClaudeResponse` — strips `<reasoning>`, fenced ```json```, brace-balanced objects. Research **skips `type:"reasoning"` stream chunks** so markdown CoT is not parsed as JSON. Unparseable stream → retry `stream: false`. |
+| **Prompts** | `src/lib/constants/aiPrompts.ts` — `getSystemPrompt(assetType, model?)` appends **Claude-strict JSON rules** when the id contains `claude`; plus `buildUserPrompt`, `normalizeAiResearchData`, per-asset `AI_PROMPTS`. Commentary/prompts include `NO_SOURCE_ATTRIBUTION_CONSTRAINT` (no “Source: …” footers). |
+| **JSON parse** | `extractJsonFromClaudeResponse` — strips `<reasoning>`, fenced ```json```, brace-balanced objects. |
 | **Auth / status** | `src/lib/puter-auth.ts`, `src/lib/cache-service.ts` (`checkPuterStatus` → `probePuterKvAccess`). AI caches / slide hashes also go through Secure KV when a Clerk user is bound. |
-| **UI** | `BenchmarkProfile.tsx`, `BenchmarkHeader.tsx`; fills C1/C2 fields from structured JSON |
+| **UI** | `BenchmarkProfile.tsx`, `BenchmarkHeader.tsx`; fills C1/C2 fields from structured JSON via `applyAIValues` / `fieldSources`: **`ai`** (blue badge), **`override`** (orange, **user-typed only**), **`default`** (grey). `AiInput` keeps a local string while focused so research refresh cannot revert mid-typing. |
 
 **Sale asset → AI type map (`SALE_SUBTYPE_TO_AI_ASSET` in `sale/cash-outflows/page.tsx`)**
 
@@ -256,7 +296,7 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 | **Sale enrich** | `src/lib/feasibility/sale/enrich-sale-slides-puter.ts`, `generate-sale-report.ts`, `create-sale-puter-prompts.ts` (warehouse-aware prompts when `assetLabel` is warehouse/industrial) |
 | **Sale subtype → deck template** | `sale-stream-config.ts` — e.g. `commercial_strata_warehouse` → `"Commercial-Strata-Warehouse"` / asset label `"Commercial - Strata Warehouse"` |
 | **Data bundle** | `data-aggregator.ts` (`getFeasibilityProjectBundle`), sale `sale/sale-context.ts` |
-| **Commentary helpers** | `generate-*-commentary.ts`, `clean-ai-content.ts`, `commentary-prompt-utils.ts`; warehouse ops: `generate-warehouse-commentary.ts`, `build-warehouse-market-data.ts`; **data centre ops:** `generate-data-centre-commentary.ts`, `build-data-centre-market-data.ts`, `data-centre-context.ts` (hard DO NOT warehouse/BTR/retail/hotel; cache keys scoped by `buildingType`); sale fallbacks: `generate-sale-commentary.ts` |
+| **Commentary helpers** | `generate-*-commentary.ts`, `clean-ai-content.ts` (`NO_SOURCE_ATTRIBUTION_CONSTRAINT` + `stripSourceAttributionLines`), `commentary-prompt-utils.ts`; warehouse ops: `generate-warehouse-commentary.ts`, `build-warehouse-market-data.ts`; **data centre ops:** `generate-data-centre-commentary.ts`, `build-data-centre-market-data.ts`, `data-centre-context.ts` (hard DO NOT warehouse/BTR/retail/hotel; cache keys scoped by `buildingType`); sale fallbacks: `generate-sale-commentary.ts` |
 | **Operational AI charts** | See modules below — wired from `enrich-operational-slides-puter.ts` with Puter + cache + static fallbacks |
 | **Server optional** | `src/lib/feasibility/qwen-commentary.ts` + `src/app/api/feasibility/*` using `FEASIBILITY_AI_URL` / `FEASIBILITY_AI_API_KEY` / `FEASIBILITY_AI_MODEL` (default `qwen-plus`) |
 | **Deck sections** | Title → Executive (A) → Project (B) → Market (C) → Financial (D); editable in `useFeasibilityStore`; export via `pdf-export.ts` |
@@ -281,7 +321,9 @@ Two AI layers on the **client via Puter.js** (script: `https://js.puter.com/v2/`
 
 **Enrichment order (Operational Puter):** macro → (hotel hospitality charts when `assetType === "hotel"`) → market metrics → supply pipeline → tenant profile.
 
-**Prompt patterns:** institutional tone, anti-placeholder rules, length caps (e.g. 5–6 bullets / ≤150 words for commentary), deterministic **fallback paragraphs** when Puter fails, slide cache keys via component hashes.
+**Prompt patterns:** institutional tone, anti-placeholder rules, **no “Source:” attribution footers**, length caps (e.g. 5–6 bullets / ≤150 words for commentary), deterministic **fallback paragraphs** when Puter fails, slide cache keys via component hashes. “Clear AI Cache & Regenerate” copy is per asset class.
+
+**Deck layout:** wrap overflowing slides in `FitSlide` so text/charts/tables scale into 16:9 (PDF parity). Charts remount when data arrives.
 
 ### 3.3 AI Analyst (advisory co-modeler)
 
@@ -361,6 +403,22 @@ Applied so interest and certain escrow movements use **prior-period balances** (
 - `src/lib/irr-calculations.ts` — `solveAnnualIRRPreferred` / shared points
 - Sale engine also uses `solveIrrAndNpv` in `generate-cash-flow.ts`
 
+### 4.4 Construction-end calendar (C3 = C4)
+
+`actualConstructionEnd` = last non-zero month of the C1 construction S-curve (`src/lib/construction-end.ts`), else C1 `constructionPeriod`.
+
+| Quantity | Formula | Example (28-mo hotel) | Example (24-mo) |
+|----------|---------|------------------------|-----------------|
+| Construction end | `actualConstructionEnd` | M28 | M24 |
+| Pre-op buffer end | `actualConstructionEnd + 6` | M34 | M30 |
+| Operations start | buffer end + 1 | M35 | M31 |
+
+Revenue ramp, opex, working capital, renovation FYE columns, land-loan bullet (CP+6), retention/DLP, and terminal-value month all use this calendar. C3 and C4 month grids (pre-operating band + ops start) **must match**.
+
+### 4.5 Horizon-aligned preview rows
+
+C4 construction / land / FF&E / soft / POWC display rows are built with `src/lib/financing-preview-rows.ts` to the **same horizon** as totals. Construction cash lives on M0…M{constructionEnd} only — do not plug S-curve remainder into a post-completion cell. In development: `row.length === horizon` and `sum(row) === displayed total`.
+
 ---
 
 ## 5. Escrow Withdrawal Rules (mechanisms, not countries)
@@ -372,10 +430,11 @@ Canonical rule ids: `EscrowRuleId = 'ten_ninety' | 'staged' | 'progress' | 'none
 Display names: **10/90 Rule**, **Staged Escrow Rule**, **Progress Drawdown Rule**, **No Escrow Rules**.
 
 Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowConfig.tsx`
-(panel titles are rule names). One wizard for every sale asset class: `residential-wizard.tsx`
-(`JURISDICTION_RULES` + `defaultEscrowRuleForLocation`). Location + asset class only **pre-selects**
-a default; all four tabs remain selectable everywhere. The retired commercial-only wizard
-(`commercial-wizard.tsx`) is deleted.
+(panel titles are rule names). **One 8-step wizard** (`residential-wizard.tsx`) for **every** sale asset class:
+
+1. Project Summary → 2. Debt Sizing (LTC & LTV) → 3. Land Ownership & Equity → 4. Preference Shares → 5. Escrow Withdrawal Config → 6. Drawdown Structure → 7. Interest, IDC & Escrow Income → 8. Sales & Escrow Recycling.
+
+`JURISDICTION_RULES` + `defaultEscrowRuleForLocation`: location + asset class only **pre-select** a default; all four tabs remain selectable everywhere. Projects with no stored escrow rule pick up that default on next open.
 
 **Location + asset-class defaults (never hard-linked in the engine)**
 
@@ -386,10 +445,9 @@ a default; all four tabs remain selectable everywhere. The retired commercial-on
 - All other locations (KSA, Abu Dhabi, RAK, Sharjah, Ajman, Fujairah, Thailand, China, …) → No Escrow Rules (CP+6)
 
 **Backward compatibility:** stored modes `uae`/`malaysia`/`australia`/`none` map to the new ids.
-Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to staged/progress/ten_ninety;
-`OTHER` or empty → none.
+Missing stored `escrowRule` → apply **location + asset-class default on open** (Dubai staged, AU 10/90, MY residential progress, MY commercial none, else none). Do not force `none` just because the field was empty.
 
-### 5.1 Staged Escrow Rule (default: Dubai, UAE only)
+### 5.1 Staged Escrow Rule (default: Dubai — all off-plan classes)
 
 - Certification every 3/6 months during CP; withdrawal **+1 month** after certification.
 - Retention % user-editable (default 5), held until practical completion + defect liability; residual sweep at **CP+12**. Horizon **CP+12**.
@@ -400,7 +458,7 @@ Unset mode + old engine jurisdiction `UAE_SA`/`MALAYSIA`/`AUSTRALIA` maps to sta
 - Milestone/S-curve drawdowns (HDA-style). Post-VP retention through VP+24 when this rule is selected. Horizon **CP+24**.
 - **HDA construction deposit** (default 3% of construction cost at M0; interest with final release at **CP+24**) is **not** part of the progress-drawdown mechanism for every asset. It applies **only to Malaysian residential for-sale**. Warehouse, retail, office, hotel, and data centre never inject the deposit into equity capital / cumulative capital / M0 IRR, even if Progress Drawdown is selected.
 
-### 5.3 10/90 Rule (default: Australia)
+### 5.3 10/90 Rule (default: Australia — all off-plan classes)
 
 - Deposit % (default 10) / Balance % (default 90) user-editable, must sum to 100.
 - Deposit to trust at **every** lock month; balance at settlement (CP locks at CP+1, post-CP same month); releases at settlement; residual sweep by **CP+12**; trust interest 1-month offset; ΣASP = Σlocked + net interest − fees.
@@ -428,7 +486,7 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
    - `ten_ninety` → CP+12
    - `progress` → CP+24
    - `none` → CP+6
-   - **Unset / empty / null mode is treated as `none` (CP+6)** unless an old jurisdiction enum is present (`UAE_SA`/`MALAYSIA`/`AUSTRALIA`).
+   - **Missing stored rule:** apply location + asset-class default on open (not a silent `none` for every empty field). Legacy jurisdiction enums (`UAE_SA`/`MALAYSIA`/`AUSTRALIA`) still map when present.
 4. Feasibility **sale-escrow** slide headings use the selected rule name (e.g. “Staged Escrow Rule Configuration”). Country regulators (RERA, HDA, state 10/90) appear only as local-regime notes when the project location’s default matches that rule — a China project on staged must **not** read “UAE — RERA”.
 5. Preview tables (MY/UAE/AU variants) and exports follow the selected rule and read retention / deposit / balance from the store, never from constants.
 
@@ -436,7 +494,20 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **24 Aug 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **1 Sep 2026**. Prefer editing this file over scattering architecture notes across chats.
+
+### Just finished (24 Aug → 1 Sep 2026) — PayPal live + engine/deck hardening
+
+- **PayPal LIVE:** one-time orders (Professional $99 lifetime, credit packs, Unlimited Pack $2,400 / 12 months). Smoke-tested capture + webhook. **Webhook must stay on `https://www.feasibuild.app/api/webhooks/paypal`.**
+- **Strict repurchase + 12-month expiry:** `effectiveCredits`; no pack/Unlimited while credits remain; expired pack = 0 (new purchase **replaces**, never stacks). Enforced in create-order, capture-order, and webhook.
+- **ToS / Refund** pages live; footer + upgrade modal. Clerk **waitlist off** (open sign-ups).
+- **HDA** equity row **residential-only**; commercial cumulative capital = land + cash injection.
+- **Escrow defaults:** Dubai staged **all off-plan classes**; Australia 10/90 **all off-plan classes**; Malaysia Progress (residential) / No Escrow (commercial).
+- **Sale C4:** one 8-step wizard for every asset class; missing stored rule → location/class default on open.
+- **C4 timing:** ops start from C1 S-curve end + 6 + 1 (same as C3); `financing.constructionPeriodMonths` initialized from C1.
+- **Phantom remainder plug:** horizon-aligned preview rows (`financing-preview-rows.ts`); C3/C4 grids identical.
+- **LLM catalog:** Qwen (default), Claude, GPT only. Public copy: “Qwen, Claude & OpenAI via Puter”.
+- **Deck:** `FitSlide` overflow scale; first-run charts remount on data; no “Source:” footers; cache-regenerate copy per asset class.
 
 ### Just finished (24 Aug 2026) — Legal pages + multi-model public copy (no engine math)
 
@@ -459,10 +530,10 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 
 ### Just finished (19–20 Aug 2026) — Feasibility chrome, entitlements gating, chart salvage (no engine math)
 
-- **White-label logo + size:** Title slide (both streams). `hasWhiteLabelAccess` (Advisory always; Pro + 100-Pack allowlist). Secure KV `brand_logo` / `brand_logo_height` (40–200px, default 64). Upload control hidden during PDF capture.
+- **White-label logo + size:** Title slide (both streams). `hasWhiteLabelAccess` (Unlimited Pack always; Pro + 100-Pack). Secure KV `brand_logo` / `brand_logo_height` (40–200px, default 64). Upload control hidden during PDF capture.
 - **Page numbers:** `SlideHeader` + `SlidePaginationProvider` — title unnumbered; “Page k of N−1” top-right on the subtitle row.
 - **Explorer watermark + 1-export cap:** `SlideWatermark` on every slide; `fs_exports_used`; first PDF succeeds then upsell; later downloads blocked (“Upgrade to Export”).
-- **Professional same-project re-exports:** `evaluateExport` / `recordExport` — first `proj_…` export marked in `fs_exported_projects`; later exports of that id are free. Advisory records nothing.
+- **Professional exports:** `evaluateExport` / `recordExport` / `consume-credit` — clean PDF needs a credit or active Unlimited Pack; Unlimited Pack never consumes credits.
 - **Explorer dashboard lock:** After the free report, `canCreateProject` disables New Operational / New Sale (dashboard + sidebar) and refuses minting a new project id on save. Existing projects remain editable.
 - **Chart JSON salvage (v2):** `extract-json-from-claude.ts` unwraps quoted payloads and repairs truncated JSON. `generateChartData` is non-fatal (`null` + warn). Callers on both streams skip / static-fallback. Model-agnostic extract errors.
 
@@ -470,9 +541,9 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 
 - **Agent 2 Telegram Concierge:** `POST /api/support/telegram` — webhook secret, `update_id` dedupe, `/start` + deep-link payload (`ops-C1-S6`), Puter FAQ triage, Discord escalate with clickable `https://t.me/…` (never `tg://`), founder `/reply <chat_id> <text>`.
 - **In-app “Talk to a human”:** `support.ts` + wizard lifebuoy + Analyst footer + landing footer + Settings Get help. `/start` stores `came_from` for Discord.
-- **Priority Email (Pro/Advisory):** `POST /api/support/email` — Resend inbound fetch, `extractEmailFromHeader` + `getCustomerTier` allowlist (incl. live advisory test address), Explorer auto-reply, Puter `gpt-4o-mini` draft (60s), founder **Reply-required** `/send` / edit / `/reject`. Bare `/send` no longer falls through to FAQ triage.
+- **Priority Email (Pro / Unlimited Pack):** `POST /api/support/email` — Resend inbound fetch, `extractEmailFromHeader` + `getCustomerTier`, Explorer auto-reply, Puter `gpt-4o-mini` draft (60s), founder **Reply-required** `/send` / edit / `/reject`. Bare `/send` no longer falls through to FAQ triage.
 - **Ops monitor:** Support sources skip Discord AI summary; context rendered as markdown fields.
-- **Landing `#pricing`:** Explorer / Professional / Advisory + credit packs + comparison table (`PricingSection.tsx`). Navbar Pricing link.
+- **Landing `#pricing`:** Explorer / Professional (lifetime) / credit packs / Unlimited Pack + comparison table (`PricingSection.tsx`). Navbar Pricing link.
 - **`/comparison`:** Anonymous categories only (Legacy Desktop Suite, Regional Cloud SaaS, AI Consultancy).
 
 ### AI Analyst (complete 15 Aug 2026)
@@ -497,18 +568,15 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 - **Sale Warehouse / Path A:** `"Commercial-Strata-Warehouse"` stream config, Dev Assumptions CapEx, escrow slide residential-only, Puter stream resilience, C1–C4 + FF&E in NCF/financing.
 - **Warehouse + Data Centre asset types** on Operational; warehouse on Sale.
 
-### Next steps for tomorrow
+### Next steps
 
-1. **HDA regression (carry-over):** Reload Sale C4 on Labu Warehouse — no **Capital—HDA deposit** row; cumulative capital **11,582,809.92**; M0 IRR excludes 428,613.12. Then confirm a **Malaysian residential** sale project is unchanged.
-2. **Legal smoke:** Open `/terms` and `/refund-policy` from the landing footer and from `UpgradeModal`. Confirm `/terms-of-service` redirects to `/terms`.
-3. **Chart E2E:** Regenerate a Sale study — no hard error overlay; charts render or skip silently; PDF still exports. Confirm Qwen default still draws charts.
-4. **Gating E2E (Pro + Explorer):** Pro — export Project A then B → `fs_exported_projects` has two entries; re-export B stays at two. Explorer — first download watermarked + counter 1 + dashboard lock; second download blocked; existing project still opens.
-5. **Replace V1 entitlements + credits:** Swap hardcoded `TIER_ALLOWLIST` / `PRO_LOGO_PACK_ALLOWLIST` for PayPal (or checkout) lookups. Unknown emails stay `explorer`. Decrement a report credit only when `evaluateExport().consumesReport === true`.
-6. **Checkout CTAs:** Pricing buttons still go to `/sign-up`. Wire Professional lifetime + credit packs + Advisory annual. Do not name real competitors on `/comparison`.
+1. **PayPal / credits E2E:** Pro + pack — export consumes 1 credit; Unlimited Pack exports never decrement. Repurchase blocked while `effectiveCredits > 0`; after 12-month expiry, new pack replaces balance.
+2. **Webhook:** confirm live deliveries hit **www** (`PAYMENT.CAPTURE.COMPLETED`, idempotent `processedOrderIds`). Do not point the webhook listener at the apex host.
+3. **C3 vs C4 calendar:** 28-mo hotel — C3 and C4 both show construction M28, pre-op M29–M34, ops M35. 24-mo → ops M31.
+4. **Chart E2E:** regenerate a study on Qwen — charts remount when data arrives; PDF exports; no “Source:” footers.
+5. **Support smoke (from 19 Aug):** Live priority email (`Reply` `/send` / `/reject`) and Telegram Concierge (`/start ops-C1-S6`).
 
-### Still open / later (not tomorrow’s first jobs)
-
-- **Support smoke (from 19 Aug):** Live priority email (`Reply` `/send` / `/reject` / edited send) and Telegram Concierge (`/start ops-C1-S6`, FAQ vs BUG Discord, founder `/reply`).
+### Still open / later
 - **Manual isolation QA** (from 15 Aug): User A vs User B KV; Analyst still quotes `reasoning_notes`.
 - **E2E QA — Operational Data Centre** and **Sale warehouse** C1→C6 + Feasibility (unchanged engine work).
 - **Warehouse (Operational) polish:** Verify all AI schema fields (e.g. `free_rent_months`) are fully wired in UI consumers.
@@ -541,12 +609,17 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 16. **Reasoning-notes schema:** research prompts require `reasoning_notes`; `normalizeAiResearchData` must tolerate its absence (old caches/projects). No new Puter KV keys for notes.  
 17. **Operational C6 shocks:** Use the asset’s own factor set from `ASSET_SPECIFIC_FACTORS`. Unmapped types show Common Factors only — never fall back to Hotel.  
 18. **Support email review:** Founder `/send` / `/reject` / edited replies to priority drafts **must** be a Telegram **Reply** to the `---DRAFT---` message; a bare `/send` must not hit FAQ triage.  
-19. **Entitlements V1:** `getCustomerTier` is a hardcoded allowlist; unknown → `explorer`. Parse `From` via `extractEmailFromHeader` (angle-brackets / parenthetical names) before lookup.  
+19. **Entitlements (PayPal):** Clerk `publicMetadata.subscription` is source of truth after capture/webhook. Unknown / no metadata → Explorer. Parse inbound `From` via `extractEmailFromHeader` before any email allowlist fallback. ISO grant dates must use **uppercase `Z`**.  
 20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.  
-21. **White-label logo:** Advisory always; Professional only with 100-Pack allowlist; Explorer never. Height 40–200px in Secure KV; title slide only.  
-22. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — first export per `proj_…` consumes; same-project re-exports free. Advisory — unlimited, no watermark. Failed PDFs do not consume.  
-23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads; `generateChartData` logs a warn only.
+21. **White-label logo:** Unlimited Pack always; Professional only with 100-Pack; Explorer never. Height 40–200px in Secure KV; title slide only.  
+22. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — clean PDF consumes 1 credit (or is blocked at 0). Unlimited Pack — unlimited, no watermark, never consumes credits. Failed PDFs do not consume.  
+23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads; `generateChartData` logs a warn only.  
+24. **C3/C4 construction end:** Same source — last non-zero C1 S-curve month (`construction-end.ts`). Never use a financing factory default as the construction calendar. `operationsStart = actualConstructionEnd + 6 + 1`.  
+25. **Pack repurchase:** Refuse pack and Unlimited Pack while `effectiveCredits > 0` (create-order, capture-order, **and** webhook). Expired pack = 0 credits; new purchase **replaces** the balance.  
+26. **PayPal webhook host:** Listener is `https://www.feasibuild.app/api/webhooks/paypal` only. Apex 308-redirects; PayPal does not follow redirects (`FAIL_SOFT`).  
+27. **Preview-row parity:** C4 display rows from `financing-preview-rows.ts` — `row.length === horizon` and `sum(row) === displayed total`. No remainder plug after construction end.  
+28. **Deck copy:** No “Source: …” attribution footers; prompts forbid them; parser strips `Source:` lines. Overflowing slides use `FitSlide`.
 
 ---
 
-*Last updated 24 Aug 2026 (legal pages `/terms` + `/refund-policy`; multi-model public copy). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 1 Sep 2026 (PayPal live, credit packs, C4 wizard/timing, jurisdiction defaults, deck FitSlide). Prefer editing this file over scattering architecture notes across chats.*

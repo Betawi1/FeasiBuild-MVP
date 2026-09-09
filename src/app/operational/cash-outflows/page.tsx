@@ -5093,7 +5093,7 @@ function CashOutflowsPageContent() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="mb-2 text-3xl font-bold text-white">
-            FinModel App — Component 1
+            Component 1
           </h1>
           <p className="text-slate-400">Development Financials</p>
         </div>
