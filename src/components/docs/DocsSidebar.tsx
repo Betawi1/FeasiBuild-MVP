@@ -44,12 +44,18 @@ export default function DocsSidebar() {
           })}
         </nav>
 
-        <div className="mt-8 border-t border-slate-800 pt-6">
+        <div className="mt-8 space-y-2 border-t border-slate-800 pt-6">
           <Link
             href="/dashboard"
             className="flex items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
           >
             ← Back to App
+          </Link>
+          <Link
+            href="/"
+            className="flex items-center justify-center rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:text-white"
+          >
+            ← Back to Home
           </Link>
         </div>
       </div>

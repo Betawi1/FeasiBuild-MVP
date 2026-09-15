@@ -27,21 +27,21 @@ export default function Navbar() {
             </h1>
           </Link>
 
-          <div className="hidden space-x-8 md:flex">
+          <div className="hidden space-x-6 lg:space-x-8 md:flex">
             <Link
-              href="#features"
+              href="/#features"
               className="text-sm font-medium text-slate-300 transition hover:text-white"
             >
               Features
             </Link>
             <Link
-              href="#how-it-works"
+              href="/#how-it-works"
               className="text-sm font-medium text-slate-300 transition hover:text-white"
             >
               How It Works
             </Link>
             <Link
-              href="#pricing"
+              href="/#pricing"
               className="text-sm font-medium text-slate-300 transition hover:text-white"
             >
               Pricing
@@ -53,7 +53,7 @@ export default function Navbar() {
               Comparison
             </Link>
             <Link
-              href="#about"
+              href="/#about"
               className="text-sm font-medium text-slate-300 transition hover:text-white"
             >
               About
@@ -63,6 +63,24 @@ export default function Navbar() {
               className="text-sm font-medium text-slate-300 transition hover:text-emerald-400"
             >
               Documentation
+            </Link>
+            <Link
+              href="/blog"
+              className="text-sm font-medium text-slate-300 transition hover:text-emerald-400"
+            >
+              Learn
+            </Link>
+            <Link
+              href="/vault"
+              className="text-sm font-medium text-slate-300 transition hover:text-emerald-400"
+            >
+              Vault
+            </Link>
+            <Link
+              href="/faq"
+              className="text-sm font-medium text-slate-300 transition hover:text-emerald-400"
+            >
+              FAQ
             </Link>
           </div>
 
@@ -162,21 +180,21 @@ export default function Navbar() {
         <div className="border-b border-slate-800 bg-slate-900 md:hidden">
           <div className="space-y-4 px-4 pb-6 pt-2">
             <Link
-              href="#features"
+              href="/#features"
               className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               Features
             </Link>
             <Link
-              href="#how-it-works"
+              href="/#how-it-works"
               className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               How It Works
             </Link>
             <Link
-              href="#pricing"
+              href="/#pricing"
               className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
@@ -190,7 +208,7 @@ export default function Navbar() {
               Comparison
             </Link>
             <Link
-              href="#about"
+              href="/#about"
               className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
@@ -202,6 +220,27 @@ export default function Navbar() {
               onClick={() => setIsMobileMenuOpen(false)}
             >
               Documentation
+            </Link>
+            <Link
+              href="/blog"
+              className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-emerald-400"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Learn
+            </Link>
+            <Link
+              href="/vault"
+              className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-emerald-400"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Vault
+            </Link>
+            <Link
+              href="/faq"
+              className="block rounded-md px-3 py-2 text-base font-medium text-slate-300 transition hover:bg-slate-800 hover:text-emerald-400"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              FAQ
             </Link>
 
             <div className="space-y-3 border-t border-slate-800 pt-4">

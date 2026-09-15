@@ -1,3 +1,4 @@
+import { getBlogListItems } from "@/content/blog/catalog";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { MetadataRoute } from "next";
@@ -33,6 +34,18 @@ const MARKETING_PAGES: PageSpec[] = [
     file: "src/app/comparison/page.tsx",
     changeFrequency: "monthly",
     priority: 0.7,
+  },
+  {
+    route: "/faq",
+    file: "src/app/faq/page.tsx",
+    changeFrequency: "monthly",
+    priority: 0.7,
+  },
+  {
+    route: "/vault",
+    file: "src/app/vault/page.tsx",
+    changeFrequency: "monthly",
+    priority: 0.8,
   },
   {
     route: "/founder",
@@ -131,5 +144,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/docs",
   );
 
-  return [...marketing, ...docs];
+  const blogIndexModified = await lastModifiedFor("src/content/blog/posts.ts");
+  const blogItems = getBlogListItems();
+  const blog: MetadataRoute.Sitemap = [
+    {
+      url: `${SITE_URL}/blog`,
+      lastModified: blogIndexModified,
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    ...(await Promise.all(
+      blogItems.map(async (item) => ({
+        url: `${SITE_URL}/blog/${item.slug}`,
+        lastModified: await lastModifiedFor(
+          item.kind === "article"
+            ? `src/content/blog/articles/${item.slug}.md`
+            : "src/content/blog/posts.ts",
+        ),
+        changeFrequency: "monthly" as const,
+        priority: 0.7,
+      })),
+    )),
+  ];
+
+  return [...marketing, ...docs, ...blog];
 }

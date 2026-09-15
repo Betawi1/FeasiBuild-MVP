@@ -54,6 +54,30 @@ export default function Footer() {
                   Documentation
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/blog"
+                  className="text-slate-400 hover:text-emerald-400 transition"
+                >
+                  Learn
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/vault"
+                  className="text-slate-400 hover:text-emerald-400 transition"
+                >
+                  Vault
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/faq"
+                  className="text-slate-400 hover:text-emerald-400 transition"
+                >
+                  FAQ
+                </Link>
+              </li>
             </ul>
           </div>
 
