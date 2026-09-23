@@ -675,7 +675,7 @@ export interface SalePostFinancingMonthlyRow {
 
 export interface SaleEscrowWithdrawalData {
   currency: string;
-  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | none). */
+  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | none). */
   ruleId: string;
   ruleName: string;
   configTitle: string;
@@ -700,6 +700,18 @@ export interface SaleEscrowWithdrawalData {
     managementFee: number;
   };
   australiaConfig: Record<string, string | number>;
+  /** Present when the selected rule is the project guarantee account. */
+  guaranteeConfig?: {
+    thresholdPercent: number;
+    profitMilestonePercent: number;
+    retentionPercent: number;
+    retentionBasis: "construction_cost" | "escrow_proceeds";
+    retentionMonths: number;
+    interestPermitted: boolean;
+    /** Set from the Stage-3 close. Commentary uses these when funded is below target. */
+    retentionFundedAtRelease?: number;
+    retentionTargetAtRelease?: number;
+  };
   /** Present when the selected rule is closed-loop escrow. */
   closedLoopConfig?: {
     chinaOverlay: boolean;

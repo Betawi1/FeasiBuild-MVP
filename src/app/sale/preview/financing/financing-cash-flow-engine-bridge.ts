@@ -442,6 +442,11 @@ export function buildFinancingEnginePreview(params: {
       powc: [],
     },
     ...closedLoopToppingEngineFields(financing, jurisdiction),
+    guaranteeThresholdPercent: financing.escrowConfig?.guaranteeThresholdPercent,
+    guaranteeProfitMilestonePercent: financing.escrowConfig?.guaranteeProfitMilestonePercent,
+    guaranteeRetentionPercent: financing.escrowConfig?.guaranteeRetentionPercent,
+    guaranteeRetentionMonths: financing.escrowConfig?.guaranteeRetentionMonths,
+    guaranteeInterestPermitted: financing.escrowConfig?.guaranteeInterestPermitted,
     landCost: 0,
     landEquityPercent: 100,
     landEquityValue: 0,
@@ -641,6 +646,16 @@ export function buildFinancingEnginePreview(params: {
       financing.escrowConfig?.australia?.releasePct ??
       90,
     ...closedLoopToppingEngineFields(financing, jurisdiction),
+    guaranteeThresholdPercent: financing.escrowConfig?.guaranteeThresholdPercent,
+    guaranteeProfitMilestonePercent: financing.escrowConfig?.guaranteeProfitMilestonePercent,
+    guaranteeRetentionPercent: financing.escrowConfig?.guaranteeRetentionPercent,
+    guaranteeRetentionBasis: financing.escrowConfig?.guaranteeRetentionBasis,
+    guaranteeRetentionMonths: financing.escrowConfig?.guaranteeRetentionMonths,
+    guaranteeInterestPermitted: financing.escrowConfig?.guaranteeInterestPermitted,
+    guaranteeSoftOtherFeesShare:
+      (Number.isFinite(Number(cashOutflows.softCostAllocation?.otherFees))
+        ? Number(cashOutflows.softCostAllocation?.otherFees)
+        : 10) / 100,
   };
 
   console.log("🔍 [DEBUG BRIDGE] Inputs sent to engine:", {
@@ -672,6 +687,10 @@ export function mapEngineRowsToUae(rows: EngineMonthlyRow[]): UaeCashFlowRow[] {
     escrowBalance: num(r.escrowBalance),
     escrowReleases: num(r.escrowReleases),
     progressWithdrawal: num(r.progressWithdrawal),
+    permittedCostReimbursement: num(r.permittedCostReimbursement),
+    lenderCashSweep: num(r.lenderCashSweep),
+    developerProfitWithdrawal: num(r.developerProfitWithdrawal),
+    defectRetentionRelease: num(r.defectRetentionRelease),
     constructionCosts: num(r.constructionCosts),
     softCosts: num(r.softCosts),
     powc: num(r.powc),

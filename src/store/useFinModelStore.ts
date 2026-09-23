@@ -1776,6 +1776,7 @@ export type FinancingEscrowConfig = {
     | "staged"
     | "progress"
     | "closed_loop_escrow"
+    | "project_guarantee_account"
     | "none"
     | "malaysia"
     | "uae"
@@ -1816,6 +1817,24 @@ export type FinancingEscrowConfig = {
     toppingOutPercent?: number;
     toppingOutPct?: number;
   };
+  /**
+   * Project guarantee account (completion-account regime).
+   * Lender cash sweep is mandatory whenever a construction loan is outstanding — there is no sweep toggle.
+   */
+  guaranteeThresholdPercent?: number;
+  /** Must stay above the withdrawal threshold and below 100. Default 60. */
+  guaranteeProfitMilestonePercent?: number;
+  guaranteeRetentionPercent?: number;
+  /**
+   * construction_cost holds a fixed percent of C1 construction cost (Abu Dhabi default).
+   * escrow_proceeds holds a percent of cumulative sales (default elsewhere).
+   * Absent value follows the project location.
+   */
+  guaranteeRetentionBasis?: "construction_cost" | "escrow_proceeds";
+  /** Minimum 12. Horizon and Stage 3 sit at CP + this many months. */
+  guaranteeRetentionMonths?: number;
+  /** When true, construction-loan interest payments are a permitted escrow use. Default true. */
+  guaranteeInterestPermitted?: boolean;
 };
 
 export type Financing = {

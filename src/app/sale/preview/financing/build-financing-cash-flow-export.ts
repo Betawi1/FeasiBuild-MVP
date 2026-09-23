@@ -368,6 +368,30 @@ function australiaSpecs(hideEscrow: boolean, showFfe: boolean): ExportRowSpec[] 
   return specs;
 }
 
+function guaranteeSpecs(showFfe: boolean): ExportRowSpec[] {
+  const specs = uaeSpecs(false, showFfe).filter(
+    (spec) => spec.label !== "Escrow releases" && spec.label !== "Progress withdrawal"
+  );
+  const feeIdx = specs.findIndex((spec) => spec.label === "Escrow account fees");
+  const ledger: ExportRowSpec[] = [
+    {
+      label: "Permitted cost reimbursement",
+      get: (r) => r.permittedCostReimbursement,
+    },
+    { label: "Lender cash sweep", get: (r) => r.lenderCashSweep },
+    {
+      label: "Developer profit withdrawal",
+      get: (r) => r.developerProfitWithdrawal,
+    },
+    {
+      label: "Defect retention release",
+      get: (r) => r.defectRetentionRelease,
+    },
+  ];
+  specs.splice(feeIdx + 1, 0, ...ledger);
+  return specs;
+}
+
 function specsForEscrowRule(
   rule: EscrowRuleId,
   hideEscrowRows: boolean,
@@ -376,6 +400,7 @@ function specsForEscrowRule(
 ): ExportRowSpec[] {
   if (rule === "progress") return malaysiaSpecs(hideEscrowRows, showFfe, showHdaDeposit);
   if (rule === "ten_ninety") return australiaSpecs(hideEscrowRows, showFfe);
+  if (rule === "project_guarantee_account") return guaranteeSpecs(showFfe);
   return uaeSpecs(hideEscrowRows, showFfe);
 }
 

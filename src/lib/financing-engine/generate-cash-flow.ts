@@ -3,7 +3,7 @@
  * Generates pre-calculated monthly cash flow data for preview tables.
  *
  * Features:
- * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | none (location defaults only)
+ * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | project_guarantee_account | none (location defaults only)
  * - 1-Month Offsets for Interest, Fees, Withdrawals
  * - Gap-Fill Sequencing: Equity -> RCF -> Backstop Equity
  * - 30/70 Milestone Rule (staged / former UAE-KSA math)
@@ -16,8 +16,15 @@ import {
   CLOSED_LOOP_CONTRACTOR_RETENTION_PCT,
   CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC,
   ESCROW_RULE_HORIZON_OFFSET,
+  GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
+  GUARANTEE_DEFAULT_RETENTION_PCT,
+  GUARANTEE_DEFAULT_THRESHOLD_PCT,
   resolveClosedLoopToppingOut,
+  resolveGuaranteeRetentionBasis,
+  resolveGuaranteeRetentionMonths,
+  isAbuDhabiCity,
   isCommercialSaleAsset,
+  isUaeLocation,
   resolveEscrowRule,
   resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
@@ -196,11 +203,33 @@ export type FinancingInputs = {
   /** Cumulative C1 progress % that must be reached before shifted sales begin. */
   closedLoopToppingOutPct?: number;
 
+  /** Project guarantee account: cumulative S-curve % before cost reimbursement (default 20). */
+  guaranteeThresholdPercent?: number;
+  /** Stage-1 profit milestone. Must be above the threshold and below 100 (default 60). */
+  guaranteeProfitMilestonePercent?: number;
+  /** Defect retention percent (default 5). The basis decides what it multiplies. */
+  guaranteeRetentionPercent?: number;
+  /**
+   * construction_cost: fixed percent of total C1 construction cost (Abu Dhabi default).
+   * escrow_proceeds: percent of cumulative inflows (default everywhere else).
+   * Omitted values follow the project location.
+   */
+  guaranteeRetentionBasis?: "construction_cost" | "escrow_proceeds";
+  /** Months after completion before the retention pool is released (minimum 12). */
+  guaranteeRetentionMonths?: number;
+  /** Construction-loan interest is a permitted escrow use when this is not false. */
+  guaranteeInterestPermitted?: boolean;
+  /**
+   * Share of each soft-cost month that is the C1 "Other Fees" allocation (0–1).
+   * Excluded from permitted spend. Default 0.10 matches the C1 allocation default.
+   */
+  guaranteeSoftOtherFeesShare?: number;
+
   /** ISO / display country — used for VN/TH flexible horizon. */
   country?: string;
   countryCode?: string;
   city?: string;
-  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | none; legacy uae/malaysia/australia accepted). */
+  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | none; legacy uae/malaysia/australia accepted). */
   escrowWithdrawalMode?: string;
   /** Aliases for wizard / legacy field names. */
   withdrawalMethod?: string;
@@ -222,6 +251,19 @@ export type MonthlyRow = {
   escrowReleases: number; // Added per user request
   /** Malaysia: stakeholder retention released at VP+8 / VP+24. */
   retentionRelease: number;
+  /** Project guarantee account: permitted-cost reimbursement (1-month offset). */
+  permittedCostReimbursement: number;
+  /** Project guarantee account: mandatory construction-loan prepayment from surplus. */
+  lenderCashSweep: number;
+  /** Project guarantee account: surplus released to the developer after the sweep. */
+  developerProfitWithdrawal: number;
+  /** Project guarantee account: defect-retention pool released at Stage 3. */
+  defectRetentionRelease: number;
+  /**
+   * Set only on the Stage-3 month. The retention target at release.
+   * Compare with defectRetentionRelease to see whether the hold was fully funded.
+   */
+  guaranteeRetentionTarget?: number;
 
   // Australia Specific
   lockedInSales: number;
@@ -384,6 +426,7 @@ function selectedSaleEscrowRule(inputs: FinancingInputs) {
  * Follows the SELECTED escrow rule for every asset class (not country, not commercial/residential):
  * staged / ten_ninety → CP+12, progress → CP+24, none / unset → CP+6.
  * closed_loop_escrow → max(actual construction end + 24, last sales month + 1).
+ * project_guarantee_account → CP + retention months (default 12, minimum 12).
  * Construction end is the last non-zero C1 S-curve month, never the financing
  * factory default. When topping-out is on, the last sales month is read from a
  * shifted copy; the caller's array is unchanged.
@@ -412,6 +455,9 @@ function closedLoopToppingOutSales(
 export function resolveSaleHorizonLastMonth(inputs: FinancingInputs): number {
   const constructionMonths = inputs.constructionPeriodMonths || 42;
   const rule = selectedSaleEscrowRule(inputs);
+  if (rule === "project_guarantee_account") {
+    return constructionMonths + resolveGuaranteeRetentionMonths(inputs.guaranteeRetentionMonths);
+  }
   if (rule !== "closed_loop_escrow") {
     return constructionMonths + ESCROW_RULE_HORIZON_OFFSET[rule];
   }
@@ -759,6 +805,250 @@ function assertClosedLoopEscrowLedger(
   }
 }
 
+function clampGuaranteePercent(raw: number | undefined, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(100, Math.max(0, n));
+}
+
+/** Cumulative construction-cost percent through `last` (C1 S-curve). */
+function cumulativeCostProgressPct(series: number[], last: number): number[] {
+  const end = Math.max(0, last);
+  let total = 0;
+  for (let m = 0; m <= end; m++) total += Math.max(0, Number(series[m]) || 0);
+  const out: number[] = [];
+  let cum = 0;
+  for (let m = 0; m <= end; m++) {
+    cum += Math.max(0, Number(series[m]) || 0);
+    out.push(total > 1e-9 ? (cum / total) * 100 : m === end ? 100 : 0);
+  }
+  return out;
+}
+
+type GuaranteeLedgerState = {
+  escrowBalance: number;
+  rcfBalance: number;
+  guaranteeCumulativeInflows: number;
+  guaranteeReimbursementCarry: number;
+};
+
+/**
+ * Strategy F: Project Guarantee Account.
+ * Buyer proceeds sit in the account. Permitted costs reimburse one month after
+ * they are incurred, starting at the threshold month (pre-threshold spend catches
+ * up then). Profit surplus releases at the milestone and at completion, sweeping
+ * the construction loan first. The retention target is a fixed share of
+ * construction cost, or a share of cumulative proceeds. After completion,
+ * collections top that target up before any developer release. Stage 3 pays
+ * out the balance and closes the account.
+ */
+function guaranteeRetentionTarget(
+  basis: "construction_cost" | "escrow_proceeds",
+  retentionRate: number,
+  constructionCostTotal: number,
+  cumulativeInflows: number
+): number {
+  if (basis === "construction_cost") {
+    return Math.max(0, constructionCostTotal) * retentionRate;
+  }
+  return Math.max(0, cumulativeInflows) * retentionRate;
+}
+
+function applyProjectGuaranteeAccountLogic(
+  row: MonthlyRow,
+  state: GuaranteeLedgerState,
+  inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  priorRows: MonthlyRow[],
+  permittedCost: number[],
+  calendar: {
+    thresholdMonth: number;
+    stage1Month: number;
+    stage2Month: number;
+    stage3Month: number;
+    completionMonth: number;
+    retentionRate: number;
+    retentionBasis: "construction_cost" | "escrow_proceeds";
+    constructionCostTotal: number;
+    interestPermitted: boolean;
+  }
+) {
+  const sales = Math.max(0, salesThisMonth);
+  row.permittedCostReimbursement = 0;
+  row.lenderCashSweep = 0;
+  row.developerProfitWithdrawal = 0;
+  row.defectRetentionRelease = 0;
+  row.progressWithdrawal = 0;
+  row.retentionRelease = 0;
+  row.escrowReleases = 0;
+
+  // Account is closed. Later collections pass through and must not revive accruals.
+  if (m > calendar.stage3Month) {
+    row.escrowInterest = 0;
+    row.escrowAccountFees = 0;
+    row.developerProfitWithdrawal = sales;
+    row.escrowReleases = sales;
+    state.escrowBalance = 0;
+    row.escrowBalance = 0;
+    return;
+  }
+
+  const prior = state.escrowBalance;
+  let interest = 0;
+  let fees = 0;
+  if (m === 0) {
+    fees = Math.max(0, Number(inputs.escrowSetupFee) || 0);
+  } else if (prior > 1e-9 && m <= calendar.stage3Month) {
+    interest = prior * ((Number(inputs.escrowDepositRatePct) || 0) / 12);
+    fees = prior * ((Number(inputs.escrowManagementFeePct) || 0) / 12);
+  }
+
+  let next = prior + interest - fees;
+  if (next < -1e-9) {
+    fees = Math.max(0, fees + next);
+    next = 0;
+  } else if (next < 0) {
+    next = 0;
+  }
+  next += sales;
+
+  state.guaranteeCumulativeInflows += sales;
+  const retentionTarget = guaranteeRetentionTarget(
+    calendar.retentionBasis,
+    calendar.retentionRate,
+    calendar.constructionCostTotal,
+    state.guaranteeCumulativeInflows
+  );
+
+  const interestSpend = (t: number) =>
+    calendar.interestPermitted
+      ? Math.max(0, -(Number(priorRows[t]?.constLoanInterest) || 0))
+      : 0;
+
+  // Reimbursements are not capped by the retention pool. Shortfall carries forward.
+  let due = state.guaranteeReimbursementCarry;
+  if (m === calendar.thresholdMonth + 1) {
+    for (let t = 0; t <= calendar.thresholdMonth; t++) {
+      due += (Number(permittedCost[t]) || 0) + interestSpend(t);
+    }
+  } else if (m > calendar.thresholdMonth + 1) {
+    const t = m - 1;
+    due += (Number(permittedCost[t]) || 0) + interestSpend(t);
+  }
+  const reimbursed = Math.min(Math.max(0, due), Math.max(0, next));
+  next -= reimbursed;
+  state.guaranteeReimbursementCarry = Math.max(0, due - reimbursed);
+  row.permittedCostReimbursement = reimbursed;
+
+  // After completion, and outside the Stage-1/Stage-2 surplus months, collections
+  // top the retention target up before any developer release.
+  if (
+    m > calendar.completionMonth &&
+    m < calendar.stage3Month &&
+    m !== calendar.stage1Month + 1 &&
+    m !== calendar.stage2Month + 1
+  ) {
+    const balanceBefore = next - sales + reimbursed;
+    const release = Math.min(
+      Math.max(0, next),
+      Math.max(0, balanceBefore + sales - retentionTarget)
+    );
+    next -= release;
+    row.developerProfitWithdrawal += release;
+  }
+
+  const releaseSurplus = (reserveRemainingCosts: boolean) => {
+    let remaining = 0;
+    if (reserveRemainingCosts) {
+      for (let t = calendar.stage1Month + 1; t <= calendar.completionMonth; t++) {
+        remaining += Number(permittedCost[t]) || 0;
+      }
+    }
+    const surplus = Math.max(0, next - remaining - retentionTarget);
+    const outstanding = Math.max(0, state.rcfBalance - row.lenderCashSweep);
+    const sweep = Math.min(surplus, outstanding);
+    const developer = Math.max(0, surplus - sweep);
+    next -= surplus;
+    row.lenderCashSweep += sweep;
+    row.developerProfitWithdrawal += developer;
+  };
+
+  if (m === calendar.stage1Month + 1) releaseSurplus(true);
+  if (m === calendar.stage2Month + 1) releaseSurplus(false);
+
+  if (m === calendar.stage3Month) {
+    const funded = Math.max(0, next);
+    const hold = Math.min(funded, retentionTarget);
+    const excess = Math.max(0, funded - retentionTarget);
+    row.developerProfitWithdrawal += excess;
+    row.defectRetentionRelease = hold;
+    row.guaranteeRetentionTarget = retentionTarget;
+    next = 0;
+  }
+
+  if (next < 0) next = 0;
+  state.escrowBalance = next;
+  row.escrowBalance = next;
+  row.escrowInterest = interest;
+  row.escrowAccountFees = fees;
+  row.progressWithdrawal = row.permittedCostReimbursement;
+  row.escrowReleases = row.developerProfitWithdrawal + row.defectRetentionRelease;
+  row.retentionRelease = row.defectRetentionRelease;
+}
+
+/** Stage-3 retention funding. `funded` is what the account actually released against `target`. */
+export function guaranteeStage3RetentionFunding(
+  rows: Array<{ defectRetentionRelease?: number; guaranteeRetentionTarget?: number }>
+): { funded: number; target: number } | null {
+  const stage = rows.find((row) => row.guaranteeRetentionTarget !== undefined);
+  if (!stage || stage.guaranteeRetentionTarget === undefined) return null;
+  return {
+    funded: Math.max(0, Number(stage.defectRetentionRelease) || 0),
+    target: Math.max(0, stage.guaranteeRetentionTarget),
+  };
+}
+
+function assertProjectGuaranteeLedger(
+  rows: MonthlyRow[],
+  stage3Month: number,
+  horizonLength: number
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  const series: Array<[string, number[]]> = [
+    ["permitted cost reimbursement", rows.map((r) => r.permittedCostReimbursement)],
+    ["lender cash sweep", rows.map((r) => r.lenderCashSweep)],
+    ["developer profit withdrawal", rows.map((r) => r.developerProfitWithdrawal)],
+    ["defect retention release", rows.map((r) => r.defectRetentionRelease)],
+  ];
+  for (const [label, values] of series) {
+    if (values.length !== horizonLength) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[guarantee] ${label}: length ${values.length} !== horizon ${horizonLength}`
+      );
+    }
+  }
+  for (const row of rows) {
+    if (row.escrowBalance < -1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[guarantee] escrow balance < 0 at M${row.month}: ${row.escrowBalance}`
+      );
+    }
+    if (row.month > stage3Month) {
+      if (Math.abs(row.escrowBalance) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[guarantee] balance after closure at M${row.month}`);
+      }
+      if (Math.abs(row.escrowInterest) > 1e-4 || Math.abs(row.escrowAccountFees) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[guarantee] accrual after closure at M${row.month}`);
+      }
+    }
+  }
+}
+
 /** Strategy D: Non-Escrow (Universal Fallback) */
 function applyNonEscrowLogic(
   row: MonthlyRow,
@@ -803,6 +1093,11 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   const selectedRule = selectedSaleEscrowRule(inputs);
   const closedLoop = selectedRule === "closed_loop_escrow";
   const closedLoopChina = closedLoop && inputs.jurisdiction === "CHINA";
+  const guaranteeRule = selectedRule === "project_guarantee_account";
+  const guaranteeAbuDhabi =
+    guaranteeRule &&
+    isUaeLocation(inputs.country, inputs.countryCode) &&
+    isAbuDhabiCity(inputs.city);
   const isCommercial = inputs.financingModel === "commercial";
   const isSaleStream =
     inputs.stream === "sale" ||
@@ -858,6 +1153,29 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
                   ),
           }
         : {}),
+    };
+  }
+
+  // Abu Dhabi completion-account overlay: land is 100% equity while this rule is
+  // selected. The caller's stored land split is not mutated. No loan-to-cost cap.
+  if (guaranteeAbuDhabi) {
+    const land = Number(inputs.landCost) || 0;
+    const userPct = inputs.landEquityPercent ?? 100;
+    const landEquityHaircut = 0.7;
+    inputs = {
+      ...inputs,
+      monthlyCosts: { ...inputs.monthlyCosts },
+      landEquityPercent: 100,
+      landEquityValue: land,
+      landLoanAmount: 0,
+      landLoanEnabled: false,
+      cashEquityRequired:
+        userPct >= 100
+          ? inputs.cashEquityRequired
+          : Math.max(
+              0,
+              (Number(inputs.cashEquityRequired) || 0) - land * landEquityHaircut
+            ),
     };
   }
 
@@ -942,6 +1260,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     /** True once any RCF principal has been drawn (gap-fill). */
     rcfEverDrawn: false,
 
+    /** Project guarantee account: buyer inflows lodged to date, and unpaid reimbursement. */
+    guaranteeCumulativeInflows: 0,
+    guaranteeReimbursementCarry: 0,
+
     /** Australia: cumulative sales during construction (balance paid at settlement). */
     auConstructionSalesCumulative: 0,
     /** Australia: balance on construction-phase sales already paid to developer. */
@@ -1011,6 +1333,83 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     ? totalTdc * CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC
     : Number.POSITIVE_INFINITY;
 
+  const guaranteeThreshold = clampGuaranteePercent(
+    inputs.guaranteeThresholdPercent,
+    GUARANTEE_DEFAULT_THRESHOLD_PCT
+  );
+  let guaranteeMilestone = clampGuaranteePercent(
+    inputs.guaranteeProfitMilestonePercent,
+    GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT
+  );
+  if (guaranteeMilestone <= guaranteeThreshold) {
+    guaranteeMilestone = Math.min(99, guaranteeThreshold + 0.01);
+  }
+  if (guaranteeMilestone >= 100) guaranteeMilestone = 99;
+  const guaranteeRetentionRate =
+    clampGuaranteePercent(
+      inputs.guaranteeRetentionPercent,
+      GUARANTEE_DEFAULT_RETENTION_PCT
+    ) / 100;
+  const guaranteeRetentionMonths = resolveGuaranteeRetentionMonths(
+    inputs.guaranteeRetentionMonths
+  );
+  const guaranteeInterestPermitted = inputs.guaranteeInterestPermitted !== false;
+  const guaranteeOtherFeesShare = Math.min(
+    1,
+    Math.max(0, Number(inputs.guaranteeSoftOtherFeesShare ?? 0.1) || 0)
+  );
+  const guaranteeCompletionMonth = guaranteeRule
+    ? resolveActualConstructionEndMonth(
+        { constructionPeriod: inputs.constructionPeriodMonths },
+        inputs.monthlyCosts.construction
+      )
+    : cp;
+  const guaranteeProgress = cumulativeCostProgressPct(
+    inputs.monthlyCosts.construction,
+    guaranteeCompletionMonth
+  );
+  const guaranteeCalendar = {
+    thresholdMonth: findFirstMonthAtCumulativeProgress(
+      guaranteeProgress,
+      guaranteeThreshold
+    ),
+    stage1Month: findFirstMonthAtCumulativeProgress(
+      guaranteeProgress,
+      guaranteeMilestone
+    ),
+    stage2Month: guaranteeCompletionMonth,
+    stage3Month: guaranteeCompletionMonth + guaranteeRetentionMonths,
+    completionMonth: guaranteeCompletionMonth,
+    retentionRate: guaranteeRetentionRate,
+    retentionBasis: resolveGuaranteeRetentionBasis(inputs.guaranteeRetentionBasis, {
+      country: inputs.country,
+      countryCode: inputs.countryCode,
+      city: inputs.city,
+    }),
+    constructionCostTotal: (() => {
+      const fromSeries = inputs.monthlyCosts.construction.reduce(
+        (sum, value) => sum + Math.max(0, Number(value) || 0),
+        0
+      );
+      if (fromSeries > 1e-9) return fromSeries;
+      return Math.max(0, Number(inputs.totalConstructionCosts) || 0);
+    })(),
+    interestPermitted: guaranteeInterestPermitted,
+  };
+  const guaranteePermittedCost = guaranteeRule
+    ? inputs.monthlyCosts.construction.map((cc, idx) => {
+        const soft = Number(inputs.monthlyCosts.soft[idx]) || 0;
+        const powc = Number(inputs.monthlyCosts.powc[idx]) || 0;
+        const ffe = Number(inputs.monthlyCosts.ffe?.[idx]) || 0;
+        return (
+          (Number(cc) || 0) +
+          powc +
+          soft * (1 - guaranteeOtherFeesShare) +
+          ffe
+        );
+      })
+    : [];
+
   // --- MONTHLY LOOP ---
   for (let m = 0; m <= saleHorizon; m++) {
     const isConstructionPhase = m <= inputs.constructionPeriodMonths;
@@ -1022,6 +1421,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     const row: MonthlyRow = {
       month: m, phase, progressPct, isMilestone,
       salesProceeds: 0, escrowBalance: 0, escrowInterest: 0, escrowAccountFees: 0, progressWithdrawal: 0, escrowReleases: 0, retentionRelease: 0,
+      permittedCostReimbursement: 0, lenderCashSweep: 0, developerProfitWithdrawal: 0, defectRetentionRelease: 0,
       lockedInSales: 0, cumuLockedInSales: 0, cumuTrustAccount: 0, depositToTrust: 0, balancePayment: 0, trustAccountInterest: 0, trustAccountFees: 0, trustAccountReleases: 0, actualSalesProceeds: 0,
       constructionCosts: 0, softCosts: 0, powc: 0, ffe: 0, totalOutflowsExclLand: 0, landCost: 0, hda3Deposit: 0, totalOutflowsInclLand: 0, ncf: 0,
       landLoanDrawdown: 0, landLoanInterest: 0, landLoanRepayment: 0, landLoanFees: 0,
@@ -1171,6 +1571,17 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         feePayable,
         closedLoopCompletionMonth
       );
+    } else if (selectedRule === "project_guarantee_account") {
+      applyProjectGuaranteeAccountLogic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        monthlyData,
+        guaranteePermittedCost,
+        guaranteeCalendar
+      );
     } else {
       applyNonEscrowLogic(row, state, inputs, salesThisMonth);
     }
@@ -1182,6 +1593,12 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       if (useAustraliaTrust) {
         // ASP already = balance payment + trust release (do not add releases again).
         availableInflows = row.actualSalesProceeds;
+      } else if (selectedRule === "project_guarantee_account") {
+        availableInflows =
+          row.permittedCostReimbursement +
+          row.developerProfitWithdrawal +
+          row.defectRetentionRelease +
+          row.lenderCashSweep;
       } else {
         availableInflows = row.progressWithdrawal + row.escrowReleases;
       }
@@ -1328,6 +1745,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       m === 0 ? arrangementFeeM0 : monthlyCommitmentFee;
 
     // --- Period NCF before gap-fill RCF draw (excludes HDA deposit → escrow) ---
+    if (selectedRule === "project_guarantee_account" && row.lenderCashSweep > 0) {
+      row.constLoanRepayment = -row.lenderCashSweep;
+    }
+
     const loanFlowsExDraw =
       row.constLoanInterest +
       row.constLoanRepayment +
@@ -1414,6 +1835,13 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       periodNcfBeforeDraw + row.constLoanDrawdown + equityGapFill;
     row.cumulativeNcf = previousCumNcf + row.ncfAfterFinancing;
 
+    // Sweep is a prepayment booked in period NCF above. Apply it to the balance
+    // after this month's draw so the draw does not refill the swept principal,
+    // and so this month's interest (already calculated) stays on the pre-sweep balance.
+    if (selectedRule === "project_guarantee_account" && row.lenderCashSweep > 0) {
+      state.rcfBalance = Math.max(0, state.rcfBalance - row.lenderCashSweep);
+    }
+
     // --- RCF repayment: after land loan cleared; from CP+1; capped so cumulative NCF stays >= 0 ---
     const repaymentStartMonth = inputs.constructionPeriodMonths + 1;
     if (
@@ -1424,7 +1852,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       const availableSurplus = Math.max(0, row.cumulativeNcf);
       const repaymentAmount = Math.min(state.rcfBalance, availableSurplus);
       if (repaymentAmount > 0) {
-        row.constLoanRepayment = -repaymentAmount;
+        row.constLoanRepayment = (row.constLoanRepayment || 0) - repaymentAmount;
         state.rcfBalance -= repaymentAmount;
         row.ncfAfterFinancing -= repaymentAmount;
         row.cumulativeNcf -= repaymentAmount;
@@ -1547,6 +1975,13 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     assertClosedLoopEscrowLedger(
       monthlyData,
       closedLoopCompletionMonth,
+      totalMonths
+    );
+  }
+  if (guaranteeRule) {
+    assertProjectGuaranteeLedger(
+      monthlyData,
+      guaranteeCalendar.stage3Month,
       totalMonths
     );
   }

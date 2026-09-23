@@ -19,6 +19,7 @@ import type { PreferenceShares, ProjectInfo } from "@/store/useFinModelStore";
 import AustraliaEscrowConfig from "./escrow-config/AustraliaEscrowConfig";
 import ClosedLoopEscrowConfig from "./escrow-config/ClosedLoopEscrowConfig";
 import MalaysiaEscrowConfig from "./escrow-config/MalaysiaEscrowConfig";
+import ProjectGuaranteeAccountConfig from "./escrow-config/ProjectGuaranteeAccountConfig";
 import UaeEscrowConfig from "./escrow-config/UaeEscrowConfig";
 import type {
   EscrowConfigUpdateField,
@@ -29,13 +30,21 @@ import {
   CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC,
   ESCROW_RULE_DISPLAY_NAME,
   ESCROW_RULE_IDS,
+  GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
+  GUARANTEE_DEFAULT_RETENTION_PCT,
+  GUARANTEE_DEFAULT_THRESHOLD_PCT,
   defaultEscrowRuleForLocation,
+  isAbuDhabiCity,
   isChinaLocation,
   isCommercialSaleAsset,
   isLandEquitySliderLocked,
+  isUaeLocation,
   normalizeEscrowRuleId,
   resolveClosedLoopToppingOut,
+  resolveGuaranteeRetentionBasis,
+  resolveGuaranteeRetentionMonths,
   type EscrowRuleId,
+  type GuaranteeRetentionBasis,
 } from "@/lib/financing-engine/escrow-rules";
 
 /** Sample cumulative NCF for Funding Gap chart (matches commercial wizard) */
@@ -309,6 +318,12 @@ type FormData = {
   auBalancePct: number;
   toppingOutEnabled: boolean;
   toppingOutPct: number;
+  guaranteeThresholdPercent: number;
+  guaranteeProfitMilestonePercent: number;
+  guaranteeRetentionPercent: number;
+  guaranteeRetentionBasis: GuaranteeRetentionBasis;
+  guaranteeRetentionMonths: number;
+  guaranteeInterestPermitted: boolean;
   milestoneThresholdPct: number;
   drawdownMode: DrawdownModeUi;
   interestRateType: "fixed" | "floating";
@@ -606,6 +621,21 @@ function ResidentialFinancingWizardContent() {
         90,
       toppingOutEnabled: toppingOut.enabled,
       toppingOutPct: toppingOut.percent,
+      guaranteeThresholdPercent:
+        storedEscrow?.guaranteeThresholdPercent ?? GUARANTEE_DEFAULT_THRESHOLD_PCT,
+      guaranteeProfitMilestonePercent:
+        storedEscrow?.guaranteeProfitMilestonePercent ??
+        GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
+      guaranteeRetentionPercent:
+        storedEscrow?.guaranteeRetentionPercent ?? GUARANTEE_DEFAULT_RETENTION_PCT,
+      guaranteeRetentionBasis: resolveGuaranteeRetentionBasis(
+        storedEscrow?.guaranteeRetentionBasis,
+        projectInfo
+      ),
+      guaranteeRetentionMonths: resolveGuaranteeRetentionMonths(
+        storedEscrow?.guaranteeRetentionMonths
+      ),
+      guaranteeInterestPermitted: storedEscrow?.guaranteeInterestPermitted !== false,
       certificationIntervalMonths:
         storedEscrow?.uaeSa?.certificationInterval ??
         financingConfig?.certificationIntervalMonths ??
@@ -645,15 +675,38 @@ function ResidentialFinancingWizardContent() {
       field === "escrowWithdrawalMode"
         ? (value as EscrowWithdrawalMode) === "progress"
         : undefined;
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-      ...(nextSalesReduce !== undefined
-        ? { salesReduceEquity: nextSalesReduce }
-        : {}),
-    }));
+    setFormData((prev) => {
+      const next: FormData = {
+        ...prev,
+        [field]: value,
+        ...(nextSalesReduce !== undefined
+          ? { salesReduceEquity: nextSalesReduce }
+          : {}),
+      };
+      if (
+        field === "guaranteeThresholdPercent" ||
+        field === "guaranteeProfitMilestonePercent"
+      ) {
+        if (next.guaranteeProfitMilestonePercent <= next.guaranteeThresholdPercent) {
+          next.guaranteeProfitMilestonePercent = Math.min(
+            99,
+            next.guaranteeThresholdPercent + 1
+          );
+        }
+        if (next.guaranteeProfitMilestonePercent >= 100) {
+          next.guaranteeProfitMilestonePercent = 99;
+        }
+      }
+      if (field === "guaranteeRetentionMonths") {
+        next.guaranteeRetentionMonths = resolveGuaranteeRetentionMonths(
+          next.guaranteeRetentionMonths
+        );
+      }
+      return next;
+    });
 
     // Persist escrow rule + editable params so preview/engine recalculate from the store.
+    // Rule switches must not write landEquityPercent — the stored split survives every tab.
     if (
       field === "escrowWithdrawalMode" ||
       field === "retentionPercent" ||
@@ -661,12 +714,30 @@ function ResidentialFinancingWizardContent() {
       field === "auDepositPct" ||
       field === "auBalancePct" ||
       field === "toppingOutPct" ||
-      field === "toppingOutEnabled"
+      field === "toppingOutEnabled" ||
+      field === "guaranteeThresholdPercent" ||
+      field === "guaranteeProfitMilestonePercent" ||
+      field === "guaranteeRetentionPercent" ||
+      field === "guaranteeRetentionBasis" ||
+      field === "guaranteeRetentionMonths" ||
+      field === "guaranteeInterestPermitted"
     ) {
       const nextMode =
         field === "escrowWithdrawalMode"
           ? (value as EscrowWithdrawalMode)
           : formData.escrowWithdrawalMode;
+      const nextThreshold =
+        field === "guaranteeThresholdPercent"
+          ? (value as number)
+          : formData.guaranteeThresholdPercent;
+      let nextMilestone =
+        field === "guaranteeProfitMilestonePercent"
+          ? (value as number)
+          : formData.guaranteeProfitMilestonePercent;
+      if (nextMilestone <= nextThreshold) {
+        nextMilestone = Math.min(99, nextThreshold + 1);
+      }
+      if (nextMilestone >= 100) nextMilestone = 99;
       updateFinancing(
         {
           ...(nextSalesReduce !== undefined
@@ -715,6 +786,25 @@ function ResidentialFinancingWizardContent() {
                   ? (value as number)
                   : formData.toppingOutPct,
             },
+            guaranteeThresholdPercent: nextThreshold,
+            guaranteeProfitMilestonePercent: nextMilestone,
+            guaranteeRetentionPercent:
+              field === "guaranteeRetentionPercent"
+                ? (value as number)
+                : formData.guaranteeRetentionPercent,
+            guaranteeRetentionBasis:
+              field === "guaranteeRetentionBasis"
+                ? (value as GuaranteeRetentionBasis)
+                : formData.guaranteeRetentionBasis,
+            guaranteeRetentionMonths: resolveGuaranteeRetentionMonths(
+              field === "guaranteeRetentionMonths"
+                ? (value as number)
+                : formData.guaranteeRetentionMonths
+            ),
+            guaranteeInterestPermitted:
+              field === "guaranteeInterestPermitted"
+                ? (value as boolean)
+                : formData.guaranteeInterestPermitted,
           },
         },
         "sale"
@@ -728,7 +818,7 @@ function ResidentialFinancingWizardContent() {
     ) {
       auditSaleFinancingField(field as string, value);
     }
-  }, [updateFinancing, financing.escrowConfig, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled]);
+  }, [updateFinancing, financing.escrowConfig, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled, formData.guaranteeThresholdPercent, formData.guaranteeProfitMilestonePercent, formData.guaranteeRetentionPercent, formData.guaranteeRetentionBasis, formData.guaranteeRetentionMonths, formData.guaranteeInterestPermitted]);
 
   const updateEscrowField: EscrowConfigUpdateField = useCallback(
     (field, value) => {
@@ -926,8 +1016,13 @@ function ResidentialFinancingWizardContent() {
   const closedLoopLandLock =
     formData.escrowWithdrawalMode === "closed_loop_escrow" &&
     isChinaLocation(projectInfo.country, projectInfo.countryCode);
+  const guaranteeLandLock =
+    formData.escrowWithdrawalMode === "project_guarantee_account" &&
+    isUaeLocation(projectInfo.country, projectInfo.countryCode) &&
+    isAbuDhabiCity(projectInfo.city);
   // Display / engine overlay only. The stored percent is left alone so leaving the rule restores it.
-  const modeledLandEquityPercent = closedLoopLandLock ? 100 : formData.landEquityPercent;
+  const modeledLandEquityPercent =
+    closedLoopLandLock || guaranteeLandLock ? 100 : formData.landEquityPercent;
 
   const landEquityCounted =
     modeledLandEquityPercent === 100 ? landCost * LAND_EQUITY_HAIRCUT : 0;
@@ -951,7 +1046,8 @@ function ResidentialFinancingWizardContent() {
     ? cashEquityRequired * (formData.prefSharesAllocationPercent / 100)
     : 0;
   // Dubai locks by location. Closed-loop locks only as a China overlay, and only while that rule is selected.
-  const isLandEquityLocked = landEquityLockedByLocation || closedLoopLandLock;
+  const isLandEquityLocked =
+    landEquityLockedByLocation || closedLoopLandLock || guaranteeLandLock;
 
   const landLoanAmount = Math.max(0, landCost * (1 - modeledLandEquityPercent / 100));
   const australiaLandLoanCap = landCost * 0.65;
@@ -1142,6 +1238,14 @@ function ResidentialFinancingWizardContent() {
             toppingOutPercent: formData.toppingOutPct,
             toppingOutPct: formData.toppingOutPct,
           },
+          guaranteeThresholdPercent: formData.guaranteeThresholdPercent,
+          guaranteeProfitMilestonePercent: formData.guaranteeProfitMilestonePercent,
+          guaranteeRetentionPercent: formData.guaranteeRetentionPercent,
+          guaranteeRetentionBasis: formData.guaranteeRetentionBasis,
+          guaranteeRetentionMonths: resolveGuaranteeRetentionMonths(
+            formData.guaranteeRetentionMonths
+          ),
+          guaranteeInterestPermitted: formData.guaranteeInterestPermitted,
         },
         escrowSetupFee: formData.escrowSetupFee,
         escrowManagementFeePct: formData.escrowManagementFeePercent / 100,
@@ -1727,6 +1831,12 @@ function ResidentialFinancingWizardContent() {
                     rule.
                   </p>
                 )}
+                {guaranteeLandLock && (
+                  <p className="mt-2 text-xs text-amber-400">
+                    Land is 100% equity while this rule is selected; the Step 3 land term loan is
+                    suspended.
+                  </p>
+                )}
               </div>
 
               {modeledLandEquityPercent < 100 && !isLandEquityLocked && (
@@ -2203,7 +2313,7 @@ function ResidentialFinancingWizardContent() {
                     </h4>
                     <p className="mt-1 text-sm text-slate-300">
                       For projects without a default rule (e.g. Thailand, KSA, China commercial, or UAE
-                      emirates other than Dubai), you can choose any of the following approaches
+                      emirates other than Dubai and Abu Dhabi), you can choose any of the following approaches
                     </p>
                     <ul className="mt-2 space-y-1 text-sm text-slate-400">
                       <li>
@@ -2222,6 +2332,12 @@ function ResidentialFinancingWizardContent() {
                         • <strong className="text-slate-300">Closed-Loop Escrow Rule:</strong> buyer
                         funds stay in escrow until practical completion, with contractor retention
                         to CP+24
+                      </li>
+                      <li>
+                        • <strong className="text-slate-300">Project Guarantee Account Rule:</strong>{" "}
+                        reimbursements after a construction threshold, profit releases at two
+                        milestones with a mandatory construction-lender sweep, and defect retention
+                        after handover
                       </li>
                       <li>
                         • <strong className="text-slate-300">No Escrow Rules:</strong> sales
@@ -2256,6 +2372,49 @@ function ResidentialFinancingWizardContent() {
                   formData={formData}
                   updateField={updateEscrowField}
                   isLocked={false}
+                />
+              )}
+
+              {formData.escrowWithdrawalMode === "project_guarantee_account" && (
+                <ProjectGuaranteeAccountConfig
+                  thresholdPercent={formData.guaranteeThresholdPercent}
+                  profitMilestonePercent={formData.guaranteeProfitMilestonePercent}
+                  retentionPercent={formData.guaranteeRetentionPercent}
+                  retentionBasis={formData.guaranteeRetentionBasis}
+                  retentionMonths={formData.guaranteeRetentionMonths}
+                  interestPermitted={formData.guaranteeInterestPermitted}
+                  constructionCost={cashOutflows.constructionCost || 0}
+                  salesProceedsToDate={
+                    (cashInflows.monthlyInflowSchedule || []).reduce(
+                      (sum, point) => sum + (Number(point.amount) || 0),
+                      0
+                    ) ||
+                    cashInflows.grossSales ||
+                    0
+                  }
+                  formatAmount={formatCurrency}
+                  abuDhabiOverlay={
+                    isUaeLocation(projectInfo.country, projectInfo.countryCode) &&
+                    isAbuDhabiCity(projectInfo.city)
+                  }
+                  onThresholdPercent={(value) =>
+                    updateField("guaranteeThresholdPercent", value)
+                  }
+                  onProfitMilestonePercent={(value) =>
+                    updateField("guaranteeProfitMilestonePercent", value)
+                  }
+                  onRetentionPercent={(value) =>
+                    updateField("guaranteeRetentionPercent", value)
+                  }
+                  onRetentionBasis={(value) =>
+                    updateField("guaranteeRetentionBasis", value)
+                  }
+                  onRetentionMonths={(value) =>
+                    updateField("guaranteeRetentionMonths", value)
+                  }
+                  onInterestPermitted={(value) =>
+                    updateField("guaranteeInterestPermitted", value)
+                  }
                 />
               )}
 
@@ -2302,6 +2461,11 @@ function ResidentialFinancingWizardContent() {
                     <>No escrow retention</>
                   ) : formData.escrowWithdrawalMode === "closed_loop_escrow" ? (
                     <>100% of buyer funds locked until practical completion • 3% contractor retention to CP+24</>
+                  ) : formData.escrowWithdrawalMode === "project_guarantee_account" ? (
+                    <>
+                      {formData.guaranteeRetentionPercent}% defect retention • reimbursements from{" "}
+                      {formData.guaranteeThresholdPercent}% construction progress
+                    </>
                   ) : formData.escrowWithdrawalMode === "ten_ninety" ? (
                     <>
                       {formData.auDepositPct}% purchase deposit in trust •{" "}
@@ -2325,7 +2489,9 @@ function ResidentialFinancingWizardContent() {
                     ? "N/A — no escrow release schedule"
                     : formData.escrowWithdrawalMode === "closed_loop_escrow"
                       ? "Escrow lump sum at practical completion • contractor retention at CP+24"
-                      : formData.escrowWithdrawalMode === "progress"
+                      : formData.escrowWithdrawalMode === "project_guarantee_account"
+                        ? `Profit surplus at ${formData.guaranteeProfitMilestonePercent}% and completion +1 month • retention at +${formData.guaranteeRetentionMonths} months`
+                        : formData.escrowWithdrawalMode === "progress"
                         ? "24 months post completion"
                         : "12 months post completion"}
                 </p>

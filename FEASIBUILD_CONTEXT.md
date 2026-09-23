@@ -14,7 +14,7 @@
 | **Repo / app** | Next.js financial modeling application (`finmodel-app-v2`) that produces project cash-flow models and AI-assisted feasibility study decks used in the FeasiBuild workflow. |
 | **User profile** | C-level finance expert with ~30 years ASEAN / Middle East project finance experience. Prefers **step-by-step guidance** and **foundational explanations** (not jargon-first dumps). |
 | **UX implication** | Wizards, docs, and AI copy should teach *why* a step exists before *how* to fill it; keep labels plain and progressive. |
-| **Payment structures** | Native presets for Dubai Law No. 8, Malaysia HDA and Australia's 10/90 — plus a configurable payment-structure engine (no escrow, custom splits like 20/80 or 30/70, staged escrow with custom retentions) for any location on earth. Pin-drop sets the country; user sets the rules. AI market research is tailored to the pin-dropped location, reverting to the nearest city when hyper-local data is thin. **NEVER pair UK with 10/90 — UK does not use it. Australia only.** |
+| **Payment structures** | Native presets for Dubai Law No. 8, Malaysia HDA and Australia's 10/90 — plus a configurable payment-structure engine (no escrow, custom splits like 20/80 or 30/70, staged escrow with custom retentions) for any location on earth. Pin-drop sets the country; user sets the rules. AI market research is tailored to the pin-dropped location, reverting to the nearest city when hyper-local data is thin. **NEVER pair UK with 10/90 — UK does not use it. Australia only.** Native mechanism rules now also include China's Closed-Loop Escrow Rule and Abu Dhabi's Project Guarantee Account Rule (full mechanics in §5). |
 | **Funnel** | LinkedIn posters → blog depth → FAQ (AI-search citations) → Vault (email capture) → Explorer → $99 lifetime. Forums/Reddit = expert value comments (9:1 value-to-link ratio, disclosed affiliation) linking to blog articles. |
 
 ---
@@ -99,7 +99,7 @@ Warehouse CapEx lives in store `cashOutflows.warehouseCosts` / `warehousePhasing
 
 **C3–C5** mostly configure or review engines already fed by C1/C2 (+ financing inputs in C4).
 
-**Sale C4** is **one 8-step wizard for every sale asset class** (`src/app/sale/financing/residential-wizard.tsx`): 1 Project Summary → 2 Debt Sizing (LTC & LTV) → 3 Land Ownership & Equity → 4 Preference Shares → 5 Escrow Withdrawal Config → 6 Drawdown Structure → 7 Interest, IDC & Escrow Income → 8 Sales & Escrow Recycling. Location + asset class only **pre-select** the escrow default; all four rules stay selectable. Projects saved without an escrow rule pick up the current location/class default on next open.
+**Sale C4** is **one 8-step wizard for every sale asset class** (`src/app/sale/financing/residential-wizard.tsx`): 1 Project Summary → 2 Debt Sizing (LTC & LTV) → 3 Land Ownership & Equity → 4 Preference Shares → 5 Escrow Withdrawal Config → 6 Drawdown Structure → 7 Interest, IDC & Escrow Income → 8 Sales & Escrow Recycling. Location + asset class only **pre-select** the escrow default; all six rules stay selectable. Projects saved without an escrow rule pick up the current location/class default on next open.
 
 **C4 timing (both streams):** construction end = last non-zero month of the C1 S-curve (`resolveActualConstructionEndMonth` in `src/lib/construction-end.ts`) — the **same source as C3**. `operationsStart = actualConstructionEnd + 6-month pre-op buffer + 1`. Never derive the month grid from `financing.constructionPeriodMonths`. That field is **initialized from C1** on project create/load (and when C1 period is saved); the user may still override the stored field, but preview/engine calendars follow the S-curve. C3 and C4 pre-operating bands and operations-start month must stay identical for the same project.
 
@@ -151,7 +151,7 @@ Scenario engines:
 | **Ops data centre feasibility** | `src/lib/feasibility/data-centre-context.ts`, `build-data-centre-market-data.ts`, `generate-data-centre-commentary.ts`, `generate-data-centre-report.ts`; slides `src/components/feasibility/slides/DataCentre*.tsx`; enrich router key **`datacentre`** in `enrich-operational-slides-puter.ts` (**resolve DC before BTR** to avoid wrong-asset decks) |
 | **Sale warehouse C1** | `src/app/sale/cash-outflows/steps/SaleWarehouse*.tsx`, `src/types/sale-warehouse-config.ts` |
 | **Sale cash / NCF** | `src/lib/sale-cash-preview-profile.ts` (`buildSaleCashflowDetailProfile`, `buildSalePreFinancingCashFlows`) |
-| **Sale financing UI** | `src/app/sale/preview/financing/` (bridge, MY/UAE/AU tables, export). HDA deposit row is gated in the Malaysia table + Excel export; no new modules. |
+| **Sale financing UI** | `src/app/sale/preview/financing/` (bridge, MY/UAE/AU tables, export). HDA deposit row is gated in the Malaysia table + Excel export; no new modules. `src/app/sale/financing/escrow-config/ClosedLoopEscrowConfig.tsx` and `src/app/sale/financing/escrow-config/ProjectGuaranteeAccountConfig.tsx`. |
 | **Sale feasibility stream config** | `src/lib/feasibility/sale/sale-stream-config.ts` — `SALE_CONFIG` + `SUBTYPE_TO_CONFIG_KEY` (includes **`Commercial-Strata-Warehouse`** ↔ `commercial_strata_warehouse`); drives title, market slide titles, commentary asset label via `getSaleStreamConfig` |
 | **Sale feasibility generators** | `src/lib/feasibility/sale/generate-sale-report.ts`, `enrich-sale-slides-puter.ts`, `create-sale-puter-prompts.ts`, `build-sale-financial-data.ts`, `sale-context.ts` |
 | **State** | `src/store/useFinModelStore.ts`, `useSaleModelStore.ts`, `useScenarioStore.ts`, `useFeasibilityStore.ts`, `useAuditStore.ts`, `useAnalystStore.ts` (AI Analyst UI/chat — not financial data) |
@@ -187,7 +187,7 @@ Scenario engines:
 **Sale feasibility deck rules (presentation, not engine math)**
 
 - Title / market templates resolve from `buildingSubType` via `sale-stream-config.ts`. Unknown subtypes still default to **Residential-High-Rise** — always map new subtypes explicitly.
-- **`sale-escrow` slide** (“Escrow Withdrawal Configuration”) is included **only** when `buildingSubType` includes `"residential"`. Commercial / warehouse decks skip it. Headings use the selected rule name (not country/RERA labels).
+- **`sale-escrow` slide** ("Escrow Withdrawal Configuration") is included when `buildingSubType` includes `"residential"` **OR** the selected rule is `project_guarantee_account` (the only rule that also renders on commercial/warehouse decks). All other rules: commercial / warehouse decks skip it. Headings use the selected rule name (not country/RERA labels); ADREC/DMT appears only as a local-regime note when the project location's default matches (Abu Dhabi).
 - **HDA construction deposit (Component 4 table):** `hdaDepositApplies()` in `generate-cash-flow.ts` + `hdaDepositEnabled` in `financing-cash-flow-engine-bridge.ts`. Applies only when rule = `progress` **and** jurisdiction = `MALAYSIA` **and** `financingModel !== "commercial"`. Preview (`cash-flow-table-malaysia.tsx`) and Excel export (`build-financing-cash-flow-export.ts`) hide the **Capital—HDA deposit** row otherwise. Malaysian residential is unchanged.
 - Development Assumptions for warehouse uses CapEx lines from `buildSaleCashflowDetailProfile` → `warehouseCostLines` on `SaleDevelopmentCostsSlide`.
 
@@ -241,7 +241,7 @@ One-time PayPal products only. **There is no monthly subscription SKU.**
 
 ### 2.10 Content, SEO & lead capture (16 Sep 2026)
 
-**Payment structures (copy + research):** Native presets for Dubai Law No. 8, Malaysia HDA and Australia's 10/90 — plus a configurable payment-structure engine (no escrow, custom splits like 20/80 or 30/70, staged escrow with custom retentions) for any location on earth. Pin-drop sets the country; user sets the rules. AI market research is tailored to the pin-dropped location, reverting to the nearest city when hyper-local data is thin.
+**Payment structures (copy + research):** Native presets for Dubai Law No. 8, Malaysia HDA and Australia's 10/90 — plus a configurable payment-structure engine (no escrow, custom splits like 20/80 or 30/70, staged escrow with custom retentions) for any location on earth. Pin-drop sets the country; user sets the rules. AI market research is tailored to the pin-dropped location, reverting to the nearest city when hyper-local data is thin. Native mechanism rules now also include China's Closed-Loop Escrow Rule and Abu Dhabi's Project Guarantee Account Rule (full mechanics in §5).
 
 ⚠️ **NEVER pair UK with 10/90 — UK does not use it. Australia only.** Do not use UK as a 10/90 example in articles, FAQ, decks, or defaults.
 
@@ -489,18 +489,15 @@ C4 construction / land / FF&E / soft / POWC display rows are built with `src/lib
 
 ## 5. Escrow Withdrawal Rules (mechanisms, not countries)
 
-Canonical rule ids: `EscrowRuleId = 'ten_ninety' | 'staged' | 'progress' | 'none'` in
-`src/lib/financing-engine/escrow-rules.ts`. Engine horizon and monthly router follow the
-**selected rule**, never the country bucket.
+Canonical rule ids: `EscrowRuleId = 'ten_ninety' | 'staged' | 'progress' | 'none' | 'closed_loop_escrow' | 'project_guarantee_account'` in `src/lib/financing-engine/escrow-rules.ts`. Engine horizon and monthly router follow the **selected rule**, never the country bucket.
 
-Display names: **10/90 Rule**, **Staged Escrow Rule**, **Progress Drawdown Rule**, **No Escrow Rules**.
+Display names: **10/90 Rule**, **Staged Escrow Rule**, **Progress Drawdown Rule**, **No Escrow Rules**, **Closed-Loop Escrow Rule**, **Project Guarantee Account Rule**.
 
-Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowConfig.tsx`
-(panel titles are rule names). **One 8-step wizard** (`residential-wizard.tsx`) for **every** sale asset class:
+Escrow UI: `src/app/sale/financing/escrow-config/` — `{Uae,Malaysia,Australia}EscrowConfig.tsx` plus `ClosedLoopEscrowConfig.tsx` and `ProjectGuaranteeAccountConfig.tsx` (panel titles are rule names). **One 8-step wizard** (`residential-wizard.tsx`) for **every** sale asset class:
 
 1. Project Summary → 2. Debt Sizing (LTC & LTV) → 3. Land Ownership & Equity → 4. Preference Shares → 5. Escrow Withdrawal Config → 6. Drawdown Structure → 7. Interest, IDC & Escrow Income → 8. Sales & Escrow Recycling.
 
-`JURISDICTION_RULES` + `defaultEscrowRuleForLocation`: location + asset class only **pre-select** a default; all four tabs remain selectable everywhere. Projects with no stored escrow rule pick up that default on next open.
+`JURISDICTION_RULES` + `defaultEscrowRuleForLocation`: location + asset class only **pre-select** a default; all six tabs remain selectable everywhere. Projects with no stored escrow rule pick up that default on next open.
 
 **Location + asset-class defaults (never hard-linked in the engine)**
 
@@ -508,10 +505,13 @@ Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowC
 - Australia → 10/90 Rule (all asset classes) (CP+12)
 - Malaysia residential → Progress Drawdown Rule (CP+24)
 - Malaysia commercial → No Escrow Rules (CP+6)
-- All other locations (KSA, Abu Dhabi, RAK, Sharjah, Ajman, Fujairah, Thailand, China, **UK**, …) → No Escrow Rules (CP+6)
+- China residential (landed / high-rise) → Closed-Loop Escrow Rule (horizon per §5.5)
+- China commercial → No Escrow Rules (CP+6)
+- UAE + Abu Dhabi → Project Guarantee Account Rule (all sale asset classes) (CP+retentionMonths, default +12)
+- All other locations (KSA, RAK, Sharjah, Ajman, Fujairah, Thailand, **UK**, …) → No Escrow Rules (CP+6)
 
 **Backward compatibility:** stored modes `uae`/`malaysia`/`australia`/`none` map to the new ids.
-Missing stored `escrowRule` → apply **location + asset-class default on open** (Dubai staged, AU 10/90, MY residential progress, MY commercial none, else none). Do not force `none` just because the field was empty.
+Missing stored `escrowRule` → apply **location + asset-class default on open** (Abu Dhabi project guarantee account, Dubai staged, AU 10/90, MY residential progress, MY commercial none, else none). Do not force `none` just because the field was empty. China-residential and Abu Dhabi projects saved without a stored rule pick up the new defaults on next open. Legacy `closed_loop_escrow` projects without `toppingOutEnabled` resolve to ON/50 for China and OFF for Others.
 
 ### 5.1 Staged Escrow Rule (default: Dubai — all off-plan classes)
 
@@ -535,16 +535,35 @@ Missing stored `escrowRule` → apply **location + asset-class default on open**
 
 - Direct sales − outflows; no escrow rows (`applyNonEscrowLogic`). Horizon **CP+6**.
 
-### 5.5 Critical bug avoidance — column length & rule fallback
+### 5.5 Closed-Loop Escrow Rule (default: China residential — landed & high-rise)
+- Buyer funds 100% locked in escrow until practical completion; lump-sum release at completionMonth; post-completion sales pass through same-month.
+- 3% of building works retained **from the main contractor**, not from escrow: construction outflows pay 97% during the S-curve; the accumulated 3% is paid at CP+24. Applies in every jurisdiction that selects this rule.
+- China overlay (China only): off-plan sales may not start before topping out — the engine shifts the raw C2 sales array so inflows begin at `toppingOutMonth + 1`, where toppingOutMonth = first month cumulative C1 S-curve >= `toppingOutPercent` (default 50, no interpolation); construction loan capped at 70% of TDC; land must be 100% equity (Step-3 land loan suspended while selected).
+- Others opt-in: toggle "Off-plan sales start only after topping out" (default OFF) + editable topping-out %; no 70% cap; land loan available. Shift applies iff toggle ON and % > 0, in any country. Raw C2 store never mutated.
+- Horizon = max(completionMonth + 24, lastSalesMonthAfterShift + 1). 1-month offset on trust interest/fees; ledger guards: no negative balance, no accruals after release.
+- Backward compat: legacy China projects resolve toggle ON/50; legacy non-China resolve OFF.
 
-Rules are **mechanisms, not country labels**. Location + asset class only pre-select (AU → 10/90 all classes, MY residential → progress / MY commercial → none, UAE+Dubai → staged all classes, everyone else incl. KSA/other emirates → none with full choice). Engine routing and horizons follow the **SELECTED** rule. Land-equity **100% lock is Dubai-only**.
+### 5.6 Project Guarantee Account Rule (default: UAE + Abu Dhabi — all sale asset classes)
+- Completion-account regime (ADREC/DMT, Law 3/2015 as amended by Law 2/2025). No withdrawals before `guaranteeThresholdPercent` (default 20) cumulative completion. From thresholdMonth + 1: catch-up reimbursement of all permitted spend incurred to date; thereafter month-by-month with 1-month lag, capped by available balance (shortfall carries).
+- Permitted uses: hard construction incl. contingency, POWC, soft costs EXCLUDING the C1 "Other Fees" allocation (marketing proxy), FF&E where present, and construction-loan interest when `guaranteeInterestPermitted` (default ON). Never land, Other Fees, or sales commissions.
+- Profit milestones: Stage 1 at `guaranteeProfitMilestonePercent` (default 60) +1 month; Stage 2 at completionMonth +1. Surplus = max(0, balance − remaining permitted spend (Stage 1 only) − retentionTarget). **Mandatory lender cash sweep** of construction-loan outstanding first (never land loans); developer takes the remainder through the existing waterfall (land-loan distribution gate still applies).
+- Retention: `guaranteeRetentionPercent` (default 5) held from completion for `guaranteeRetentionMonths` (default 12, UI min 12); released at Stage 3 = completionMonth + retentionMonths. Basis selector `retentionBasis`: 'construction_cost' (ADREC basis, Abu Dhabi default — 5% × total C1 construction cost, fixed at M0) or 'escrow_proceeds' (Dubai Art. 14 basis, Others default — 5% × cumulative inflows, growing).
+- Post-completion inflows top up the retention target before any developer release: release(m) = max(0, balanceBefore + inflow − retentionTarget(m)). Pre-completion reimbursements are NOT capped by the target (completion costs senior — DMT Decision 24/2025 balance-sufficiency logic).
+- Abu Dhabi overlay: land 100% equity, Step-3 land loan suspended. Others: overlay hidden; sweep still mandatory whenever a construction loan exists.
+- Horizon = CP + retentionMonths. 1-month offset on trust interest/fees; ledger guards apply.
+- Not modeled (future option): Decision 24/2025 pre-20% early access against an unconditional bank guarantee ≥20% of construction cost.
+
+### 5.7 Critical bug avoidance — column length & rule fallback
+
+Rules are **mechanisms, not country labels**. Location + asset class only pre-select (AU → 10/90 all classes, MY residential → progress / MY commercial → none, UAE+Dubai → staged all classes, UAE+Abu Dhabi → project guarantee account all classes, everyone else incl. KSA/other emirates → none with full choice). Engine routing and horizons follow the **SELECTED** rule. Land-equity **100% lock is Dubai-only**. Abu Dhabi suspends the land loan only while the project guarantee account rule is selected, without overwriting the stored land equity percent.
 
 - Australia → 10/90 (`ten_ninety`) — all asset classes. **Never UK.**
 - Malaysia residential → progress; Malaysia commercial → none
 - UAE **and city Dubai** → staged — all asset classes
-- **All other locations** (KSA, other emirates including Abu Dhabi / RAK / Sharjah / Ajman / Fujairah, Thailand, China, …) → `none` default with full choice
+- UAE **and city Abu Dhabi** → `project_guarantee_account` — all sale asset classes
+- **All other locations** (KSA, other emirates, Thailand, China, …) → `none` default with full choice
 
-Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12, progress +24, none +6. Switching the selected rule must **never** overwrite the stored land equity %.
+Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12, progress +24, none +6, closed-loop per its own logic (max of CP+24 and last shifted sales month + 1), project guarantee account +12 default (CP + retention months, minimum 12). Switching the selected rule must **never** overwrite the stored land equity %.
 
 1. **Column lengths must be dynamic:** `lastMonth = resolveSaleHorizonLastMonth(inputs)` → columns = `lastMonth + 1` (M0 … last). Always derive from **CP + selected-rule offset**, never hard-code staged length for all countries.
 2. **No country inherits staged logic by accident.** KSA and non-Dubai emirates default to `none`. Thailand / Vietnam / Indonesia / China bucket to `none` unless the user selects a rule.
@@ -553,6 +572,8 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
    - `ten_ninety` → CP+12
    - `progress` → CP+24
    - `none` → CP+6
+   - `closed_loop` → max(CP+24, last shifted-sales month + 1)
+   - `guarantee` → CP + retentionMonths (default 12)
    - **Missing stored rule:** apply location + asset-class default on open (not a silent `none` for every empty field). Legacy jurisdiction enums (`UAE_SA`/`MALAYSIA`/`AUSTRALIA`) still map when present.
 4. Feasibility **sale-escrow** slide headings use the selected rule name (e.g. “Staged Escrow Rule Configuration”). Country regulators (RERA, HDA, state 10/90) appear only as local-regime notes when the project location’s default matches that rule — a China project on staged must **not** read “UAE — RERA”.
 5. Preview tables (MY/UAE/AU variants) and exports follow the selected rule and read retention / deposit / balance from the store, never from constants.
@@ -561,7 +582,14 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **16 Sep 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **23 Sep 2026**. Prefer editing this file over scattering architecture notes across chats.
+
+### Just finished (23 Sep 2026) — Two new escrow mechanisms: Closed-Loop (China) + Project Guarantee Account (Abu Dhabi)
+- **Closed-Loop Escrow Rule (`closed_loop_escrow`)**: 100% buyer funds locked to completion; 3% contractor retention paid at CP+24 (outflow shift, not escrow); China overlay = topping-out sales shift (first S-curve month ≥ %, default 50), 70% TDC loan cap, 100% land equity; Others opt-in via toggle (default OFF) with no cap/lock; horizon max(CP+24, shifted-sales tail).
+- **Project Guarantee Account Rule (`project_guarantee_account`)**: ADREC/DMT completion account; no withdrawals <20%; catch-up then lagged reimbursements of permitted uses; profit surplus at 60%/100% +1 month with mandatory construction-loan cash sweep; 5% DLP retention (basis: construction cost ADREC default / proceeds Others) released at CP+retentionMonths; post-completion inflows top up the target first; Abu Dhabi overlay 100% land equity; horizon CP+retentionMonths.
+- **Deck gate amended**: sale-escrow slide renders for residential OR guarantee rule.
+- **Ledger guards shipped**: no negative escrow balance; accruals stop at closure; reimbursements balance-capped with shortfall carry.
+- **Files**: `escrow-rules.ts`, `generate-cash-flow.ts`, `ClosedLoopEscrowConfig.tsx`, `ProjectGuaranteeAccountConfig.tsx`, financing preview rows + Excel export, sale C4 docs Step 5.
 
 ### Just finished (16 Sep 2026) — Learn / FAQ / Vault + lead capture (no engine math)
 
@@ -669,11 +697,11 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 1. Equity gap-fill keeps **cumulative NCF Post-Financing ≥ 0**.  
 2. Escrow interest, UAE progress withdrawals, and construction loan interest use the **1-month offset**.  
 3. Levered equity IRR: **negatives = equity injections**; **positives = NCF post-financing after the funding gap closes** (see §4.3 for series variants).  
-4. Sale CF columns = **CP + selected-rule offset** (staged +12, 10/90 +12, progress +24, none +6).  
-5. No location inherits a rule or a land-equity lock by accident; defaults only pre-select; Dubai-only 100% lock. Unset/empty mode → `none` (CP+6). China + staged must not label the slide “UAE — RERA”.  
+4. Sale CF columns = **CP + selected-rule offset** (staged +12, 10/90 +12, progress +24, none +6, closed_loop = max(CP+24, shifted-sales tail), guarantee = CP+retentionMonths).  
+5. No location inherits a rule or a land-equity lock by accident; defaults only pre-select. Jurisdiction land-equity 100% locks are overlays only: Dubai (staged), China (closed_loop), Abu Dhabi (guarantee) — never applied when Others opt into those rules. Unset/empty mode → location+class default on open. China + staged must not label the slide “UAE — RERA”.  
 6. **Sale warehouse NCF:** Always use `buildSalePreFinancingCashFlows` (includes FF&E); never rebuild outflows from `detail.monthlyTotal` alone for warehouse.  
 7. **Sale feasibility subtype map:** New sale `buildingSubType` values must be added to `sale-stream-config.ts` or they default to High-Rise Residential.  
-8. **Sale escrow slide:** Report slide is residential-only; commercial/warehouse decks must not show it. Headings use the selected rule name. **HDA construction deposit** in C4 (engine + Malaysia table + Excel) is **Malaysia + residential for-sale only** — never warehouse / retail / office / hotel / data centre, even on Progress Drawdown.  
+8. **Sale escrow slide:** renders when subtype is residential **OR** selected rule is `project_guarantee_account`; all other rules residential-only. Headings use the selected rule name. **HDA construction deposit** in C4 (engine + Malaysia table + Excel) is **Malaysia + residential for-sale only** — never warehouse / retail / office / hotel / data centre, even on Progress Drawdown.  
 9. **Ops Data Centre enrich:** Resolve **`datacentre` before BTR**; never share unscoped `exec-1` commentary cache across asset types; DC prompts must not emit warehouse/residential/retail/hotel language.  
 10. **User LLM preference:** Always resolve via `getPreferredModel()` (never hard-code a vendor id in research / commentary). Claude research must skip reasoning stream chunks and parse via `extractJsonFromClaudeResponse`. Public marketing/docs copy must list **Qwen (default), Claude, or OpenAI** — never imply Qwen-only. Retired vendor KV ids remap to Qwen.  
 11. **Puter KV:** Never call `puter.kv` outside `secure-puter-kv.ts`; always namespace with Clerk `userId`. Prefer logical keys; let `toLogicalKvKey` strip legacy prefixes.  
@@ -694,8 +722,11 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 26. **Pack repurchase:** Refuse pack and Unlimited Pack while `effectiveCredits > 0` (create-order, capture-order, **and** webhook). Expired pack = 0 credits; new purchase **replaces** the balance.  
 27. **PayPal webhook host:** Listener is `https://www.feasibuild.app/api/webhooks/paypal` only. Apex 308-redirects; PayPal does not follow redirects (`FAIL_SOFT`).  
 28. **Preview-row parity:** C4 display rows from `financing-preview-rows.ts` — `row.length === horizon` and `sum(row) === displayed total`. No remainder plug after construction end.  
-29. **Deck copy:** No “Source: …” attribution footers; prompts forbid them; parser strips `Source:` lines. Overflowing slides use `FitSlide`.
+29. **Deck copy:** No “Source: …” attribution footers; prompts forbid them; parser strips `Source:` lines. Overflowing slides use `FitSlide`.  
+30. **Escrow ledger guards:** interest/fees only on a positive prior-month balance (1-month offset); escrow balance never negative; no accruals after account closure; guarantee-rule reimbursements capped by available balance with shortfall carry.  
+31. **Closed-loop cash-flow placement:** the 3% contractor retention is a construction-outflow shift (97% during S-curve, 3% at CP+24) — never an escrow row; the C2 sales shift (China, or Others with toggle ON) is engine-internal — raw C2 store never mutated.  
+32. **Guarantee rule priorities:** permitted uses = hard construction + POWC + soft costs excl. “Other Fees” + FF&E + toggled construction-loan interest; never land / Other Fees / commissions. Lender cash sweep on the construction loan is mandatory at 60%/100% surplus (never land loans); developer withdrawals pass through the waterfall (land-loan gate). Retention basis: construction cost (Abu Dhabi default) or escrow proceeds (Others default); post-completion inflows top up the target before any release.
 
 ---
 
-*Last updated 16 Sep 2026 (Learn / FAQ / Vault, lead capture, payment-structure + UK/10/90 copy rules, funnel). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 23 Sep 2026 (Closed-Loop + Project Guarantee Account escrow rules; slide-gate, defaults and invariant amendments). Prefer editing this file over scattering architecture notes across chats.*

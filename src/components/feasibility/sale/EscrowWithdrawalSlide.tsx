@@ -17,6 +17,11 @@ interface Props extends SlideEditingProps {
   paragraphs?: string[];
 }
 
+function formatRetentionAmount(amount: number, currency: string): string {
+  const rounded = Math.round(amount * 100) / 100;
+  return `${currency} ${rounded.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
 function resolveSlideRule(data: SaleEscrowWithdrawalData): EscrowRuleId {
   if (data.ruleId) return normalizeEscrowRuleId(data.ruleId);
   const j = (data.jurisdiction ?? "").toLowerCase();
@@ -24,6 +29,7 @@ function resolveSlideRule(data: SaleEscrowWithdrawalData): EscrowRuleId {
   if (j === "malaysia" || j.includes("hda") || j.includes("progress")) return "progress";
   if (j === "australia" || j.includes("10/90") || j.includes("ten_ninety")) return "ten_ninety";
   if (j.includes("closed") && j.includes("loop")) return "closed_loop_escrow";
+  if (j.includes("guarantee")) return "project_guarantee_account";
   if (j.includes("no escrow") || j === "none") return "none";
   return normalizeEscrowRuleId(data.jurisdiction);
 }
@@ -42,6 +48,9 @@ export default function EscrowWithdrawalSlide({
   const showHda = rule === "progress" && Boolean(data.localRegimeNote?.includes("HDA"));
   const showAu1090 =
     rule === "ten_ninety" && Boolean(data.localRegimeNote?.toLowerCase().includes("10/90"));
+  const showAdrec =
+    rule === "project_guarantee_account" &&
+    Boolean(data.localRegimeNote?.includes("ADREC"));
 
   return (
     <SlideContainer>
@@ -355,6 +364,102 @@ export default function EscrowWithdrawalSlide({
                     </tr>
                   </>
                 )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {rule === "project_guarantee_account" && (
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                Withdrawals begin once cumulative construction progress reaches the{" "}
+                {data.guaranteeConfig?.thresholdPercent ?? 20}% threshold.
+              </li>
+              <li>
+                Permitted uses are limited to hard construction, preliminaries, soft costs
+                excluding Other Fees, and FF&E. Land, marketing and Other Fees, and sales
+                commissions stay developer-funded.
+              </li>
+              <li>
+                Profit surplus is released at the {data.guaranteeConfig?.profitMilestonePercent ?? 60}%
+                and 100% milestones. Any outstanding construction loan is swept before the developer
+                withdraws.
+              </li>
+              <li>
+                {data.guaranteeConfig?.retentionPercent ?? 5}% defect retention is released{" "}
+                {(data.guaranteeConfig?.retentionMonths ?? 12) === 12
+                  ? "one year after handover"
+                  : `${data.guaranteeConfig?.retentionMonths ?? 12} months after handover`}
+                .
+              </li>
+              {data.guaranteeConfig?.retentionFundedAtRelease !== undefined &&
+                data.guaranteeConfig.retentionTargetAtRelease !== undefined &&
+                data.guaranteeConfig.retentionFundedAtRelease + 1e-4 <
+                  data.guaranteeConfig.retentionTargetAtRelease && (
+                  <li>
+                    Retention account funded to{" "}
+                    {formatRetentionAmount(
+                      data.guaranteeConfig.retentionFundedAtRelease,
+                      data.currency
+                    )}{" "}
+                    of target{" "}
+                    {formatRetentionAmount(
+                      data.guaranteeConfig.retentionTargetAtRelease,
+                      data.currency
+                    )}{" "}
+                    at release.
+                  </li>
+                )}
+              {showAdrec && (
+                <li>
+                  Local regime for this project: Abu Dhabi ADREC/DMT completion account.
+                </li>
+              )}
+            </ul>
+            <table className="feasibility-table w-full text-xs border border-slate-300">
+              <tbody>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Withdrawal threshold</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.guaranteeConfig?.thresholdPercent ?? 20}% cumulative construction
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Stage-1 milestone</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.guaranteeConfig?.profitMilestonePercent ?? 60}% cumulative construction
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Stage-2 milestone</td>
+                  <td className="border border-slate-300 p-2">Practical completion</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Defect retention</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.guaranteeConfig?.retentionPercent ?? 5}% of{" "}
+                    {data.guaranteeConfig?.retentionBasis === "construction_cost"
+                      ? "construction cost"
+                      : "escrow proceeds"}{" "}
+                    for {data.guaranteeConfig?.retentionMonths ?? 12} months after handover
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Construction-loan interest</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.guaranteeConfig?.interestPermitted === false
+                      ? "Not a permitted use"
+                      : "Permitted use"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Lender cash sweep</td>
+                  <td className="border border-slate-300 p-2">
+                    Mandatory while a construction facility is outstanding. Land loans are never swept.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

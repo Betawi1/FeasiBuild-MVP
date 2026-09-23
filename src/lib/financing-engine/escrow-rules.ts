@@ -8,6 +8,7 @@ export type EscrowRuleId =
   | "staged"
   | "progress"
   | "closed_loop_escrow"
+  | "project_guarantee_account"
   | "none";
 
 export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
@@ -15,6 +16,7 @@ export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
   "progress",
   "staged",
   "closed_loop_escrow",
+  "project_guarantee_account",
   "none",
 ] as const;
 
@@ -23,6 +25,7 @@ export const ESCROW_RULE_DISPLAY_NAME: Record<EscrowRuleId, string> = {
   staged: "Staged Escrow Rule",
   progress: "Progress Drawdown Rule",
   closed_loop_escrow: "Closed-Loop Escrow Rule",
+  project_guarantee_account: "Project Guarantee Account Rule",
   none: "No Escrow Rules",
 };
 
@@ -31,6 +34,7 @@ export const ESCROW_RULE_CONFIG_TITLE: Record<EscrowRuleId, string> = {
   staged: "Staged Escrow Rule Configuration",
   progress: "Progress Drawdown Rule Configuration",
   closed_loop_escrow: "Closed-Loop Escrow Rule Configuration",
+  project_guarantee_account: "Project Guarantee Account Rule Configuration",
   none: "No Escrow Rules",
 };
 
@@ -43,8 +47,51 @@ export const ESCROW_RULE_HORIZON_OFFSET: Record<EscrowRuleId, number> = {
   staged: 12,
   progress: 24,
   closed_loop_escrow: 24,
+  /** Default only. The live horizon is CP + guarantee retention months (minimum 12). */
+  project_guarantee_account: 12,
   none: 6,
 };
+
+/** Project guarantee account defaults (Abu Dhabi ADREC/DMT completion-account regime). */
+export const GUARANTEE_DEFAULT_THRESHOLD_PCT = 20;
+export const GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT = 60;
+export const GUARANTEE_DEFAULT_RETENTION_PCT = 5;
+export const GUARANTEE_DEFAULT_RETENTION_MONTHS = 12;
+
+/** What the defect-retention percent is applied to. */
+export type GuaranteeRetentionBasis = "construction_cost" | "escrow_proceeds";
+
+/**
+ * Abu Dhabi holds a fixed percent of C1 construction cost.
+ * Every other location holds a percent of cumulative escrow proceeds.
+ * A stored basis always wins.
+ */
+export function resolveGuaranteeRetentionBasis(
+  stored: string | null | undefined,
+  location?: {
+    country?: string | null;
+    countryCode?: string | null;
+    city?: string | null;
+  }
+): GuaranteeRetentionBasis {
+  if (stored === "construction_cost" || stored === "escrow_proceeds") return stored;
+  if (
+    isUaeLocation(location?.country, location?.countryCode) &&
+    isAbuDhabiCity(location?.city)
+  ) {
+    return "construction_cost";
+  }
+  return "escrow_proceeds";
+}
+
+/** Retention tail cannot sit inside the construction period. UI and engine share this floor. */
+export function resolveGuaranteeRetentionMonths(
+  raw: number | null | undefined
+): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return GUARANTEE_DEFAULT_RETENTION_MONTHS;
+  return Math.max(GUARANTEE_DEFAULT_RETENTION_MONTHS, Math.round(n));
+}
 
 /** Percent of building works held back from the contractor until CP+24. */
 export const CLOSED_LOOP_CONTRACTOR_RETENTION_PCT = 3;
@@ -82,6 +129,24 @@ export function resolveClosedLoopToppingOut(opts: {
 
 export function isDubaiCity(city?: string | null): boolean {
   return (city ?? "").trim().toLowerCase().includes("dubai");
+}
+
+export function isAbuDhabiCity(city?: string | null): boolean {
+  const c = (city ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return c.includes("abu dhabi") || c.includes("abudhabi");
+}
+
+/**
+ * Sale feasibility escrow slide.
+ * Residential subtypes always render it. Commercial and warehouse decks render it
+ * only when the selected rule is the project guarantee account.
+ */
+export function shouldRenderSaleEscrowSlide(
+  buildingSubType: string | null | undefined,
+  rule: EscrowRuleId
+): boolean {
+  if ((buildingSubType ?? "").toLowerCase().includes("residential")) return true;
+  return rule === "project_guarantee_account";
 }
 
 function normCountry(country?: string | null): string {
@@ -170,12 +235,13 @@ export function isCommercialSaleAsset(opts: {
 
 /**
  * Location + asset class pre-select a default only. Never hard-link a country to a rule
- * in the engine. All four tabs remain selectable everywhere.
+ * in the engine. All six tabs remain selectable everywhere.
  *
- * Dubai/UAE → staged (all asset classes); Australia → 10/90 (all asset classes);
+ * Dubai → staged (all asset classes); Abu Dhabi → project guarantee account (all asset classes);
+ * Australia → 10/90 (all asset classes);
  * Malaysia → progress (residential) / none (commercial);
  * China → closed-loop (residential landed / high-rise only);
- * all other locations → none.
+ * other emirates and all other locations → none.
  */
 export function defaultEscrowRuleForLocation(opts: {
   country?: string | null;
@@ -187,6 +253,9 @@ export function defaultEscrowRuleForLocation(opts: {
   if (isAustraliaLocation(opts.country, opts.countryCode)) return "ten_ninety";
   if (isMalaysiaLocation(opts.country, opts.countryCode)) {
     return isCommercialSaleAsset(opts) ? "none" : "progress";
+  }
+  if (isUaeLocation(opts.country, opts.countryCode) && isAbuDhabiCity(opts.city)) {
+    return "project_guarantee_account";
   }
   if (isUaeLocation(opts.country, opts.countryCode) && isDubaiCity(opts.city)) {
     return "staged";
@@ -252,6 +321,13 @@ export function normalizeEscrowRuleId(
     v === "closedloop"
   ) {
     return "closed_loop_escrow";
+  }
+  if (
+    v === "project_guarantee_account" ||
+    v === "project_guarantee" ||
+    v === "guarantee_account"
+  ) {
+    return "project_guarantee_account";
   }
   if (v === "none") return "none";
   return "none";

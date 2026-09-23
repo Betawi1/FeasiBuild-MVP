@@ -17,6 +17,10 @@ export type MonthlyRow = {
   escrowBalance: number;
   escrowReleases: number;
   progressWithdrawal: number;
+  permittedCostReimbursement?: number;
+  lenderCashSweep?: number;
+  developerProfitWithdrawal?: number;
+  defectRetentionRelease?: number;
 
   constructionCosts: number;
   softCosts: number;
@@ -60,6 +64,8 @@ export type CashFlowTableUaeSaProps = {
   hideEscrowRows?: boolean;
   /** Sale warehouse only — show FF&E between Construction and Soft costs. */
   showFfe?: boolean;
+  /** Project guarantee account ledger rows, in place of generic release rows. */
+  showGuaranteeLedger?: boolean;
 };
 
 export function CashFlowTableUaeSa({
@@ -67,6 +73,7 @@ export function CashFlowTableUaeSa({
   formatCurrency,
   hideEscrowRows = false,
   showFfe = false,
+  showGuaranteeLedger = false,
 }: CashFlowTableUaeSaProps) {
   if (!data || data.length === 0) {
     return (
@@ -161,20 +168,55 @@ export function CashFlowTableUaeSa({
                 formatCurrency={formatCurrency}
                 isNegative
               />
-              <TableRow
-                label="Escrow releases"
-                data={data}
-                getValue={(r) => r.escrowReleases}
-                formatCurrency={formatCurrency}
-                isHighlight
-              />
-              <TableRow
-                label="Progress withdrawal"
-                data={data}
-                getValue={(r) => r.progressWithdrawal}
-                formatCurrency={formatCurrency}
-                isHighlight
-              />
+              {showGuaranteeLedger ? (
+                <>
+                  <TableRow
+                    label="Permitted cost reimbursement"
+                    data={data}
+                    getValue={(r) => r.permittedCostReimbursement || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Lender cash sweep"
+                    data={data}
+                    getValue={(r) => r.lenderCashSweep || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Developer profit withdrawal"
+                    data={data}
+                    getValue={(r) => r.developerProfitWithdrawal || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Defect retention release"
+                    data={data}
+                    getValue={(r) => r.defectRetentionRelease || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                </>
+              ) : (
+                <>
+                  <TableRow
+                    label="Escrow releases"
+                    data={data}
+                    getValue={(r) => r.escrowReleases}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Progress withdrawal"
+                    data={data}
+                    getValue={(r) => r.progressWithdrawal}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                </>
+              )}
             </>
           )}
 

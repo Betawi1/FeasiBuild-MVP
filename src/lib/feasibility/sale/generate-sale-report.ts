@@ -40,6 +40,10 @@ import {
   createPromptForSection,
 } from "@/lib/feasibility/sale/create-sale-puter-prompts";
 import useFinModelStore from "@/store/useFinModelStore";
+import {
+  resolveSaleProjectEscrowRule,
+  shouldRenderSaleEscrowSlide,
+} from "@/lib/financing-engine/escrow-rules";
 
 function commentary(
   bundle: SaleFeasibilityBundle,
@@ -291,7 +295,19 @@ function generateSaleMarketSlides(
 function generateSaleFinancialSlides(
   bundle: SaleFeasibilityBundle
 ): FeasibilitySlide[] {
-  return [
+  const escrowRule = resolveSaleProjectEscrowRule({
+    withdrawalMode: bundle.financing.escrowConfig?.withdrawalMode,
+    confirmedByWizard: bundle.financing.escrowConfig?.confirmedByWizard,
+    country: bundle.location.country,
+    city: bundle.location.city,
+    buildingType: bundle.buildingType,
+    buildingSubType: bundle.buildingSubType,
+  });
+  const includeEscrowSlide = shouldRenderSaleEscrowSlide(
+    bundle.buildingSubType,
+    escrowRule
+  );
+  const slides: FeasibilitySlide[] = [
     {
       id: "sale-dev-assumptions",
       section: "financial",
@@ -340,16 +356,20 @@ function generateSaleFinancialSlides(
       paragraphs: commentary(bundle, "Revolving Credit Facility"),
       data: buildSaleRevolvingCreditData(bundle),
     },
-    // Escrow slide follows the selected rule, including closed_loop_escrow.
-    // Residential subtypes are the closed-loop default; the slide stays on the sale deck.
-    {
-      id: "sale-escrow",
-      section: "financial" as const,
-      title: "Financial Analysis",
-      subtitle: "Escrow Withdrawal Configuration",
-      paragraphs: commentary(bundle, "Escrow Configuration"),
-      data: buildSaleEscrowWithdrawalData(bundle),
-    },
+    // Residential subtypes always include the slide. Commercial and warehouse
+    // decks include it only for the project guarantee account rule.
+    ...(includeEscrowSlide
+      ? [
+          {
+            id: "sale-escrow",
+            section: "financial" as const,
+            title: "Financial Analysis",
+            subtitle: "Escrow Withdrawal Configuration",
+            paragraphs: commentary(bundle, "Escrow Configuration"),
+            data: buildSaleEscrowWithdrawalData(bundle),
+          },
+        ]
+      : []),
     {
       id: "sale-post-financing",
       section: "financial",
@@ -383,6 +403,7 @@ function generateSaleFinancialSlides(
       data: buildSaleScenarioResultsData(bundle),
     },
   ];
+  return slides;
 }
 
 /**

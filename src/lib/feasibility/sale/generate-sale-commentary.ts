@@ -6,11 +6,19 @@ import {
   type MacroCommentaryContext,
 } from "@/lib/feasibility/generate-macro-commentary";
 import { buildSaleMarketCommentaryPrompt } from "@/lib/feasibility/generate-sale-market-commentary-prompts";
+import { buildSaleEscrowWithdrawalData } from "@/lib/feasibility/sale/build-sale-financial-data";
 import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-context";
 import {
+  defaultEscrowRuleForLocation,
+  isAbuDhabiCity,
   isChinaLocation,
+  isUaeLocation,
   resolveClosedLoopToppingOut,
+  resolveGuaranteeRetentionMonths,
   resolveSaleProjectEscrowRule,
+  GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
+  GUARANTEE_DEFAULT_RETENTION_PCT,
+  GUARANTEE_DEFAULT_THRESHOLD_PCT,
 } from "@/lib/financing-engine/escrow-rules";
 import {
   getSaleStreamConfig,
@@ -248,6 +256,54 @@ export function generateSaleCommentaryFallback(
         if (china) {
           lines.push(
             `Land is funded entirely with equity, and the construction loan is capped at 70% of total development cost.`
+          );
+        }
+        return lines;
+      }
+      if (rule === "project_guarantee_account") {
+        const stored = bundle.financing.escrowConfig;
+        const threshold = stored?.guaranteeThresholdPercent ?? GUARANTEE_DEFAULT_THRESHOLD_PCT;
+        const milestone =
+          stored?.guaranteeProfitMilestonePercent ?? GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT;
+        const retention = stored?.guaranteeRetentionPercent ?? GUARANTEE_DEFAULT_RETENTION_PCT;
+        const retentionMonths = resolveGuaranteeRetentionMonths(stored?.guaranteeRetentionMonths);
+        const locationDefault = defaultEscrowRuleForLocation({
+          country: bundle.location.country,
+          city: bundle.location.city,
+          buildingType: bundle.buildingType,
+          buildingSubType: bundle.buildingSubType,
+        });
+        const lines = [
+          `Withdrawals from the project guarantee account begin once cumulative construction progress reaches the ${threshold}% threshold.`,
+          `The completion account restricts permitted uses to hard construction, preliminaries, soft costs excluding Other Fees, and FF&E. Land, marketing and Other Fees, and sales commissions stay developer-funded.`,
+          `Profit surplus is released at the ${milestone}% and 100% milestones, and any outstanding construction loan is swept before the developer withdraws.`,
+          retentionMonths === 12
+            ? `${retention}% defect retention is released one year after handover.`
+            : `${retention}% defect retention is released ${retentionMonths} months after handover.`,
+        ];
+        if (
+          locationDefault === "project_guarantee_account" &&
+          isUaeLocation(bundle.location.country) &&
+          isAbuDhabiCity(bundle.location.city)
+        ) {
+          lines.push(
+            "Local regime: Abu Dhabi ADREC/DMT completion account. This note applies only where that default matches the project location."
+          );
+        }
+        const funding = buildSaleEscrowWithdrawalData(bundle).guaranteeConfig;
+        const funded = funding?.retentionFundedAtRelease;
+        const target = funding?.retentionTargetAtRelease;
+        if (
+          funded !== undefined &&
+          target !== undefined &&
+          funded + 1e-4 < target
+        ) {
+          const money = (amount: number) => {
+            const rounded = Math.round(amount * 100) / 100;
+            return `${bundle.currency} ${rounded.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+          };
+          lines.push(
+            `Retention account funded to ${money(funded)} of target ${money(target)} at release.`
           );
         }
         return lines;

@@ -18,7 +18,7 @@ export default function SaleComponent4Docs() {
           sales collections cover costs.
         </div>
         <p className="mt-4 text-sm text-slate-400 leading-relaxed">
-          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Dubai/UAE → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial). All four rules remain selectable everywhere.
+          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Abu Dhabi → Project Guarantee Account (all asset classes); Dubai → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial); China residential landed or high-rise → Closed-Loop. All six rules remain selectable everywhere.
         </p>
       </div>
 
@@ -258,7 +258,7 @@ export default function SaleComponent4Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Escrow Withdrawal Configuration</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Four tabs: <strong className="text-white">10/90 Rule</strong>, <strong className="text-white">Staged Escrow Rule</strong> (Staged Escrow Rule Configuration; formerly Certification Intervals), <strong className="text-white">Progress Drawdown Rule</strong> (Progress Drawdown Rule Configuration; formerly HDA Progress Withdrawals), and <strong className="text-white">No Escrow Rules</strong>. All four remain selectable everywhere.
+            Six tabs, in order: <strong className="text-white">10/90 Rule</strong>, <strong className="text-white">Progress Drawdown Rule</strong>, <strong className="text-white">Staged Escrow Rule</strong>, <strong className="text-white">Closed-Loop Escrow Rule</strong>, <strong className="text-white">Project Guarantee Account Rule</strong>, and <strong className="text-white">No Escrow Rules</strong>. All six remain selectable everywhere.
           </p>
           <p className="text-sm text-slate-400 leading-relaxed mb-4">
             These are withdrawal mechanisms, not country labels; the project&apos;s location only pre-selects a default.
@@ -267,10 +267,12 @@ export default function SaleComponent4Docs() {
           <div className="mb-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Location defaults (pre-select only)</h4>
             <ul className="text-sm text-slate-400 space-y-1 ml-4 list-disc">
-              <li><strong className="text-white">Staged Escrow Rule:</strong> Dubai/UAE — all asset classes.</li>
+              <li><strong className="text-white">Project Guarantee Account Rule:</strong> Abu Dhabi — all sale asset classes.</li>
+              <li><strong className="text-white">Staged Escrow Rule:</strong> Dubai — all asset classes.</li>
               <li><strong className="text-white">10/90 Rule:</strong> Australia — all asset classes.</li>
               <li><strong className="text-white">Progress Drawdown Rule:</strong> Malaysia residential.</li>
-              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, plus every other location (KSA, other emirates, Thailand, China, …). All four options remain selectable everywhere.</li>
+              <li><strong className="text-white">Closed-Loop Escrow Rule:</strong> China residential landed or high-rise.</li>
+              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, other UAE emirates, and every other location (KSA, Thailand, China commercial, …). All six options remain selectable everywhere.</li>
             </ul>
           </div>
 
@@ -319,10 +321,27 @@ export default function SaleComponent4Docs() {
               </ul>
             </div>
 
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+              <h4 className="text-amber-300 font-medium mb-1">Project Guarantee Account Rule</h4>
+              <p className="text-xs text-slate-500 mb-2">Project Guarantee Account Rule Configuration</p>
+              <p className="text-sm text-slate-400 mb-2">
+                Completion-account regime. Default for Abu Dhabi across every sale asset class, including commercial and warehouse. Selectable anywhere else. The mechanism is not a country label: ADREC/DMT is named only when the project location&apos;s default is this rule.
+              </p>
+              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
+                <li><strong>Withdrawal threshold:</strong> default 20% cumulative construction. Permitted costs incurred before the threshold, and the threshold month itself, reimburse the following month. Later permitted costs reimburse one month after they are incurred. Reimbursements are not capped by the retention pool.</li>
+                <li><strong>Permitted uses:</strong> hard construction (including contingency), POWC, soft costs excluding the Other Fees allocation, FF&E, and construction-loan interest when that toggle is on. Land, marketing/Other Fees, and sales commissions stay developer-funded.</li>
+                <li><strong>Profit milestones:</strong> surplus at 60% (default) and at practical completion, each paid the following month. The construction lender is swept first whenever a construction facility is outstanding. There is no sweep toggle. Land loans are never swept.</li>
+                <li><strong>Retention basis:</strong> construction cost or escrow proceeds. Abu Dhabi defaults to a fixed percent of total C1 construction cost. Other locations default to a percent of cumulative escrow proceeds. A stored basis wins.</li>
+                <li><strong>Defect retention:</strong> default 5% on that basis. Pre-completion reimbursements are not capped by the target. After completion, collections top the target up before any developer release. Stage 3 releases the balance at completion plus the retention months (default 12, minimum 12) and closes the account. If the balance is still short of the target, the deck states how much of the target was funded.</li>
+                <li><strong>Horizon:</strong> CP + retention months (default CP+12).</li>
+                <li><strong>Abu Dhabi overlay:</strong> while this rule is selected, land is 100% equity and the land term loan is suspended. The stored land equity percent is not overwritten, so switching rules restores it. Other locations keep the land loan; surplus still sweeps the construction lender first.</li>
+              </ul>
+            </div>
+
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
               <h4 className="text-white font-medium mb-2">No Escrow Rules</h4>
               <p className="text-sm text-slate-400 mb-3">
-                Default for Malaysia commercial and every location that does not map to the three mechanisms above (including KSA and UAE emirates other than Dubai). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply. Horizon is CP+6.
+                Default for Malaysia commercial and every location that does not map to one of the mechanisms above (including KSA and UAE emirates other than Dubai and Abu Dhabi). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply. Horizon is CP+6.
               </p>
               <p className="text-sm text-slate-400">
                 Optional toggle: <strong className="text-white">Sales reduce equity need (optional)</strong>.
@@ -332,7 +351,7 @@ export default function SaleComponent4Docs() {
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Escrow Account Fees</h4>
             <p className="text-sm text-slate-400 mb-2">
-              Shown on the three escrow options (10/90 Rule, Progress Drawdown Rule, and Staged Escrow Rule). Hidden when No Escrow Rules is selected.
+              Shown on every escrow rule except No Escrow Rules, including the Project Guarantee Account Rule. Hidden when No Escrow Rules is selected.
             </p>
             <p className="text-sm text-slate-400 mb-2">
               <strong className="text-white">Setup fee (flat amount)</strong> — one-time setup fee, e.g. 5,000.

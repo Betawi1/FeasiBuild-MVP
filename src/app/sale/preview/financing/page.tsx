@@ -3706,6 +3706,7 @@ function FinancingPreviewPageContent({
                   formatCurrency={formatCurrency}
                   hideEscrowRows={hideEscrow}
                   showFfe={isSaleWarehouseProduct}
+                  showGuaranteeLedger={previewRule === "project_guarantee_account"}
                 />
               );
             })()}

@@ -4,7 +4,10 @@ import {
   saleDetailToCashflowProfileShape,
 } from "@/lib/sale-cash-preview-profile";
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
-import type { MonthlyRow as EngineMonthlyRow } from "@/lib/financing-engine/generate-cash-flow";
+import {
+  guaranteeStage3RetentionFunding,
+  type MonthlyRow as EngineMonthlyRow,
+} from "@/lib/financing-engine/generate-cash-flow";
 import useFinModelStore from "@/store/useFinModelStore";
 import { formatDrawdownLabel } from "@/lib/feasibility/build-term-loan-data";
 import {
@@ -13,12 +16,17 @@ import {
   ESCROW_RULE_CONFIG_TITLE,
   ESCROW_RULE_DISPLAY_NAME,
   defaultEscrowRuleForLocation,
+  GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
+  GUARANTEE_DEFAULT_RETENTION_PCT,
+  GUARANTEE_DEFAULT_THRESHOLD_PCT,
   isAustraliaLocation,
   isChinaLocation,
   isDubaiCity,
   isMalaysiaLocation,
   isUaeLocation,
   resolveClosedLoopToppingOut,
+  resolveGuaranteeRetentionBasis,
+  resolveGuaranteeRetentionMonths,
   resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
 import type {
@@ -482,8 +490,17 @@ export function buildSaleEscrowWithdrawalData(
     localRegimeNote = "Malaysia HDA";
   } else if (rule === "ten_ninety" && locationDefault === "ten_ninety") {
     localRegimeNote = "Australian state 10/90 regimes";
+  } else if (
+    rule === "project_guarantee_account" &&
+    locationDefault === "project_guarantee_account"
+  ) {
+    localRegimeNote = "Abu Dhabi ADREC/DMT";
   }
 
+  const guaranteeFunding =
+    rule === "project_guarantee_account"
+      ? guaranteeStage3RetentionFunding(getSaleFinancingEngineRows(bundle))
+      : null;
   const chinaOverlay = isChinaLocation(country);
   const toppingOut = resolveClosedLoopToppingOut({
     toppingOutEnabled: ec?.closedLoop?.toppingOutEnabled,
@@ -545,6 +562,25 @@ export function buildSaleEscrowWithdrawalData(
       setupFee: f.escrowSetupFee ?? 0,
       managementFee: f.escrowManagementFeePct ?? 0,
     },
+    guaranteeConfig:
+      rule === "project_guarantee_account"
+        ? {
+            thresholdPercent:
+              ec?.guaranteeThresholdPercent ?? GUARANTEE_DEFAULT_THRESHOLD_PCT,
+            profitMilestonePercent:
+              ec?.guaranteeProfitMilestonePercent ?? GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
+            retentionPercent:
+              ec?.guaranteeRetentionPercent ?? GUARANTEE_DEFAULT_RETENTION_PCT,
+            retentionBasis: resolveGuaranteeRetentionBasis(ec?.guaranteeRetentionBasis, {
+              country,
+              city,
+            }),
+            retentionMonths: resolveGuaranteeRetentionMonths(ec?.guaranteeRetentionMonths),
+            interestPermitted: ec?.guaranteeInterestPermitted !== false,
+            retentionFundedAtRelease: guaranteeFunding?.funded,
+            retentionTargetAtRelease: guaranteeFunding?.target,
+          }
+        : undefined,
     closedLoopConfig:
       rule === "closed_loop_escrow"
         ? {
