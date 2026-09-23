@@ -3,12 +3,18 @@
  * Location only pre-selects a default; the selected rule drives engine, horizon, and slides.
  */
 
-export type EscrowRuleId = "ten_ninety" | "staged" | "progress" | "none";
+export type EscrowRuleId =
+  | "ten_ninety"
+  | "staged"
+  | "progress"
+  | "closed_loop_escrow"
+  | "none";
 
 export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
   "ten_ninety",
   "progress",
   "staged",
+  "closed_loop_escrow",
   "none",
 ] as const;
 
@@ -16,6 +22,7 @@ export const ESCROW_RULE_DISPLAY_NAME: Record<EscrowRuleId, string> = {
   ten_ninety: "10/90 Rule",
   staged: "Staged Escrow Rule",
   progress: "Progress Drawdown Rule",
+  closed_loop_escrow: "Closed-Loop Escrow Rule",
   none: "No Escrow Rules",
 };
 
@@ -23,16 +30,55 @@ export const ESCROW_RULE_CONFIG_TITLE: Record<EscrowRuleId, string> = {
   ten_ninety: "10/90 Rule Configuration",
   staged: "Staged Escrow Rule Configuration",
   progress: "Progress Drawdown Rule Configuration",
+  closed_loop_escrow: "Closed-Loop Escrow Rule Configuration",
   none: "No Escrow Rules",
 };
 
-/** Post-construction tail (months) after last construction month index. */
+/**
+ * Floor on the post-construction tail. Closed-loop's modeled horizon is
+ * max(CP+24, last shifted sales month + 1) — see resolveSaleHorizonLastMonth.
+ */
 export const ESCROW_RULE_HORIZON_OFFSET: Record<EscrowRuleId, number> = {
   ten_ninety: 12,
   staged: 12,
   progress: 24,
+  closed_loop_escrow: 24,
   none: 6,
 };
+
+/** Percent of building works held back from the contractor until CP+24. */
+export const CLOSED_LOOP_CONTRACTOR_RETENTION_PCT = 3;
+
+/** China overlay only: cumulative construction loan ≤ this share of TDC. */
+export const CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC = 0.7;
+
+/** Default cumulative S-curve % before off-plan sales may start. */
+export const CLOSED_LOOP_DEFAULT_TOPPING_OUT_PCT = 50;
+
+/**
+ * Closed-loop topping-out toggle.
+ * An explicit `toppingOutEnabled` always wins. Legacy China models with no flag
+ * stay on (stored percent, or 50). Legacy models everywhere else stay off so a
+ * saved schedule is not shifted just by opening it.
+ */
+export function resolveClosedLoopToppingOut(opts: {
+  toppingOutEnabled?: boolean | null;
+  toppingOutPercent?: number | null;
+  /** Legacy store field. Used when `toppingOutPercent` is absent. */
+  toppingOutPct?: number | null;
+  china?: boolean;
+}): { enabled: boolean; percent: number } {
+  const raw = opts.toppingOutPercent ?? opts.toppingOutPct;
+  const n = Number(raw);
+  const percent = Number.isFinite(n)
+    ? Math.min(100, Math.max(0, n))
+    : CLOSED_LOOP_DEFAULT_TOPPING_OUT_PCT;
+  const enabled =
+    typeof opts.toppingOutEnabled === "boolean"
+      ? opts.toppingOutEnabled
+      : Boolean(opts.china);
+  return { enabled, percent };
+}
 
 export function isDubaiCity(city?: string | null): boolean {
   return (city ?? "").trim().toLowerCase().includes("dubai");
@@ -73,6 +119,27 @@ export function isUaeLocation(
   return code === "AE" || c.includes("uae") || c.includes("emirates");
 }
 
+export function isChinaLocation(
+  country?: string | null,
+  countryCode?: string | null
+): boolean {
+  const code = normCode(countryCode);
+  const c = normCountry(country);
+  return code === "CN" || c === "china" || c === "prc" || c.includes("people's republic of china");
+}
+
+/** Sale subtypes that take the closed-loop default in China. Other classes stay on `none`. */
+export function isClosedLoopResidentialAsset(opts: {
+  buildingSubType?: string | null;
+}): boolean {
+  const sub = (opts.buildingSubType ?? "").toLowerCase().replace(/[\s-]/g, "_");
+  return (
+    sub === "residential_landed" ||
+    sub === "residential_high_rise" ||
+    sub === "residential_hi_rise"
+  );
+}
+
 /**
  * Sale C4 Step 3 land-equity slider: locked at 100% only for UAE + Dubai.
  * KSA, other emirates, and every other country stay unlocked (30–100%).
@@ -106,7 +173,9 @@ export function isCommercialSaleAsset(opts: {
  * in the engine. All four tabs remain selectable everywhere.
  *
  * Dubai/UAE → staged (all asset classes); Australia → 10/90 (all asset classes);
- * Malaysia → progress (residential) / none (commercial); all other locations → none.
+ * Malaysia → progress (residential) / none (commercial);
+ * China → closed-loop (residential landed / high-rise only);
+ * all other locations → none.
  */
 export function defaultEscrowRuleForLocation(opts: {
   country?: string | null;
@@ -121,6 +190,12 @@ export function defaultEscrowRuleForLocation(opts: {
   }
   if (isUaeLocation(opts.country, opts.countryCode) && isDubaiCity(opts.city)) {
     return "staged";
+  }
+  if (
+    isChinaLocation(opts.country, opts.countryCode) &&
+    isClosedLoopResidentialAsset(opts)
+  ) {
+    return "closed_loop_escrow";
   }
   return "none";
 }
@@ -170,6 +245,13 @@ export function normalizeEscrowRuleId(
   if (v === "staged" || v === "uae" || v === "uae_sa") return "staged";
   if (v === "progress" || v === "malaysia" || v === "hda" || v === "my") {
     return "progress";
+  }
+  if (
+    v === "closed_loop_escrow" ||
+    v === "closed_loop" ||
+    v === "closedloop"
+  ) {
+    return "closed_loop_escrow";
   }
   if (v === "none") return "none";
   return "none";

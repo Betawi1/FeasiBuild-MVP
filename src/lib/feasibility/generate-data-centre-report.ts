@@ -3,6 +3,7 @@ import { buildMacroSlides } from "@/lib/feasibility/generate-market-slides";
 import { generateTitleSlide } from "@/lib/feasibility/generate-title-slide";
 import { generateProjectLocationSlide } from "@/lib/feasibility/generate-project-location-slide";
 import { generateFinancialSlides } from "@/lib/feasibility/generate-financial-slides";
+import { asFallbackCommentary } from "@/lib/feasibility/enrichment-ladder";
 import {
   generateDataCentreCommentaryFallback,
   buildDataCentreCommentaryPrompt,
@@ -171,13 +172,14 @@ export async function generateDataCentreCommentary(
       cacheKey,
       forceRegenerate: options?.forceRegenerate,
       section,
+      slideKey: options?.slideId,
     });
     if (looksLikeWrongAssetAiOutput(raw)) {
       console.warn(
         `[Data Centre Feasibility] Rejecting wrong-asset AI output for ${section}; using DC fallback`
       );
-      return cleanAIContent(
-        generateDataCentreCommentaryFallback(section, bundle)
+      return asFallbackCommentary(
+        cleanAIContent(generateDataCentreCommentaryFallback(section, bundle))
       );
     }
     // Keep chart / assumption slides presentation-length
@@ -194,8 +196,8 @@ export async function generateDataCentreCommentary(
     return raw;
   } catch (error) {
     console.error(`Failed to generate commentary for ${section}:`, error);
-    return cleanAIContent(
-      generateDataCentreCommentaryFallback(section, bundle)
+    return asFallbackCommentary(
+      cleanAIContent(generateDataCentreCommentaryFallback(section, bundle))
     );
   }
 }
@@ -206,7 +208,7 @@ export async function generateDataCentreSlidesWithPuter(
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
   assertDataCentreBundle(bundle, "generateDataCentreSlidesWithPuter");
-  const baseSlides = generateDataCentreSlides(bundle);
+  const baseSlides = options.baseSlides ?? generateDataCentreSlides(bundle);
   return enrichOperationalSlidesWithCache(
     baseSlides,
     bundle,
@@ -215,6 +217,7 @@ export async function generateDataCentreSlidesWithPuter(
       generateDataCentreCommentary(section as DataCentreCommentarySection, b, {
         cacheKey: opts.cacheKey,
         forceRegenerate: opts.forceRegenerate,
+        slideId: opts.slideId,
       }),
     options
   );

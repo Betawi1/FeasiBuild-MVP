@@ -3,7 +3,7 @@
  * Generates pre-calculated monthly cash flow data for preview tables.
  *
  * Features:
- * - Sale escrow rules: staged | progress | ten_ninety | none (location defaults only)
+ * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | none (location defaults only)
  * - 1-Month Offsets for Interest, Fees, Withdrawals
  * - Gap-Fill Sequencing: Equity -> RCF -> Backstop Equity
  * - 30/70 Milestone Rule (staged / former UAE-KSA math)
@@ -13,15 +13,25 @@
 
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import {
+  CLOSED_LOOP_CONTRACTOR_RETENTION_PCT,
+  CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC,
   ESCROW_RULE_HORIZON_OFFSET,
+  resolveClosedLoopToppingOut,
   isCommercialSaleAsset,
   resolveEscrowRule,
   resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
+import { resolveActualConstructionEndMonth } from "@/lib/construction-end";
+import {
+  cumulativeConstructionProgressPct,
+  findFirstMonthAtCumulativeProgress,
+  lastNonZeroMonth,
+  shiftSalesInflowsToStartMonth,
+} from "@/lib/sale-cash-preview-profile";
 
 // --- TYPES ---
 
-export type Jurisdiction = 'UAE_SA' | 'MALAYSIA' | 'AUSTRALIA' | 'OTHER';
+export type Jurisdiction = 'UAE_SA' | 'MALAYSIA' | 'AUSTRALIA' | 'CHINA' | 'OTHER';
 
 export type MalaysiaPropertyType = 'LANDED' | 'HIGH_RISE';
 
@@ -177,12 +187,20 @@ export type FinancingInputs = {
   auDepositPct?: number;
   /** 10/90 Rule: balance % paid at settlement (percent points, default 90). */
   auBalancePct?: number;
+  /**
+   * Closed-loop topping-out. The C2 shift runs in any jurisdiction when this is
+   * true and the percent is above 0. Undefined keeps the legacy default
+   * (on for CHINA, off otherwise). The 70% TDC cap is not tied to this flag.
+   */
+  closedLoopToppingOutEnabled?: boolean;
+  /** Cumulative C1 progress % that must be reached before shifted sales begin. */
+  closedLoopToppingOutPct?: number;
 
   /** ISO / display country — used for VN/TH flexible horizon. */
   country?: string;
   countryCode?: string;
   city?: string;
-  /** Step 5 escrow rule (ten_ninety | staged | progress | none; legacy uae/malaysia/australia accepted). */
+  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | none; legacy uae/malaysia/australia accepted). */
   escrowWithdrawalMode?: string;
   /** Aliases for wizard / legacy field names. */
   withdrawalMethod?: string;
@@ -365,10 +383,48 @@ function selectedSaleEscrowRule(inputs: FinancingInputs) {
  * Last month index for sale stream (M0 … saleHorizon inclusive).
  * Follows the SELECTED escrow rule for every asset class (not country, not commercial/residential):
  * staged / ten_ninety → CP+12, progress → CP+24, none / unset → CP+6.
+ * closed_loop_escrow → max(actual construction end + 24, last sales month + 1).
+ * Construction end is the last non-zero C1 S-curve month, never the financing
+ * factory default. When topping-out is on, the last sales month is read from a
+ * shifted copy; the caller's array is unchanged.
  */
+function closedLoopToppingOutSales(
+  inputs: FinancingInputs,
+  constructionWindow: number
+): number[] | null {
+  const topping = resolveClosedLoopToppingOut({
+    toppingOutEnabled: inputs.closedLoopToppingOutEnabled,
+    toppingOutPercent: inputs.closedLoopToppingOutPct,
+    china: inputs.jurisdiction === "CHINA",
+  });
+  if (!topping.enabled || !(topping.percent > 0)) return null;
+  const progress = cumulativeConstructionProgressPct(
+    inputs.monthlyCosts?.construction || [],
+    constructionWindow
+  );
+  const toppingMonth = findFirstMonthAtCumulativeProgress(progress, topping.percent);
+  return shiftSalesInflowsToStartMonth(
+    inputs.monthlySalesInflows || [],
+    toppingMonth + 1
+  );
+}
+
 export function resolveSaleHorizonLastMonth(inputs: FinancingInputs): number {
   const constructionMonths = inputs.constructionPeriodMonths || 42;
-  return constructionMonths + ESCROW_RULE_HORIZON_OFFSET[selectedSaleEscrowRule(inputs)];
+  const rule = selectedSaleEscrowRule(inputs);
+  if (rule !== "closed_loop_escrow") {
+    return constructionMonths + ESCROW_RULE_HORIZON_OFFSET[rule];
+  }
+  const completionMonth = resolveActualConstructionEndMonth(
+    { constructionPeriod: inputs.constructionPeriodMonths },
+    inputs.monthlyCosts?.construction
+  );
+  const shifted = closedLoopToppingOutSales(inputs, constructionMonths);
+  const sales = shifted ?? inputs.monthlySalesInflows ?? [];
+  return Math.max(
+    completionMonth + ESCROW_RULE_HORIZON_OFFSET.closed_loop_escrow,
+    lastNonZeroMonth(sales) + 1
+  );
 }
 
 // --- STRATEGY MODELS ---
@@ -562,6 +618,147 @@ function applyAustralia1090Logic(
   row.escrowBalance = state.trustAccountBalance;
 }
 
+/**
+ * Strategy E: Closed-Loop Escrow.
+ * Every buyer inflow is locked until practical completion, then released as one lump.
+ * Collections after completion pass through in the same month. Interest and management
+ * fees accrue only while the prior balance is positive, and never after the lump release.
+ * No progress withdrawals. Contractor retention is a cost-timing item, not an escrow movement.
+ */
+function applyClosedLoopEscrowLogic(
+  row: MonthlyRow,
+  state: { escrowBalance: number },
+  _inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  interestEarned: number,
+  feePayable: number,
+  completionMonth: number
+) {
+  row.progressWithdrawal = 0;
+  row.retentionRelease = 0;
+
+  const prior = state.escrowBalance;
+  const sales = Math.max(0, salesThisMonth);
+  const accountOpen = prior > 1e-9;
+
+  // After the lump release the account stays at zero. Later sales pass through
+  // and must not revive interest, fees, or a negative balance.
+  if (m > completionMonth) {
+    row.escrowInterest = 0;
+    row.escrowAccountFees = 0;
+    row.escrowReleases = sales;
+    state.escrowBalance = 0;
+    row.escrowBalance = 0;
+    return;
+  }
+
+  // 1-month offset: interest and the management fee use the prior balance, and
+  // only while that balance is still positive. M0 keeps the one-off setup fee
+  // (not a balance-based management charge).
+  let interest = 0;
+  let fees = 0;
+  if (m === 0) {
+    fees = Math.max(0, feePayable);
+  } else if (accountOpen) {
+    interest = interestEarned;
+    fees = Math.max(0, feePayable);
+  }
+
+  let next = prior + sales + interest - fees;
+  if (next < -1e-9) {
+    fees = Math.max(0, fees + next);
+    next = 0;
+  } else if (next < 0) {
+    next = 0;
+  }
+
+  row.escrowInterest = interest;
+  row.escrowAccountFees = fees;
+
+  if (m === completionMonth) {
+    row.escrowReleases = next;
+    state.escrowBalance = 0;
+  } else {
+    row.escrowReleases = 0;
+    state.escrowBalance = next;
+  }
+  row.escrowBalance = state.escrowBalance;
+}
+
+/** Dev-only ledger checks. Production builds skip these. */
+function assertClosedLoopEscrowLedger(
+  rows: MonthlyRow[],
+  completionMonth: number,
+  horizonLength: number
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+
+  const series: Array<[string, number[]]> = [
+    ["escrow balance", rows.map((r) => r.escrowBalance)],
+    ["escrow interest", rows.map((r) => r.escrowInterest)],
+    ["escrow fees", rows.map((r) => r.escrowAccountFees)],
+    ["escrow releases", rows.map((r) => r.escrowReleases)],
+  ];
+  for (const [label, row] of series) {
+    if (row.length !== horizonLength) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[closed-loop] ${label}: length ${row.length} !== horizon ${horizonLength}`
+      );
+    }
+  }
+
+  let lockedSales = 0;
+  let passThrough = 0;
+  let releaseSum = 0;
+  let interestSum = 0;
+  let feeSum = 0;
+  for (const row of rows) {
+    if (row.escrowBalance < -1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[closed-loop] escrow balance < 0 at M${row.month}: ${row.escrowBalance}`
+      );
+    }
+    if (row.month <= completionMonth) lockedSales += row.salesProceeds;
+    else passThrough += row.salesProceeds;
+    releaseSum += row.escrowReleases;
+    interestSum += row.escrowInterest;
+    feeSum += row.escrowAccountFees;
+    if (row.month > completionMonth) {
+      if (Math.abs(row.escrowBalance) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[closed-loop] balance not zero after release at M${row.month}`);
+      }
+      if (Math.abs(row.escrowInterest) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[closed-loop] interest after release at M${row.month}`);
+      }
+      if (Math.abs(row.escrowAccountFees) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[closed-loop] fees after release at M${row.month}`);
+      }
+      if (Math.abs(row.escrowReleases - Math.max(0, row.salesProceeds)) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[closed-loop] pass-through release !== sales at M${row.month}`
+        );
+      }
+    }
+  }
+
+  // The completion lump releases locked principal plus net trust income
+  // (interest earned while the account was open, minus fees charged then).
+  const expected = lockedSales + passThrough + interestSum - feeSum;
+  if (Math.abs(releaseSum - expected) > 0.5) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[closed-loop] sum(releases) ${releaseSum} !== locked sales ${lockedSales} + pass-through ${passThrough} + interest ${interestSum} - fees ${feeSum}`
+    );
+  }
+}
+
 /** Strategy D: Non-Escrow (Universal Fallback) */
 function applyNonEscrowLogic(
   row: MonthlyRow,
@@ -603,6 +800,9 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   }
 
   const cp = inputs.constructionPeriodMonths;
+  const selectedRule = selectedSaleEscrowRule(inputs);
+  const closedLoop = selectedRule === "closed_loop_escrow";
+  const closedLoopChina = closedLoop && inputs.jurisdiction === "CHINA";
   const isCommercial = inputs.financingModel === "commercial";
   const isSaleStream =
     inputs.stream === "sale" ||
@@ -630,6 +830,36 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
             : 12);
   const saleHorizon = lastMonthIndex;
   const totalMonths = saleHorizon + 1;
+
+  // Topping-out shifts a copy of C2 in any jurisdiction. The 100% land-equity
+  // lock and land-loan suspension stay on the China copy only.
+  const shiftedSales = closedLoop ? closedLoopToppingOutSales(inputs, cp) : null;
+  if (shiftedSales || closedLoopChina) {
+    const land = Number(inputs.landCost) || 0;
+    const userPct = inputs.landEquityPercent ?? 100;
+    /** Same 70% land-equity haircut the C4 wizard uses when land equity is 100%. */
+    const landEquityHaircut = 0.7;
+    inputs = {
+      ...inputs,
+      monthlyCosts: { ...inputs.monthlyCosts },
+      monthlySalesInflows: shiftedSales ?? inputs.monthlySalesInflows,
+      ...(closedLoopChina
+        ? {
+            landEquityPercent: 100,
+            landEquityValue: land,
+            landLoanAmount: 0,
+            landLoanEnabled: false,
+            cashEquityRequired:
+              userPct >= 100
+                ? inputs.cashEquityRequired
+                : Math.max(
+                    0,
+                    (Number(inputs.cashEquityRequired) || 0) - land * landEquityHaircut
+                  ),
+          }
+        : {}),
+    };
+  }
 
   // Ensure all input arrays cover the full timeline to prevent undefined fallbacks.
   const padArray = (arr: number[], targetLength: number) => {
@@ -748,7 +978,6 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
   const totalTdc = totalTdcExclLand + inputs.landCost;
   
   // Estimate GDV for Retention (Total Sales Proceeds)
-  const selectedRule = selectedSaleEscrowRule(inputs);
   const retentionPctPoints = inputs.retentionPercent ?? 5;
   state.retentionAmount = totalSales * (retentionPctPoints / 100);
 
@@ -762,6 +991,25 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     const hdaPctDecimal = hdaPctPoints > 1 ? hdaPctPoints / 100 : hdaPctPoints;
     state.hdaDepositAmount = constructionCostTotal * hdaPctDecimal;
   }
+
+  const closedLoopCompletionMonth = closedLoop
+    ? resolveActualConstructionEndMonth(
+        { constructionPeriod: inputs.constructionPeriodMonths },
+        inputs.monthlyCosts.construction
+      )
+    : cp;
+
+  const contractorRetentionRate = CLOSED_LOOP_CONTRACTOR_RETENTION_PCT / 100;
+  let contractorRetentionTotal = 0;
+  if (closedLoop) {
+    const series = inputs.monthlyCosts.construction;
+    for (let i = 0; i <= closedLoopCompletionMonth; i++) {
+      contractorRetentionTotal += (Number(series[i]) || 0) * contractorRetentionRate;
+    }
+  }
+  const closedLoopLoanCap = closedLoopChina
+    ? totalTdc * CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC
+    : Number.POSITIVE_INFINITY;
 
   // --- MONTHLY LOOP ---
   for (let m = 0; m <= saleHorizon; m++) {
@@ -808,8 +1056,17 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     row.powc = powc;
     row.ffe = ffe;
     row.salesProceeds = sales;
+    // Closed-loop: hold 3% of building works through the actual construction end;
+    // pay the accumulated retention once, at completion + 24.
+    // Not an escrow movement — switching rules skips this block and restores the gross S-curve.
+    if (closedLoop && m <= closedLoopCompletionMonth) {
+      row.constructionCosts = cc * (1 - contractorRetentionRate);
+    }
+    if (closedLoop && m === closedLoopCompletionMonth + 24) {
+      row.constructionCosts += contractorRetentionTotal;
+    }
     // --- Cash outflows (construction / soft / POWC / FFE); land at M0 only, positive = outflow ---
-    row.totalOutflowsExclLand = cc + sc + powc + ffe;
+    row.totalOutflowsExclLand = row.constructionCosts + sc + powc + ffe;
     row.landCost = m === 0 ? Number(inputs.landCost) || 0 : 0;
     row.totalOutflowsInclLand = row.totalOutflowsExclLand + row.landCost;
 
@@ -902,6 +1159,17 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         interestEarned,
         feePayable,
         totalSales
+      );
+    } else if (selectedRule === "closed_loop_escrow") {
+      applyClosedLoopEscrowLogic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        interestEarned,
+        feePayable,
+        closedLoopCompletionMonth
       );
     } else {
       applyNonEscrowLogic(row, state, inputs, salesThisMonth);
@@ -1126,6 +1394,13 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
           room = Math.min(room, Math.max(0, maxLoanAllowed - state.rcfBalance));
         }
 
+        if (closedLoopChina) {
+          room = Math.min(
+            room,
+            Math.max(0, closedLoopLoanCap - state.rcfBalance)
+          );
+        }
+
         const drawdown = Math.min(fundingGap, room);
         if (drawdown > 0) {
           row.constLoanDrawdown = drawdown;
@@ -1199,7 +1474,11 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         0,
         (inputs.approvedCreditFacility || 0) - state.rcfBalance
       );
-      const rcfCanStillDraw = isConstructionPhase && facilityHeadroom > 1e-6;
+      const loanCapRoom = closedLoopChina
+        ? Math.max(0, closedLoopLoanCap - state.rcfBalance)
+        : facilityHeadroom;
+      const rcfCanStillDraw =
+        isConstructionPhase && Math.min(facilityHeadroom, loanCapRoom) > 1e-6;
       const australiaConstructionHandled = useAustraliaTrust && isConstructionPhase;
       if (!australiaConstructionHandled && !rcfCanStillDraw) {
         const plug = -row.cumulativeNcf;
@@ -1263,6 +1542,14 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
 
   // --- POST-PROCESS: IRR SOLVER ---
   solveIrrAndNpv(monthlyData);
+
+  if (closedLoop) {
+    assertClosedLoopEscrowLedger(
+      monthlyData,
+      closedLoopCompletionMonth,
+      totalMonths
+    );
+  }
 
   return monthlyData;
 }

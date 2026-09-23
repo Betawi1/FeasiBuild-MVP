@@ -17,6 +17,7 @@ import type {
 } from "@/types/feasibility";
 import { aiProvider } from "@/lib/ai-service";
 import { getCachedContent, setCachedContent } from "@/lib/cache-service";
+import { mapInEnrichmentOrder } from "@/lib/feasibility/enrichment-pool";
 
 export type HospitalityChartType =
   | "tt-demand"
@@ -1108,7 +1109,8 @@ export async function generateHospitalityChartData(
   location: HospitalityLocation,
   projectContext: HospitalityProjectContext,
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideKey?: string
 ): Promise<HospitalityChartResult | null> {
   const typed = chartType as HospitalityChartType;
   if (!HOSPITALITY_CHART_CONFIGS[typed]) return null;
@@ -1127,12 +1129,9 @@ export async function generateHospitalityChartData(
     result = await aiProvider.generateChartData(prompt, {
       cacheKey,
       forceRegenerate,
+      slideKey,
     });
-  } catch (e) {
-    console.warn(
-      "[generateChartData] chart JSON unavailable — skipping chart.",
-      e
-    );
+  } catch {
     return null;
   }
   if (!result) return null;
@@ -1180,51 +1179,60 @@ export async function enrichHospitalityMarketCharts(
   slides: FeasibilitySlide[],
   location: HospitalityLocation,
   projectContext: HospitalityProjectContext,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  options?: {
+    onlySlideIds?: string[];
+    onSlide?: (slide: FeasibilitySlide, ok: boolean) => void;
+  }
 ): Promise<FeasibilitySlide[]> {
   const enriched = [...slides];
+  const only = options?.onlySlideIds?.length
+    ? new Set(options.onlySlideIds)
+    : null;
 
-  await Promise.all(
-    Object.entries(HOSPITALITY_SLIDE_CHART_TYPE).map(
-      async ([slideId, chartType]) => {
-        const idx = enriched.findIndex((s) => s.id === slideId);
-        if (idx < 0) return;
+  await mapInEnrichmentOrder(
+    Object.entries(HOSPITALITY_SLIDE_CHART_TYPE),
+    async ([slideId, chartType]) => {
+      if (only && !only.has(slideId)) return;
+      const idx = enriched.findIndex((s) => s.id === slideId);
+      if (idx < 0) return;
 
-        const cacheKey = buildHospitalityChartCacheKey(chartType, location);
-        try {
-          const result = await generateHospitalityChartData(
-            chartType,
-            location,
-            projectContext,
-            cacheKey,
-            forceRegenerate
-          );
+      const cacheKey = buildHospitalityChartCacheKey(chartType, location);
+      try {
+        const result = await generateHospitalityChartData(
+          chartType,
+          location,
+          projectContext,
+          cacheKey,
+          forceRegenerate || Boolean(only?.has(slideId)),
+          slideId
+        );
 
-          if (!result) return;
-
-          const prev = enriched[idx]!;
-          const dataPayload =
-            result.travelTourismDemandData ??
-            result.annualRevenuesData ??
-            result.historicalGuestsData ??
-            result.lengthOfStayData;
-
-          enriched[idx] = {
-            ...prev,
-            charts: result.charts,
-            paragraphs: result.commentary,
-            bulletPoints: result.commentary,
-            ...(result.tables ? { tables: result.tables } : {}),
-            ...(dataPayload ? { data: dataPayload } : {}),
-          };
-        } catch (e) {
-          console.warn(
-            "[generateChartData] chart JSON unavailable — skipping chart.",
-            e
-          );
+        if (!result) {
+          options?.onSlide?.(enriched[idx]!, false);
+          return;
         }
+
+        const prev = enriched[idx]!;
+        const dataPayload =
+          result.travelTourismDemandData ??
+          result.annualRevenuesData ??
+          result.historicalGuestsData ??
+          result.lengthOfStayData;
+
+        enriched[idx] = {
+          ...prev,
+          charts: result.charts,
+          paragraphs: result.commentary,
+          bulletPoints: result.commentary,
+          ...(result.tables ? { tables: result.tables } : {}),
+          ...(dataPayload ? { data: dataPayload } : {}),
+        };
+        options?.onSlide?.(enriched[idx]!, true);
+      } catch {
+        options?.onSlide?.(enriched[idx]!, false);
       }
-    )
+    }
   );
 
   return enriched;

@@ -416,7 +416,8 @@ export async function generateOperationalMarketChartData(
   location: OperationalMarketLocation,
   projectContext: OperationalMarketProjectContext,
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideKey?: string
 ): Promise<OperationalMarketChartResult | null> {
   const config = OPERATIONAL_MARKET_CHART_CONFIGS[assetType];
   if (!config) return null;
@@ -438,6 +439,7 @@ export async function generateOperationalMarketChartData(
   const result = await aiProvider.generateChartData(prompt, {
     cacheKey,
     forceRegenerate,
+    slideKey,
   });
   if (!result) return null;
 
@@ -778,7 +780,8 @@ export async function generateOperationalSupplyPipelineData(
   location: OperationalMarketLocation,
   projectContext: OperationalMarketProjectContext,
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideKey?: string
 ): Promise<OperationalSupplyPipelineResult | null> {
   const config = OPERATIONAL_SUPPLY_PIPELINE_CONFIGS[assetType];
   if (!config) return null;
@@ -800,6 +803,7 @@ export async function generateOperationalSupplyPipelineData(
   const result = await aiProvider.generateChartData(prompt, {
     cacheKey,
     forceRegenerate,
+    slideKey,
   });
   if (!result) return null;
 
@@ -1347,7 +1351,8 @@ export async function generateOperationalTenantProfileData(
   location: OperationalMarketLocation,
   projectContext: OperationalMarketProjectContext & { keys?: number },
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideKey?: string
 ): Promise<OperationalTenantProfileResult | null> {
   const config = OPERATIONAL_TENANT_PROFILE_CONFIGS[assetType];
   if (!config) return null;
@@ -1369,6 +1374,7 @@ export async function generateOperationalTenantProfileData(
   const result = await aiProvider.generateChartData(prompt, {
     cacheKey,
     forceRegenerate,
+    slideKey,
   });
   if (!result) return null;
 

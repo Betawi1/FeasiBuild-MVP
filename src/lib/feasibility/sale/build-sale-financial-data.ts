@@ -8,13 +8,17 @@ import type { MonthlyRow as EngineMonthlyRow } from "@/lib/financing-engine/gene
 import useFinModelStore from "@/store/useFinModelStore";
 import { formatDrawdownLabel } from "@/lib/feasibility/build-term-loan-data";
 import {
+  CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC,
+  CLOSED_LOOP_CONTRACTOR_RETENTION_PCT,
   ESCROW_RULE_CONFIG_TITLE,
   ESCROW_RULE_DISPLAY_NAME,
   defaultEscrowRuleForLocation,
   isAustraliaLocation,
+  isChinaLocation,
   isDubaiCity,
   isMalaysiaLocation,
   isUaeLocation,
+  resolveClosedLoopToppingOut,
   resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
 import type {
@@ -456,8 +460,10 @@ export function buildSaleEscrowWithdrawalData(
       : isAustraliaLocation(country)
         ? "AUSTRALIA"
         : isUaeLocation(country) && isDubaiCity(city)
-        ? "UAE_SA"
-        : "OTHER",
+          ? "UAE_SA"
+          : isChinaLocation(country)
+            ? "CHINA"
+            : "OTHER",
     country,
     city,
     buildingType: bundle.buildingType,
@@ -477,6 +483,14 @@ export function buildSaleEscrowWithdrawalData(
   } else if (rule === "ten_ninety" && locationDefault === "ten_ninety") {
     localRegimeNote = "Australian state 10/90 regimes";
   }
+
+  const chinaOverlay = isChinaLocation(country);
+  const toppingOut = resolveClosedLoopToppingOut({
+    toppingOutEnabled: ec?.closedLoop?.toppingOutEnabled,
+    toppingOutPercent: ec?.closedLoop?.toppingOutPercent,
+    toppingOutPct: ec?.closedLoop?.toppingOutPct,
+    china: chinaOverlay,
+  });
 
   const c = bundle.currency;
   const retentionPct = ec?.uaeSa?.retentionPercentage ?? 5;
@@ -531,6 +545,16 @@ export function buildSaleEscrowWithdrawalData(
       setupFee: f.escrowSetupFee ?? 0,
       managementFee: f.escrowManagementFeePct ?? 0,
     },
+    closedLoopConfig:
+      rule === "closed_loop_escrow"
+        ? {
+            chinaOverlay,
+            toppingOutEnabled: toppingOut.enabled && toppingOut.percent > 0,
+            toppingOutPct: toppingOut.percent,
+            contractorRetentionPct: CLOSED_LOOP_CONTRACTOR_RETENTION_PCT,
+            maxLoanOfTdcPct: Math.round(CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC * 100),
+          }
+        : undefined,
   };
 }
 

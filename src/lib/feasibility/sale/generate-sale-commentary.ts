@@ -8,6 +8,11 @@ import {
 import { buildSaleMarketCommentaryPrompt } from "@/lib/feasibility/generate-sale-market-commentary-prompts";
 import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-context";
 import {
+  isChinaLocation,
+  resolveClosedLoopToppingOut,
+  resolveSaleProjectEscrowRule,
+} from "@/lib/financing-engine/escrow-rules";
+import {
   getSaleStreamConfig,
   type SaleStreamConfig,
 } from "@/lib/feasibility/sale/sale-stream-config";
@@ -214,12 +219,45 @@ export function generateSaleCommentaryFallback(
         `IDC treatment of ${bundle.financing.idcTreatment} affects capitalized interest at completion.`,
         `Loan at completion of ${fmtSaleMoney(bundle.component4.loanAtCompletion, c, true)} at ${bundle.component4.interestRate}% supports post-CP debt service.`,
       ];
-    case "Escrow Configuration":
+    case "Escrow Configuration": {
+      const rule = resolveSaleProjectEscrowRule({
+        withdrawalMode: bundle.financing.escrowConfig?.withdrawalMode,
+        confirmedByWizard: bundle.financing.escrowConfig?.confirmedByWizard,
+        country: bundle.location.country,
+        city: bundle.location.city,
+        buildingType: bundle.buildingType,
+        buildingSubType: bundle.buildingSubType,
+      });
+      if (rule === "closed_loop_escrow") {
+        const lines = [
+          `100% of buyer funds are locked in escrow until practical completion. There are no progress withdrawals during construction; the balance is released as a single lump sum at completion.`,
+          `3% of building works are retained from the main contractor and paid at practical completion plus 24 months.`,
+        ];
+        const china = isChinaLocation(bundle.location.country);
+        const topping = resolveClosedLoopToppingOut({
+          toppingOutEnabled: bundle.financing.escrowConfig?.closedLoop?.toppingOutEnabled,
+          toppingOutPercent: bundle.financing.escrowConfig?.closedLoop?.toppingOutPercent,
+          toppingOutPct: bundle.financing.escrowConfig?.closedLoop?.toppingOutPct,
+          china,
+        });
+        if (topping.enabled && topping.percent > 0) {
+          lines.push(
+            `Off-plan sales start only after cumulative construction progress reaches the topping-out threshold of ${topping.percent}%.`
+          );
+        }
+        if (china) {
+          lines.push(
+            `Land is funded entirely with equity, and the construction loan is capped at 70% of total development cost.`
+          );
+        }
+        return lines;
+      }
       return [
         `The ${m.escrowJurisdiction} governs buyer payment collection and developer withdrawal timing.`,
         `Progress-linked withdrawals align developer cash access with construction certification.`,
         `Retention provisions protect buyers until handover and defect liability periods.`,
       ];
+    }
     case "Post-Financing Cash Flows":
       return [
         `Post-financing cash flows reflect debt drawdown, IDC, and equity injections through construction.`,

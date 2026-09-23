@@ -3,6 +3,7 @@
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import { getCachedContent } from "@/lib/cache-service";
 import { hasPlaceholderContent } from "@/lib/ai-service";
+import { isAiFallbackCommentary } from "@/lib/feasibility/enrichment-ladder";
 import { enrichStructuredSlideData } from "@/lib/feasibility/enrich-structured-slide-data";
 import {
   buildOperationalBundleHashes,
@@ -14,9 +15,18 @@ import {
 } from "@/lib/slide-dependencies";
 import { resolveOperationalAssetType } from "@/lib/feasibility/operational-asset-class";
 
+export type CommentaryQuality = "ok" | "fallback";
+
 export interface OperationalSlideCacheOptions {
   forceRegenerate?: boolean;
   oldHashes?: Record<string, string>;
+  /** When set, only these slide ids call the model. Other slides stay as provided. */
+  onlySlideIds?: string[];
+  /** Retry / in-memory deck. Skips rebuilding static slides. */
+  baseSlides?: FeasibilitySlide[];
+  /** Fired once with the pre-model deck so the UI can paint before Puter returns. */
+  onDeckReady?: (slides: FeasibilitySlide[]) => void;
+  onCommentary?: (slide: FeasibilitySlide, quality: CommentaryQuality) => void;
 }
 
 export interface OperationalSlideCacheResult {
@@ -27,7 +37,7 @@ export interface OperationalSlideCacheResult {
 type CommentaryGenerator = (
   section: string,
   bundle: FeasibilityProjectBundle,
-  options: { cacheKey: string; forceRegenerate: boolean }
+  options: { cacheKey: string; forceRegenerate: boolean; slideId: string }
 ) => Promise<string[]>;
 
 /**
@@ -42,10 +52,13 @@ export async function enrichOperationalSlidesWithCache(
   generateCommentary: CommentaryGenerator,
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
-  const { forceRegenerate = false, oldHashes = {} } = options;
+  const { forceRegenerate = false, oldHashes = {}, onlySlideIds, onDeckReady, onCommentary } =
+    options;
+  const only = onlySlideIds?.length ? new Set(onlySlideIds) : null;
   resetDependencyChangeLog();
   const hashes = buildOperationalBundleHashes(bundle);
   const enriched = [...slides];
+  onDeckReady?.(enriched);
 
   const inputsUnchanged =
     Object.keys(oldHashes).length > 0 && hashesAreEqual(oldHashes, hashes);
@@ -69,6 +82,7 @@ export async function enrichOperationalSlidesWithCache(
   for (const { slideId, section } of sections) {
     const idx = enriched.findIndex((s) => s.id === slideId);
     if (idx < 0) continue;
+    if (only && !only.has(slideId)) continue;
 
     const depSection = getOperationalSlideDependencySection(slideId);
     const cacheKey = buildOperationalCommentaryCacheKey(
@@ -79,7 +93,8 @@ export async function enrichOperationalSlidesWithCache(
     const inputsChanged =
       !inputsUnchanged &&
       shouldRegenerateSlide(depSection, oldHashes, hashes);
-    const skipCache = forceRegenerate || inputsChanged;
+    const targeted = only?.has(slideId) ?? false;
+    const skipCache = forceRegenerate || inputsChanged || targeted;
 
     if (!skipCache) {
       const cached = await getCachedContent<string[]>(cacheKey);
@@ -98,12 +113,18 @@ export async function enrichOperationalSlidesWithCache(
             joined.includes("residential") ||
             joined.includes("btr tower"));
 
-        if (!hasPlaceholderContent(cached) && !wrongAssetForDc) {
+        if (
+          !hasPlaceholderContent(cached) &&
+          !wrongAssetForDc &&
+          !isAiFallbackCommentary(cached)
+        ) {
           console.log(`[Operational Cache HIT] ${slideId} (${cacheKey})`);
-          enriched[idx] = {
+          const slide = {
             ...enriched[idx]!,
             paragraphs: cached,
           };
+          enriched[idx] = slide;
+          onCommentary?.(slide, "ok");
           continue;
         }
         console.log(
@@ -123,11 +144,17 @@ export async function enrichOperationalSlidesWithCache(
     const paragraphs = await generateCommentary(section, bundle, {
       cacheKey,
       forceRegenerate: skipCache,
+      slideId,
     });
-    enriched[idx] = {
+    const slide = {
       ...enriched[idx]!,
       paragraphs,
     };
+    enriched[idx] = slide;
+    onCommentary?.(
+      slide,
+      isAiFallbackCommentary(paragraphs) ? "fallback" : "ok"
+    );
   }
 
   return {

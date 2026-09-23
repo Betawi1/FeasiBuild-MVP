@@ -1775,6 +1775,7 @@ export type FinancingEscrowConfig = {
     | "ten_ninety"
     | "staged"
     | "progress"
+    | "closed_loop_escrow"
     | "none"
     | "malaysia"
     | "uae"
@@ -1804,6 +1805,16 @@ export type FinancingEscrowConfig = {
     retentionPct?: number;
     /** @deprecated Use balancePct */
     releasePct?: number;
+  };
+  /**
+   * Closed-loop topping-out. The sales shift runs in any jurisdiction when
+   * `toppingOutEnabled` is true. Absent flag: China defaults on, everyone else off.
+   * `toppingOutPct` is the legacy percent field.
+   */
+  closedLoop?: {
+    toppingOutEnabled?: boolean;
+    toppingOutPercent?: number;
+    toppingOutPct?: number;
   };
 };
 

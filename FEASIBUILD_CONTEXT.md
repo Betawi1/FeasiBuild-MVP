@@ -14,6 +14,8 @@
 | **Repo / app** | Next.js financial modeling application (`finmodel-app-v2`) that produces project cash-flow models and AI-assisted feasibility study decks used in the FeasiBuild workflow. |
 | **User profile** | C-level finance expert with ~30 years ASEAN / Middle East project finance experience. Prefers **step-by-step guidance** and **foundational explanations** (not jargon-first dumps). |
 | **UX implication** | Wizards, docs, and AI copy should teach *why* a step exists before *how* to fill it; keep labels plain and progressive. |
+| **Payment structures** | Native presets for Dubai Law No. 8, Malaysia HDA and Australia's 10/90 — plus a configurable payment-structure engine (no escrow, custom splits like 20/80 or 30/70, staged escrow with custom retentions) for any location on earth. Pin-drop sets the country; user sets the rules. AI market research is tailored to the pin-dropped location, reverting to the nearest city when hyper-local data is thin. **NEVER pair UK with 10/90 — UK does not use it. Australia only.** |
+| **Funnel** | LinkedIn posters → blog depth → FAQ (AI-search citations) → Vault (email capture) → Explorer → $99 lifetime. Forums/Reddit = expert value comments (9:1 value-to-link ratio, disclosed affiliation) linking to blog articles. |
 
 ---
 
@@ -34,7 +36,7 @@ FeasiBuild runs **two parallel financial streams**, selected from the dashboard.
 - `src/lib/stream-path.ts` — `withStreamPrefix`, `useStreamPrefix`
 - Dashboard: `src/app/dashboard/` — projects home + **`/dashboard/settings`** (AI model preference + **Get help** Telegram link)
 - Product docs: `src/app/docs/operational-stream/`, `src/app/docs/sale-stream/`
-- Marketing: landing (`src/app/page.tsx`) includes **`#pricing`** (`PricingSection`); comparison is `/comparison` (anonymous category names only — no real competitor brands)
+- Marketing: landing (`src/app/page.tsx`) includes **`#pricing`** (`PricingSection`); landing comparison is `/comparison` (anonymous category names only — no real competitor brands). Content: `/blog` (nav label **Learn**), `/faq`, `/vault` (gated sample library). Named competitors belong only on branded blog comparison articles (#9–#10), with the verify-before-claim rule.
 - Legal: `/terms` (`src/app/terms/page.tsx`), `/refund-policy` (`src/app/refund-policy/page.tsx`), `/privacy-policy`. Legacy `/terms-of-service` **redirects** to `/terms`. Footer + `UpgradeModal` link to Terms and Refund Policy.
 - **Clerk waitlist is DISABLED** — open sign-ups.
 
@@ -163,7 +165,8 @@ Scenario engines:
 | **Entitlements / report gating** | `src/lib/entitlements.ts` (`getCustomerTier`, `hasWhiteLabelAccess`). Report/export: `src/lib/report-entitlements.ts` (`evaluateExport`, `recordExport`, `canCreateProject`); credit consume `src/app/api/subscription/consume-credit/route.ts`. Hooks: `useReportExportGate`, `useCanCreateProject`, `useSubscription`. |
 | **White-label logo** | `src/lib/brand-logo.ts` (Secure KV `brand_logo` + `brand_logo_height`, 40–200px default 64). UI: `LogoUploadControl.tsx` on the title slide (Unlimited Pack always; Professional only with 100-Pack). |
 | **Feasibility chrome** | `SlideHeader.tsx` (page numbers via `SlidePaginationProvider`); `SlideWatermark.tsx` (Explorer only); `FitSlide.tsx` (overflow scale-to-fit); `ReportUpgradeModal.tsx`; PDF capture hides upload/upsell via `data-pdf-hide`. |
-| **Landing / pricing / comparison / legal** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/components/landing/Footer.tsx`; `src/components/landing/TechnologySection.tsx` (“AI Engine (Qwen, Claude & OpenAI)”); `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `#pricing`; legal pages `/terms`, `/refund-policy`, `/privacy-policy`; `UpgradeModal` purchase disclaimer |
+| **Landing / pricing / comparison / legal** | `src/components/landing/PricingSection.tsx` (`#pricing`); `src/components/landing/Footer.tsx`; `src/components/landing/TechnologySection.tsx` (“AI Engine (Qwen, Claude & OpenAI)”); `src/app/comparison/page.tsx` (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy — no named vendors); navbar `/#pricing`; legal pages `/terms`, `/refund-policy`, `/privacy-policy`; `UpgradeModal` purchase disclaimer |
+| **Learn / FAQ / Vault** | `src/app/blog/**`, `src/content/blog/**`, `src/components/blog/**`; `src/app/faq/**`, `src/content/faq/faqs.ts`; `src/app/vault/**`, `src/content/vault/studies.ts`, `src/components/vault/VaultLibrary.tsx`; PDFs `public/vault/*.pdf` |
 | **Maps (Leaflet)** | `src/components/LocationMapPicker.tsx`, `src/components/feasibility/slides/ProjectLocationMap.tsx` — import `leaflet/dist/leaflet.css`; single-host OSM tiles `https://tile.openstreetmap.org/{z}/{x}/{y}.png`; `invalidateSize()` on mount/resize. |
 | **Field source tagging** | `src/lib/field-value-source.ts` (`ai` / `override` / `default`); `src/components/ui/AiInput.tsx` (blue AI / orange user-typed only / grey default; local string state while focused). |
 | **Secure Puter KV (Clerk isolation)** | `src/lib/secure-puter-kv.ts` — **only** module that calls `puter.kv.*`. Keys: `feasi_build_{clerkUserId}_{logicalKey}`. Strips legacy `feasibuild_{userId}_` / double prefixes via `toLogicalKvKey`. Retries get/set/del (3×, 1s→2s backoff). `SecureKvUserBinder` + `getSecureKvUserId()` for lib callers. Auth probe: `probePuterKvAccess`. |
@@ -197,7 +200,7 @@ Two agents share the founder’s Telegram bot (`@FeasiBuild_Support_Bot`) as the
 | **Agent 2 — Telegram Concierge** | All users (free) | `POST /api/support/telegram` | Webhook secret `x-telegram-bot-api-secret-header` / `…-secret-token` vs `TELEGRAM_WEBHOOK_SECRET`. Dedupes last 100 `update_id`s. `/start` [payload] maps `ops-C1-S6` → “Operational · Component 1 · Step 6” (`describeSupportStartPayload`); stores `came_from` per chat for Discord escalations. FAQ via **server Puter** JSON triage (`BUG` / `BILLING` / `FEATURE` / `FAQ`). Founder-only `/reply <chat_id> <text>` (`FOUNDER_TELEGRAM_ID`). Always 200 to Telegram after the secret check. |
 | **Priority Email (Pro / Unlimited Pack)** | Paying tiers | `POST /api/support/email` | Resend `email.received` is **metadata only** — fetch body via `GET /emails/receiving/{id}` (`src/lib/support-resend.ts`). `getCustomerTier(email, subscription)` (`src/lib/entitlements.ts`): Clerk `publicMetadata.subscription` first; unknown → **`explorer`**. Explorer auto-replies pointing at Telegram. Pro / Unlimited Pack: server Puter draft (`gpt-4o-mini`, 60s timeout) → founder Telegram block with `---DRAFT---` / `---END---`. Founder **must Reply** to that message: `/send`, edited text, or `/reject`. Bare `/send` without Reply is **not** triaged — bot explains the Reply gesture. Outbound from `FeasiBuild Support <owner@feasibuild.app>` with `In-Reply-To` / `References`. |
 
-**Env:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `FOUNDER_TELEGRAM_ID`, `PUTER_AUTH_TOKEN`, `RESEND_API_KEY`, `DISCORD_OPS_WEBHOOK_URL`.
+**Env:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `FOUNDER_TELEGRAM_ID`, `PUTER_AUTH_TOKEN`, `RESEND_API_KEY`, `VAULT_NOTIFY_EMAIL`, `GOOGLE_SHEET_WEBHOOK_URL`, `DISCORD_OPS_WEBHOOK_URL`.
 
 **Discord ops alerts:** `sendOpsAlert` renders `user_context` as clickable `https://t.me/username` (never `tg://`). No username → instruct `/reply <chat_id> <message>`. Sources `Support Bot Escalation` / `Support Bot Feature Request` skip Puter summarization.
 
@@ -236,7 +239,70 @@ One-time PayPal products only. **There is no monthly subscription SKU.**
 
 **Code note:** `getCustomerTier` may return `"advisory"` meaning **active Unlimited Pack**. Do not add a monthly billing product.
 
-### 2.10 Payments (PayPal LIVE)
+### 2.10 Content, SEO & lead capture (16 Sep 2026)
+
+**Payment structures (copy + research):** Native presets for Dubai Law No. 8, Malaysia HDA and Australia's 10/90 — plus a configurable payment-structure engine (no escrow, custom splits like 20/80 or 30/70, staged escrow with custom retentions) for any location on earth. Pin-drop sets the country; user sets the rules. AI market research is tailored to the pin-dropped location, reverting to the nearest city when hyper-local data is thin.
+
+⚠️ **NEVER pair UK with 10/90 — UK does not use it. Australia only.** Do not use UK as a 10/90 example in articles, FAQ, decks, or defaults.
+
+**Funnel:** LinkedIn posters → blog depth → FAQ (AI-search citations) → Vault (email capture) → Explorer → $99 lifetime. Forums/Reddit = expert value comments (9:1 value-to-link ratio, disclosed affiliation) linking to blog articles.
+
+#### `/blog` (nav label “Learn”)
+
+10 long-form articles, markdown-based (`src/content/blog/articles/<slug>.md`), searchable index, related-cards auto-rendered. Page-level conversion = author-free CTA button **“Try FeasiBuild free”** (bio line removed by owner's choice).
+
+| # | Slug | Voice |
+|---|------|--------|
+| 1 | `how-to-write-a-real-estate-feasibility-study` | Neutral — no product mentions in body |
+| 2 | `dscr-explained-for-real-estate-developers` | Neutral |
+| 3 | `irr-vs-equity-multiple-explained` | Neutral |
+| 4 | `feasibility-study-vs-appraisal` | Neutral |
+| 5 | `ai-vs-excel-real-estate-proforma` | Neutral |
+| 6 | `real-estate-development-financial-model` | Neutral |
+| 7 | `how-to-present-to-an-investment-committee` | Neutral |
+| 8 | `ai-tools-for-real-estate-underwriting` | Neutral |
+| 9 | `best-feasibility-study-software-2026` | Openly branded comparison |
+| 10 | `feasibuild-vs-the-market-2026` | Openly branded comparison |
+
+**Voice rule:** articles #1–#8 are written as if the author does not know FeasiBuild; no product mentions in body. #9–#10 are openly branded comparison pages. Conversion lives at page level only.
+
+#### `/faq`
+
+12 snippet-length (40–60 word) answers in 4 groups (Basics, Metrics, Comparisons, Product). FAQPage JSON-LD schema. Each answer links to its blog deep-dive. Source: `src/content/faq/faqs.ts`.
+
+#### `/vault`
+
+Gated sample library. 3 watermarked PDFs at `/public/vault/`:
+
+| File | Stream | Notes |
+|------|--------|--------|
+| `residential-rak-uae.pdf` | Sale | High-rise, Ras Al Khaimah |
+| `residential-dongguan-china.pdf` | Sale | Pin-drop proof (no native preset) |
+| `datacentre-penang-malaysia.pdf` | Operational | Tier IV colocation |
+
+**Ladder:** email gate → view all in-browser + download **ONE**; free Explorer account unlocks all downloads. Australia office study exists but is **withheld** (reserve asset).
+
+#### Competitor set (comparisons only)
+
+Pricing as of **Sep 2026**. **Verify-before-claim** — do not invent or round numbers in copy.
+
+| Name | Pricing (Sep 2026) |
+|------|---------------------|
+| ARGUS | (verify before claim) |
+| EstateMaster | $500–3K/mo |
+| AIRE | ~$7K/study |
+| Feasibility.pro | $99/mo |
+| Buildora IQ | $69/mo |
+| Feasly | $49/mo |
+| Archistar | from ~$63/mo |
+
+**DealCheck excluded by owner's decision.** Named brands belong on blog #9–#10 only. Landing `/comparison` stays anonymous (Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy).
+
+#### Lead capture
+
+Vault gate POSTs to `/api/vault-lead` → Resend email to `owner@feasibuild.app` (`VAULT_NOTIFY_EMAIL`; Reply-To = lead's email); fail-open UX with `localStorage` pending-lead retry (`fb_pending_leads`); honeypot field `hp`. Optional sheet POST when `GOOGLE_SHEET_WEBHOOK_URL` is set. **Phase 2 (not built):** Zoho Campaigns list + nurture sequence.
+
+### 2.11 Payments (PayPal LIVE)
 
 - **One-time orders only** (`intent: CAPTURE`). No PayPal subscription plans.
 - **Env (all live):** `PAYPAL_MODE`, `NEXT_PUBLIC_PAYPAL_MODE`, `PAYPAL_CLIENT_ID`, `NEXT_PUBLIC_PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`.
@@ -442,7 +508,7 @@ Escrow UI: `src/app/sale/financing/escrow-config/{Uae,Malaysia,Australia}EscrowC
 - Australia → 10/90 Rule (all asset classes) (CP+12)
 - Malaysia residential → Progress Drawdown Rule (CP+24)
 - Malaysia commercial → No Escrow Rules (CP+6)
-- All other locations (KSA, Abu Dhabi, RAK, Sharjah, Ajman, Fujairah, Thailand, China, …) → No Escrow Rules (CP+6)
+- All other locations (KSA, Abu Dhabi, RAK, Sharjah, Ajman, Fujairah, Thailand, China, **UK**, …) → No Escrow Rules (CP+6)
 
 **Backward compatibility:** stored modes `uae`/`malaysia`/`australia`/`none` map to the new ids.
 Missing stored `escrowRule` → apply **location + asset-class default on open** (Dubai staged, AU 10/90, MY residential progress, MY commercial none, else none). Do not force `none` just because the field was empty.
@@ -463,6 +529,7 @@ Missing stored `escrowRule` → apply **location + asset-class default on open**
 - Deposit % (default 10) / Balance % (default 90) user-editable, must sum to 100.
 - Deposit to trust at **every** lock month; balance at settlement (CP locks at CP+1, post-CP same month); releases at settlement; residual sweep by **CP+12**; trust interest 1-month offset; ΣASP = Σlocked + net interest − fees.
 - Gap-fill loan ≤ **70%** of cumulative locked sales. Horizon **CP+12**.
+- ⚠️ **NEVER pair UK with 10/90.** UK does not use it. **Australia only.** Do not pre-select, example, or describe UK (or any non-AU market) as a 10/90 jurisdiction.
 
 ### 5.4 No Escrow Rules
 
@@ -472,7 +539,7 @@ Missing stored `escrowRule` → apply **location + asset-class default on open**
 
 Rules are **mechanisms, not country labels**. Location + asset class only pre-select (AU → 10/90 all classes, MY residential → progress / MY commercial → none, UAE+Dubai → staged all classes, everyone else incl. KSA/other emirates → none with full choice). Engine routing and horizons follow the **SELECTED** rule. Land-equity **100% lock is Dubai-only**.
 
-- Australia → 10/90 (`ten_ninety`) — all asset classes
+- Australia → 10/90 (`ten_ninety`) — all asset classes. **Never UK.**
 - Malaysia residential → progress; Malaysia commercial → none
 - UAE **and city Dubai** → staged — all asset classes
 - **All other locations** (KSA, other emirates including Abu Dhabi / RAK / Sharjah / Ajman / Fujairah, Thailand, China, …) → `none` default with full choice
@@ -494,7 +561,15 @@ Engine routing and horizons follow the **selected** rule: staged +12, 10/90 +12,
 
 ## 6. Current Pending Tasks & Next Steps
 
-Snapshot as of **1 Sep 2026**. Prefer editing this file over scattering architecture notes across chats.
+Snapshot as of **16 Sep 2026**. Prefer editing this file over scattering architecture notes across chats.
+
+### Just finished (16 Sep 2026) — Learn / FAQ / Vault + lead capture (no engine math)
+
+- **`/blog` (nav: Learn):** 10 long-form articles in `src/content/blog/articles/<slug>.md`; searchable index; related cards; page-level “Try FeasiBuild free” CTA (no author bio). #1–#8 product-neutral body copy; #9–#10 branded comparisons.
+- **`/faq`:** 12 answers, 4 groups, FAQPage JSON-LD, each links to a blog deep-dive.
+- **`/vault`:** Gated sample library — RAK sale, Dongguan sale (pin-drop proof), Penang Tier IV data centre. Email gate → view all + keep one download; Explorer unlocks the rest. Australia office study withheld (reserve).
+- **Lead capture:** `POST /api/vault-lead` → Resend to `owner@feasibuild.app` (Reply-To = lead); fail-open + `fb_pending_leads` retry; honeypot `hp`. Zoho nurture is Phase 2 (not built).
+- **Copy invariants:** NEVER pair UK with 10/90 (Australia only). Named competitors only on blog #9–#10; verify-before-claim Sep 2026 pricing; DealCheck excluded. Funnel: LinkedIn posters → blog → FAQ → Vault → Explorer → $99 lifetime.
 
 ### Just finished (24 Aug → 1 Sep 2026) — PayPal live + engine/deck hardening
 
@@ -610,16 +685,17 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 17. **Operational C6 shocks:** Use the asset’s own factor set from `ASSET_SPECIFIC_FACTORS`. Unmapped types show Common Factors only — never fall back to Hotel.  
 18. **Support email review:** Founder `/send` / `/reject` / edited replies to priority drafts **must** be a Telegram **Reply** to the `---DRAFT---` message; a bare `/send` must not hit FAQ triage.  
 19. **Entitlements (PayPal):** Clerk `publicMetadata.subscription` is source of truth after capture/webhook. Unknown / no metadata → Explorer. Parse inbound `From` via `extractEmailFromHeader` before any email allowlist fallback. ISO grant dates must use **uppercase `Z`**.  
-20. **Public comparison copy:** Never name real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy.  
-21. **White-label logo:** Unlimited Pack always; Professional only with 100-Pack; Explorer never. Height 40–200px in Secure KV; title slide only.  
-22. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — clean PDF consumes 1 credit (or is blocked at 0). Unlimited Pack — unlimited, no watermark, never consumes credits. Failed PDFs do not consume.  
-23. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads; `generateChartData` logs a warn only.  
-24. **C3/C4 construction end:** Same source — last non-zero C1 S-curve month (`construction-end.ts`). Never use a financing factory default as the construction calendar. `operationsStart = actualConstructionEnd + 6 + 1`.  
-25. **Pack repurchase:** Refuse pack and Unlimited Pack while `effectiveCredits > 0` (create-order, capture-order, **and** webhook). Expired pack = 0 credits; new purchase **replaces** the balance.  
-26. **PayPal webhook host:** Listener is `https://www.feasibuild.app/api/webhooks/paypal` only. Apex 308-redirects; PayPal does not follow redirects (`FAIL_SOFT`).  
-27. **Preview-row parity:** C4 display rows from `financing-preview-rows.ts` — `row.length === horizon` and `sum(row) === displayed total`. No remainder plug after construction end.  
-28. **Deck copy:** No “Source: …” attribution footers; prompts forbid them; parser strips `Source:` lines. Overflowing slides use `FitSlide`.
+20. **Public comparison copy:** Landing `/comparison` never names real competing products — use Legacy Desktop Suite / Regional Cloud SaaS / AI Consultancy. Named vendors (ARGUS, EstateMaster, AIRE, Feasibility.pro, Buildora IQ, Feasly, Archistar) are allowed **only** on blog articles #9–#10, with **verify-before-claim** Sep 2026 pricing. **DealCheck is excluded.**  
+21. **10/90 copy:** Never pair UK with 10/90. Australia only. Pin-drop sets country; user sets rules; AI research follows the pin, falling back to the nearest city when hyper-local data is thin.  
+22. **White-label logo:** Unlimited Pack always; Professional only with 100-Pack; Explorer never. Height 40–200px in Secure KV; title slide only.  
+23. **Report exports:** Explorer — 1 watermarked PDF total, then lock new-project creation. Professional — clean PDF consumes 1 credit (or is blocked at 0). Unlimited Pack — unlimited, no watermark, never consumes credits. Failed PDFs do not consume.  
+24. **Feasibility charts:** `generateChartData` must return `null` on parse/Puter failure — never fail the deck. Salvage quoted/truncated JSON in `extractJsonFromClaudeResponse`; salvage includes S5 unescape+repair for quoted/truncated payloads; `generateChartData` logs a warn only.  
+25. **C3/C4 construction end:** Same source — last non-zero C1 S-curve month (`construction-end.ts`). Never use a financing factory default as the construction calendar. `operationsStart = actualConstructionEnd + 6 + 1`.  
+26. **Pack repurchase:** Refuse pack and Unlimited Pack while `effectiveCredits > 0` (create-order, capture-order, **and** webhook). Expired pack = 0 credits; new purchase **replaces** the balance.  
+27. **PayPal webhook host:** Listener is `https://www.feasibuild.app/api/webhooks/paypal` only. Apex 308-redirects; PayPal does not follow redirects (`FAIL_SOFT`).  
+28. **Preview-row parity:** C4 display rows from `financing-preview-rows.ts` — `row.length === horizon` and `sum(row) === displayed total`. No remainder plug after construction end.  
+29. **Deck copy:** No “Source: …” attribution footers; prompts forbid them; parser strips `Source:` lines. Overflowing slides use `FitSlide`.
 
 ---
 
-*Last updated 1 Sep 2026 (PayPal live, credit packs, C4 wizard/timing, jurisdiction defaults, deck FitSlide). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 16 Sep 2026 (Learn / FAQ / Vault, lead capture, payment-structure + UK/10/90 copy rules, funnel). Prefer editing this file over scattering architecture notes across chats.*

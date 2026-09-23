@@ -4,6 +4,18 @@ import type { FeasibilitySlide, SlideChart } from "@/types/feasibility";
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
 import { getCachedContent, setCachedContent } from "@/lib/cache-service";
 import { aiProvider } from "@/lib/ai-service";
+import { mapInEnrichmentOrder } from "@/lib/feasibility/enrichment-pool";
+import {
+  asFallbackCommentary,
+  isAiFallbackCommentary,
+  resetEnrichmentDiagnostics,
+} from "@/lib/feasibility/enrichment-ladder";
+import {
+  logStoreEnrichmentDiagnostics,
+  publishBaseDeck,
+  publishEnrichmentSlide,
+} from "@/lib/feasibility/enrichment-publish";
+import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import { enrichStructuredSlideData } from "@/lib/feasibility/enrich-structured-slide-data";
 import {
   createMacroChartPrompt,
@@ -91,6 +103,9 @@ const MARKET_CHART_SLIDE_IDS = new Set(
 export interface EnrichSaleSlidesOptions {
   oldHashes?: Record<string, string>;
   forceRegenerate?: boolean;
+  /** Re-run only these slide ids. Does not clear cache or rebuild the deck. */
+  onlySlideIds?: string[];
+  onDeckReady?: () => void;
 }
 
 export interface EnrichSaleSlidesResult {
@@ -122,24 +137,23 @@ async function generateSaleCommentaryForSlide(
   bundle: SaleFeasibilityBundle,
   config: SaleStreamConfig,
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideId: string
 ): Promise<string[]> {
   try {
     return await generateSaleCommentary(section, bundle, {
       cacheKey,
       forceRegenerate,
+      slideKey: slideId,
     });
-  } catch (error) {
-    console.warn(
-      `[Sale Enrich] Commentary failed for ${section}, keeping existing/fallback:`,
-      error
-    );
-    // generateSaleCommentary already falls back; this is a last-resort safety net
+  } catch {
     const { generateSaleCommentaryFallback } = await import(
       "@/lib/feasibility/sale/generate-sale-commentary"
     );
     const { cleanAIContent } = await import("@/lib/feasibility/clean-ai-content");
-    return cleanAIContent(generateSaleCommentaryFallback(section, bundle));
+    return asFallbackCommentary(
+      cleanAIContent(generateSaleCommentaryFallback(section, bundle))
+    );
   }
 }
 
@@ -147,7 +161,8 @@ async function generateMacroChartData(
   macroType: string,
   country: string,
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideId: string
 ): Promise<SlideChart | null> {
   const prompt = createMacroChartPrompt(macroType, country);
   if (!prompt) return null;
@@ -156,6 +171,7 @@ async function generateMacroChartData(
     const result = await aiProvider.generateChartData(prompt, {
       cacheKey,
       forceRegenerate,
+      slideKey: slideId,
     });
     if (!result || typeof result !== "object") return null;
 
@@ -170,11 +186,7 @@ async function generateMacroChartData(
       yKeys: chart.yKeys ?? ["value"],
       colors: chart.colors,
     });
-  } catch (e) {
-    console.warn(
-      "[generateChartData] chart JSON unavailable — skipping chart.",
-      e
-    );
+  } catch {
     return null;
   }
 }
@@ -237,65 +249,107 @@ export async function enrichSaleSlidesWithPuter(
   }
 }
 
+function saleAiSlideIds(slides: FeasibilitySlide[]): string[] {
+  const present = new Set(slides.map((s) => s.id));
+  return SLIDE_SECTIONS.filter(
+    (s) => !OLD_CONTENT_SLIDE_IDS.has(s.slideId) && present.has(s.slideId)
+  ).map((s) => s.slideId);
+}
+
 async function enrichSaleSlidesWithPuterImpl(
   slides: FeasibilitySlide[],
   bundle: SaleFeasibilityBundle,
   options: EnrichSaleSlidesOptions = {}
 ): Promise<EnrichSaleSlidesResult> {
-  const { oldHashes = {}, forceRegenerate = false } = options;
+  const { oldHashes = {}, forceRegenerate = false, onlySlideIds, onDeckReady } =
+    options;
+  resetEnrichmentDiagnostics();
   resetDependencyChangeLog();
   const config = getSaleStreamConfig(bundle.buildingSubType);
   const newHashes = buildSaleBundleHashes(bundle);
   const enriched = [...slides];
+  const retrying = Boolean(onlySlideIds?.length);
+  const commentaryQuality = new Map<string, "ok" | "fallback">();
+
+  if (retrying) {
+    useFeasibilityStore.getState().beginAiSections(onlySlideIds!, "merge");
+  } else {
+    publishBaseDeck(enriched, saleAiSlideIds(enriched));
+  }
+  onDeckReady?.();
 
   for (const { slideId, section } of SLIDE_SECTIONS) {
     if (OLD_CONTENT_SLIDE_IDS.has(slideId)) continue;
+    if (onlySlideIds?.length && !onlySlideIds.includes(slideId)) continue;
 
     const idx = enriched.findIndex((s) => s.id === slideId);
     if (idx < 0) continue;
 
     const depSection = getSlideDependencySection(slideId);
     const cacheKey = buildCommentaryCacheKey(slideId, newHashes, depSection);
-    const needsRegen = slideNeedsRegeneration(
-      slideId,
-      oldHashes,
-      newHashes,
-      forceRegenerate
-    );
+    const targeted = Boolean(onlySlideIds?.includes(slideId));
+    const needsRegen =
+      targeted ||
+      slideNeedsRegeneration(slideId, oldHashes, newHashes, forceRegenerate);
+
+    let paragraphs: string[] | undefined;
+    let charts: SlideChart[] | undefined;
 
     if (!needsRegen) {
       const cached = await loadCachedSlideContent(cacheKey);
-      if (cached?.paragraphs?.length) {
+      if (
+        cached?.paragraphs?.length &&
+        !isAiFallbackCommentary(cached.paragraphs)
+      ) {
         console.log(`[Layer 2 Cache Hit] ${slideId} — dependencies unchanged`);
-        enriched[idx] = {
-          ...enriched[idx]!,
-          paragraphs: cached.paragraphs,
-          ...(cached.charts ? { charts: cached.charts } : {}),
-        };
-        continue;
+        paragraphs = cached.paragraphs;
+        charts = cached.charts;
       }
     }
 
-    const paragraphs = await generateSaleCommentaryForSlide(
-      section,
-      bundle,
-      config,
-      cacheKey,
-      forceRegenerate
-    );
-    enriched[idx] = { ...enriched[idx]!, paragraphs };
+    if (!paragraphs) {
+      paragraphs = await generateSaleCommentaryForSlide(
+        section,
+        bundle,
+        config,
+        cacheKey,
+        needsRegen,
+        slideId
+      );
+    }
 
+    let chartFailed = false;
     const macroType = MACRO_SLIDE_CHART_TYPE[slideId];
-    if (macroType) {
+    if (macroType && !charts?.length) {
       const chart = await generateMacroChartData(
         macroType,
         bundle.location.country,
         cacheKey,
-        forceRegenerate
+        needsRegen,
+        slideId
       );
-      if (chart) {
-        enriched[idx] = { ...enriched[idx]!, charts: [chart] };
-      }
+      if (chart) charts = [chart];
+      else chartFailed = true;
+    }
+
+    const slide: FeasibilitySlide = {
+      ...enriched[idx]!,
+      paragraphs,
+      ...(charts?.length ? { charts } : {}),
+    };
+    enriched[idx] = slide;
+    const commentaryStatus = isAiFallbackCommentary(paragraphs)
+      ? "fallback"
+      : "ok";
+
+    if (MARKET_CHART_SLIDE_IDS.has(slideId)) {
+      commentaryQuality.set(slideId, commentaryStatus);
+      useFeasibilityStore.getState().patchSlide(slide.id, slide);
+    } else {
+      publishEnrichmentSlide(
+        slide,
+        chartFailed ? "failed" : commentaryStatus
+      );
     }
   }
 
@@ -303,52 +357,46 @@ async function enrichSaleSlidesWithPuterImpl(
     forceRegenerate ||
     shouldRegenerateSlide("market", oldHashes, newHashes);
 
-  let withMarketCharts: FeasibilitySlide[];
+  const fallbackInput = {
+    projectInfo: {
+      city: bundle.location.city,
+      country: bundle.location.country,
+      currency: bundle.currency,
+      buildingType: bundle.buildingType,
+    },
+    component2Data: {
+      avgPricePSF: bundle.saleMetrics.avgPricePsf,
+      saleableBUA: bundle.saleMetrics.saleableArea,
+    },
+  };
 
-  if (!marketNeedsRegen) {
-    withMarketCharts = await Promise.all(
-      enriched.map(async (slide) => {
-        if (!MARKET_CHART_SLIDE_IDS.has(slide.id)) return slide;
-        const cacheKey = buildCommentaryCacheKey(
-          slide.id,
-          newHashes,
-          "market" as SlideDependencySection
-        );
-        const cachedCharts = await getCachedContent<SlideChart[]>(
-          `${cacheKey}_charts`
-        );
-        if (cachedCharts?.length) {
-          console.log(`[Layer 2 Chart Cache Hit] ${slide.id}`);
-          return {
-            ...slide,
-            charts: cachedCharts.map(withTallChart),
-          };
-        }
-        return slide;
-      })
+  await mapInEnrichmentOrder(SALE_MARKET_CHART_SLIDES, async ({ slideId, sectionKey }) => {
+    if (onlySlideIds?.length && !onlySlideIds.includes(slideId)) return;
+    const idx = enriched.findIndex((s) => s.id === slideId);
+    if (idx < 0) return;
+
+    const targeted = Boolean(onlySlideIds?.includes(slideId));
+    const cacheKey = buildCommentaryCacheKey(
+      slideId,
+      newHashes,
+      "market" as SlideDependencySection
     );
-  } else {
-    const fallbackInput = {
-      projectInfo: {
-        city: bundle.location.city,
-        country: bundle.location.country,
-        currency: bundle.currency,
-        buildingType: bundle.buildingType,
-      },
-      component2Data: {
-        avgPricePSF: bundle.saleMetrics.avgPricePsf,
-        saleableBUA: bundle.saleMetrics.saleableArea,
-      },
-    };
+    let charts: SlideChart[] = [];
+    let fromAi = false;
 
-    withMarketCharts = [...enriched];
+    if (!marketNeedsRegen && !targeted) {
+      const cachedCharts = await getCachedContent<SlideChart[]>(
+        `${cacheKey}_charts`
+      );
+      if (cachedCharts?.length) {
+        console.log(`[Layer 2 Chart Cache Hit] ${slideId}`);
+        charts = cachedCharts.map(withTallChart);
+        fromAi = true;
+      }
+    }
 
-    for (const { slideId, sectionKey } of SALE_MARKET_CHART_SLIDES) {
-      const idx = withMarketCharts.findIndex((s) => s.id === slideId);
-      if (idx < 0) continue;
-
-      const cacheKey = buildCommentaryCacheKey(slideId, newHashes, "market");
-      const charts = await generateSaleMarketChartDataWithPuter(
+    if (!charts.length) {
+      const generated = await generateSaleMarketChartDataWithPuter(
         sectionKey as SaleMarketChartSection,
         bundle.location.country,
         bundle.location.city,
@@ -357,21 +405,31 @@ async function enrichSaleSlidesWithPuterImpl(
         (prompt, chartCacheKey) =>
           aiProvider.generateChartData(prompt, {
             cacheKey: chartCacheKey,
-            forceRegenerate,
+            forceRegenerate: forceRegenerate || targeted,
+            slideKey: slideId,
           }),
         cacheKey,
         fallbackInput
       );
-
-      if (charts.length > 0) {
-        withMarketCharts[idx] = {
-          ...withMarketCharts[idx]!,
-          charts: charts.map(withTallChart),
-        };
+      charts = generated.charts.map(withTallChart);
+      fromAi = generated.fromAi;
+      if (fromAi && charts.length > 0) {
         await setCachedContent(`${cacheKey}_charts`, charts);
       }
     }
-  }
+
+    const prev = enriched[idx]!;
+    const slide =
+      charts.length > 0 ? { ...prev, charts } : prev;
+    enriched[idx] = slide;
+    const commentaryStatus = commentaryQuality.get(slideId) ?? "ok";
+    publishEnrichmentSlide(
+      slide,
+      fromAi && commentaryStatus === "ok" ? "ok" : "fallback"
+    );
+  });
+
+  const withMarketCharts = enriched;
 
   const withTallCharts = withMarketCharts.map((slide) => {
     if (!slide.charts?.length) return slide;
@@ -387,10 +445,12 @@ async function enrichSaleSlidesWithPuterImpl(
     };
   });
 
-  return {
+  const result = {
     slides: enrichStructuredSlideData(withTallCharts),
     hashes: newHashes,
   };
+  logStoreEnrichmentDiagnostics();
+  return result;
 }
 
 /** Generate full sale deck with Puter AI (base slides + enrichment). */
@@ -401,6 +461,8 @@ export async function generateSaleSlidesWithPuter(
   const { generateSaleSlides } = await import(
     "@/lib/feasibility/sale/generate-sale-report"
   );
-  const baseSlides = generateSaleSlides(bundle);
+  const baseSlides = options.onlySlideIds?.length
+    ? useFeasibilityStore.getState().slides
+    : generateSaleSlides(bundle);
   return enrichSaleSlidesWithPuter(baseSlides, bundle, options);
 }

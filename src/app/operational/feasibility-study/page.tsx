@@ -17,6 +17,9 @@ import UpgradeModal from "@/components/ui/UpgradeModal";
 import { useReportExportGate } from "@/hooks/useReportExportGate";
 import { SlideCaptureProvider } from "@/components/feasibility/SlideContainer";
 import { generateOperationalSlidesWithPuter } from "@/lib/feasibility/enrich-operational-slides-puter";
+import AiEnrichmentStatus, {
+  useAiEnrichmentUi,
+} from "@/components/feasibility/AiEnrichmentStatus";
 import {
   buildRegenerateFeasibilityConfirmMessage,
   resolveOperationalAssetType,
@@ -99,7 +102,9 @@ export default function FeasibilityStudyPage() {
     isEditing,
     toggleEditing,
     setMarketResearchCache,
+    resetAiSections,
   } = useFeasibilityStore();
+  const aiUi = useAiEnrichmentUi();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,9 +120,13 @@ export default function FeasibilityStudyPage() {
     recordSuccessfulExport,
   } = useReportExportGate(activeProjectId);
 
-  const generateReport = useCallback(async (options?: { force?: boolean }) => {
+  const generateReport = useCallback(async (options?: {
+    force?: boolean;
+    onlySlideIds?: string[];
+  }) => {
     const forceRegenerate = options?.force ?? false;
-    setLoading(true);
+    const onlySlideIds = options?.onlySlideIds;
+    if (!onlySlideIds?.length) setLoading(true);
     setError(null);
     try {
       const projectData = getFeasibilityProjectBundle();
@@ -151,7 +160,12 @@ export default function FeasibilityStudyPage() {
         const result = await generateOperationalSlidesWithPuter(
           projectData,
           liveBuildingType,
-          { forceRegenerate, oldHashes }
+          {
+            forceRegenerate,
+            oldHashes,
+            onlySlideIds,
+            onDeckReady: () => setLoading(false),
+          }
         );
         slidesResult = result.slides;
         await setStoredHashes(
@@ -192,7 +206,7 @@ export default function FeasibilityStudyPage() {
       if (marketResearch) {
         setMarketResearchCache(marketResearch);
       }
-      setCurrentSlideIndex(0);
+      if (!onlySlideIds?.length) setCurrentSlideIndex(0);
 
       if (slidesResult.length > 0) {
         void (async () => {
@@ -217,12 +231,23 @@ export default function FeasibilityStudyPage() {
         })();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate study");
-      setSlides([]);
+      if (!onlySlideIds?.length) {
+        setError(e instanceof Error ? e.message : "Failed to generate study");
+        setSlides([]);
+        resetAiSections();
+      } else {
+        const store = useFeasibilityStore.getState();
+        for (const id of onlySlideIds) {
+          const row = store.aiSections[id];
+          if (row?.status === "pending") {
+            store.setAiSectionStatus(id, "failed", row.attempts);
+          }
+        }
+      }
     } finally {
       setLoading(false);
     }
-  }, [buildingType, setSlides, setMarketResearchCache, user?.id, user?.primaryEmailAddress?.emailAddress, showToast]);
+  }, [buildingType, setSlides, setMarketResearchCache, resetAiSections, user?.id, user?.primaryEmailAddress?.emailAddress, showToast]);
 
   useEffect(() => {
     void checkPuterStatusAndLog();
@@ -354,6 +379,9 @@ export default function FeasibilityStudyPage() {
             {currentSlide.section} — 16:9 presentation
             {buildingType !== "hotel" ? ` (model: ${buildingType})` : ""}
           </p>
+          <AiEnrichmentStatus
+            onRetry={(ids) => void generateReport({ onlySlideIds: ids })}
+          />
         </div>
       </div>
 
@@ -465,8 +493,9 @@ export default function FeasibilityStudyPage() {
               id="download-pdf-btn"
               type="button"
               onClick={() => void handleExportPDF()}
-              disabled={exportingPdf}
-              className={btnPrimary}
+              disabled={exportingPdf || aiUi.exportBlocked}
+              title={aiUi.exportBlocked ? "AI sections still completing" : undefined}
+              className={`${btnPrimary} disabled:!pointer-events-auto`}
             >
               <span id="download-btn-text">
                 {exportingPdf
@@ -475,7 +504,9 @@ export default function FeasibilityStudyPage() {
               </span>
             </button>
             <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-64 rounded bg-slate-800 p-2 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-              Captures all slides with charts and tables as a single PDF file.
+              {aiUi.exportBlocked
+                ? "AI sections still completing"
+                : "Captures all slides with charts and tables as a single PDF file."}
             </div>
           </div>
         </div>

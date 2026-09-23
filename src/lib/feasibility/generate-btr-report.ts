@@ -127,6 +127,7 @@ export async function generateBTRCommentary(
       cacheKey,
       forceRegenerate: options?.forceRegenerate,
       section,
+      slideKey: options?.slideId,
     });
     // generateCommentary already returns cleaned paragraphs
     return raw;
@@ -141,7 +142,7 @@ export async function generateBTRSlidesWithPuter(
   bundle: FeasibilityProjectBundle,
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
-  const baseSlides = generateBTRSlides(bundle);
+  const baseSlides = options.baseSlides ?? generateBTRSlides(bundle);
   return enrichOperationalSlidesWithCache(
     baseSlides,
     bundle,
@@ -150,6 +151,7 @@ export async function generateBTRSlidesWithPuter(
       generateBTRCommentary(section as BTRCommentarySection, b, {
         cacheKey: opts.cacheKey,
         forceRegenerate: opts.forceRegenerate,
+        slideId: opts.slideId,
       }),
     options
   );

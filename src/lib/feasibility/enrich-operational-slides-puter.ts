@@ -43,7 +43,19 @@ import {
   OPERATIONAL_TENANT_PROFILE_SLIDE_IDS,
   type OperationalAssetType as OperationalMarketAssetType,
 } from "@/lib/feasibility/operational-market-charts";
-import { enrichHospitalityMarketCharts } from "@/lib/feasibility/hospitality-market-charts";
+import {
+  enrichHospitalityMarketCharts,
+  HOSPITALITY_SLIDE_CHART_TYPE,
+} from "@/lib/feasibility/hospitality-market-charts";
+import { mapInEnrichmentOrder } from "@/lib/feasibility/enrichment-pool";
+import { resetEnrichmentDiagnostics } from "@/lib/feasibility/enrichment-ladder";
+import {
+  logStoreEnrichmentDiagnostics,
+  publishBaseDeck,
+  publishEnrichmentSlide,
+} from "@/lib/feasibility/enrichment-publish";
+import type { CommentaryQuality } from "@/lib/feasibility/operational-slide-cache";
+import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import {
   resolveOperationalAssetType,
@@ -56,6 +68,10 @@ export interface EnrichOperationalSlidesOptions {
   oldHashes?: Record<string, string>;
   forceRegenerate?: boolean;
   assetType: OperationalAssetType;
+  /** Re-run only these slide ids. Does not clear cache or rebuild the deck. */
+  onlySlideIds?: string[];
+  /** Deck is in memory and the page can leave the full-screen loader. */
+  onDeckReady?: () => void;
 }
 
 export interface EnrichOperationalSlidesResult {
@@ -76,40 +92,130 @@ export {
  * After asset commentary enrichment, overwrite macro-1/2/3 chart series with
  * Puter AI data when available. On null/failure, keep static buildMacroSlides charts.
  */
+function sectionIdsFor(
+  assetType: OperationalAssetType
+): Array<{ slideId: string }> {
+  switch (assetType) {
+    case "mall":
+      return MALL_AI_SLIDE_SECTIONS;
+    case "office":
+      return OFFICE_AI_SLIDE_SECTIONS;
+    case "btr":
+      return BTR_AI_SLIDE_SECTIONS;
+    case "warehouse":
+      return WAREHOUSE_AI_SLIDE_SECTIONS;
+    case "datacentre":
+      return DATACENTRE_AI_SLIDE_SECTIONS;
+    default:
+      return HOTEL_AI_SLIDE_SECTIONS;
+  }
+}
+
+function chartIdsWeWillRun(
+  assetType: OperationalAssetType,
+  slides: FeasibilitySlide[]
+): string[] {
+  const present = new Set(slides.map((s) => s.id));
+  const ids: string[] = [];
+  for (const id of Object.keys(OPERATIONAL_MACRO_SLIDE_CHART_TYPE)) {
+    if (present.has(id)) ids.push(id);
+  }
+  if (assetType === "hotel") {
+    for (const id of Object.keys(HOSPITALITY_SLIDE_CHART_TYPE)) {
+      if (present.has(id)) ids.push(id);
+    }
+  }
+  const marketAsset = mapEnrichAssetToMarketChartType(assetType);
+  for (const group of [
+    OPERATIONAL_MARKET_METRICS_SLIDE_IDS[marketAsset] ?? [],
+    OPERATIONAL_SUPPLY_PIPELINE_SLIDE_IDS[marketAsset] ?? [],
+    OPERATIONAL_TENANT_PROFILE_SLIDE_IDS[marketAsset] ?? [],
+  ]) {
+    const id = firstPresentSlideId(slides, group);
+    if (id) ids.push(id);
+  }
+  return ids;
+}
+
+function firstPresentSlideId(
+  slides: FeasibilitySlide[],
+  candidates: string[]
+): string | undefined {
+  return slides.find((s) => candidates.includes(s.id))?.id;
+}
+
+function operationalAiSlideIds(
+  assetType: OperationalAssetType,
+  slides: FeasibilitySlide[]
+): string[] {
+  const present = new Set(slides.map((s) => s.id));
+  const ids = new Set<string>();
+  for (const { slideId } of sectionIdsFor(assetType)) {
+    if (present.has(slideId)) ids.add(slideId);
+  }
+  for (const id of Object.keys(OPERATIONAL_MACRO_SLIDE_CHART_TYPE)) {
+    if (present.has(id)) ids.add(id);
+  }
+  if (assetType === "hotel") {
+    for (const id of Object.keys(HOSPITALITY_SLIDE_CHART_TYPE)) {
+      if (present.has(id)) ids.add(id);
+    }
+  }
+  const marketAsset = mapEnrichAssetToMarketChartType(assetType);
+  for (const group of [
+    OPERATIONAL_MARKET_METRICS_SLIDE_IDS[marketAsset] ?? [],
+    OPERATIONAL_SUPPLY_PIPELINE_SLIDE_IDS[marketAsset] ?? [],
+    OPERATIONAL_TENANT_PROFILE_SLIDE_IDS[marketAsset] ?? [],
+  ]) {
+    const id = firstPresentSlideId(slides, group);
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
 async function enrichOperationalMacroCharts(
   slides: FeasibilitySlide[],
   country: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  options?: {
+    onlySlideIds?: string[];
+    onSlide?: (slide: FeasibilitySlide, ok: boolean) => void;
+  }
 ): Promise<FeasibilitySlide[]> {
   const enriched = [...slides];
+  const only = options?.onlySlideIds?.length
+    ? new Set(options.onlySlideIds)
+    : null;
 
-  await Promise.all(
-    Object.entries(OPERATIONAL_MACRO_SLIDE_CHART_TYPE).map(
-      async ([slideId, macroType]) => {
-        const idx = enriched.findIndex((s) => s.id === slideId);
-        if (idx < 0) return;
+  await mapInEnrichmentOrder(
+    Object.entries(OPERATIONAL_MACRO_SLIDE_CHART_TYPE),
+    async ([slideId, macroType]) => {
+      if (only && !only.has(slideId)) return;
+      const idx = enriched.findIndex((s) => s.id === slideId);
+      if (idx < 0) return;
 
-        const cacheKey = buildOperationalMacroChartCacheKey(country, macroType);
-        try {
-          const chart = await generateOperationalMacroChartData(
-            macroType,
-            country,
-            cacheKey,
-            forceRegenerate
-          );
-          if (!chart) return;
-          enriched[idx] = {
-            ...enriched[idx]!,
-            charts: [chart],
-          };
-        } catch (e) {
-          console.warn(
-            "[generateChartData] chart JSON unavailable — skipping chart.",
-            e
-          );
+      const cacheKey = buildOperationalMacroChartCacheKey(country, macroType);
+      try {
+        const chart = await generateOperationalMacroChartData(
+          macroType,
+          country,
+          cacheKey,
+          forceRegenerate || Boolean(only?.has(slideId)),
+          slideId
+        );
+        if (!chart) {
+          options?.onSlide?.(enriched[idx]!, false);
+          return;
         }
+        enriched[idx] = {
+          ...enriched[idx]!,
+          charts: [chart],
+        };
+        options?.onSlide?.(enriched[idx]!, true);
+      } catch {
+        options?.onSlide?.(enriched[idx]!, false);
       }
-    )
+    }
   );
 
   return enriched;
@@ -141,6 +247,7 @@ async function enrichOperationalMarketCharts(
   if (idx < 0) return slides;
 
   const cacheKey = buildOperationalMarketChartCacheKey(marketAssetType, location);
+  const slideId = slides[idx]!.id;
   let result: Awaited<ReturnType<typeof generateOperationalMarketChartData>> = null;
   try {
     result = await generateOperationalMarketChartData(
@@ -148,13 +255,10 @@ async function enrichOperationalMarketCharts(
       location,
       projectContext,
       cacheKey,
-      forceRegenerate
+      forceRegenerate,
+      slideId
     );
-  } catch (e) {
-    console.warn(
-      "[generateChartData] chart JSON unavailable — skipping chart.",
-      e
-    );
+  } catch {
     return slides;
   }
 
@@ -219,6 +323,7 @@ async function enrichOperationalSupplyPipeline(
     marketAssetType,
     location
   );
+  const slideId = slides[idx]!.id;
   let result: Awaited<
     ReturnType<typeof generateOperationalSupplyPipelineData>
   > = null;
@@ -228,13 +333,10 @@ async function enrichOperationalSupplyPipeline(
       location,
       projectContext,
       cacheKey,
-      forceRegenerate
+      forceRegenerate,
+      slideId
     );
-  } catch (e) {
-    console.warn(
-      "[generateChartData] chart JSON unavailable — skipping chart.",
-      e
-    );
+  } catch {
     return slides;
   }
 
@@ -322,6 +424,7 @@ async function enrichOperationalTenantProfile(
     marketAssetType,
     location
   );
+  const slideId = slides[idx]!.id;
   let result: Awaited<
     ReturnType<typeof generateOperationalTenantProfileData>
   > = null;
@@ -331,13 +434,10 @@ async function enrichOperationalTenantProfile(
       location,
       projectContext,
       cacheKey,
-      forceRegenerate
+      forceRegenerate,
+      slideId
     );
-  } catch (e) {
-    console.warn(
-      "[generateChartData] chart JSON unavailable — skipping chart.",
-      e
-    );
+  } catch {
     return slides;
   }
 
@@ -378,12 +478,87 @@ export async function enrichOperationalSlidesWithPuter(
   }
 }
 
+function settleChartSlide(
+  slide: FeasibilitySlide,
+  ok: boolean,
+  commentaryQuality: Map<string, CommentaryQuality>,
+  combineCommentary: boolean
+): void {
+  if (!ok) {
+    publishEnrichmentSlide(slide, "failed");
+    return;
+  }
+  if (!combineCommentary) {
+    publishEnrichmentSlide(slide, "ok");
+    return;
+  }
+  const quality = commentaryQuality.get(slide.id) ?? "ok";
+  publishEnrichmentSlide(slide, quality === "fallback" ? "fallback" : "ok");
+}
+
 async function enrichOperationalSlidesWithPuterImpl(
   bundle: FeasibilityProjectBundle,
   options: EnrichOperationalSlidesOptions
 ): Promise<EnrichOperationalSlidesResult> {
-  const { forceRegenerate = false, assetType, oldHashes = {} } = options;
-  const cacheOpts = { forceRegenerate, oldHashes };
+  const {
+    forceRegenerate = false,
+    assetType,
+    oldHashes = {},
+    onlySlideIds,
+    onDeckReady,
+  } = options;
+  resetEnrichmentDiagnostics();
+  const retrying = Boolean(onlySlideIds?.length);
+  const commentaryQuality = new Map<string, CommentaryQuality>();
+  const deferredCharts = new Set<string>();
+  const cacheOpts = {
+    forceRegenerate,
+    oldHashes,
+    onlySlideIds,
+    baseSlides: retrying ? useFeasibilityStore.getState().slides : undefined,
+    onDeckReady: (base: FeasibilitySlide[]) => {
+      deferredCharts.clear();
+      for (const id of chartIdsWeWillRun(assetType, base)) {
+        deferredCharts.add(id);
+      }
+      if (retrying) {
+        useFeasibilityStore.getState().beginAiSections(onlySlideIds!, "merge");
+      } else {
+        publishBaseDeck(base, operationalAiSlideIds(assetType, base));
+      }
+      onDeckReady?.();
+    },
+    onCommentary: (slide: FeasibilitySlide, quality: CommentaryQuality) => {
+      commentaryQuality.set(slide.id, quality);
+      if (deferredCharts.has(slide.id)) {
+        useFeasibilityStore.getState().patchSlide(slide.id, slide);
+        return;
+      }
+      publishEnrichmentSlide(slide, quality);
+    },
+  };
+
+  const runSingleChart = async (
+    candidateIds: string[],
+    run: (force: boolean) => Promise<FeasibilitySlide[]>,
+    current: FeasibilitySlide[]
+  ): Promise<FeasibilitySlide[]> => {
+    const targeted = candidateIds.filter((id) => {
+      if (!current.some((s) => s.id === id)) return false;
+      if (onlySlideIds?.length && !onlySlideIds.includes(id)) return false;
+      return true;
+    });
+    if (targeted.length === 0) return current;
+    const attempted = current.find((s) => targeted.includes(s.id));
+    const next = await run(
+      forceRegenerate || Boolean(onlySlideIds?.some((id) => targeted.includes(id)))
+    );
+    if (attempted) {
+      const updated = next.find((s) => s.id === attempted.id) ?? attempted;
+      settleChartSlide(updated, next !== current, commentaryQuality, false);
+    }
+    return next;
+  };
 
   let result: EnrichOperationalSlidesResult;
   switch (assetType) {
@@ -453,10 +628,17 @@ async function enrichOperationalSlidesWithPuterImpl(
     occupancyStabilized: bundle.component2?.occupancyStabilized,
   };
 
+  const chartOptions = { onlySlideIds };
+
   let slides = await enrichOperationalMacroCharts(
     result.slides,
     country,
-    forceRegenerate
+    forceRegenerate,
+    {
+      ...chartOptions,
+      onSlide: (slide, ok) =>
+        settleChartSlide(slide, ok, commentaryQuality, true),
+    }
   );
 
   if (assetType === "hotel") {
@@ -464,34 +646,56 @@ async function enrichOperationalSlidesWithPuterImpl(
       slides,
       { city, country },
       projectContext,
-      forceRegenerate
+      forceRegenerate,
+      {
+        ...chartOptions,
+        onSlide: (slide, ok) =>
+          settleChartSlide(slide, ok, commentaryQuality, false),
+      }
     );
   }
 
-  slides = await enrichOperationalMarketCharts(
-    slides,
-    assetType,
-    { city, country },
-    projectContext,
-    forceRegenerate
+  const marketAsset = mapEnrichAssetToMarketChartType(assetType);
+  slides = await runSingleChart(
+    OPERATIONAL_MARKET_METRICS_SLIDE_IDS[marketAsset] ?? [],
+    (force) =>
+      enrichOperationalMarketCharts(
+        slides,
+        assetType,
+        { city, country },
+        projectContext,
+        force
+      ),
+    slides
   );
 
-  slides = await enrichOperationalSupplyPipeline(
-    slides,
-    assetType,
-    { city, country },
-    projectContext,
-    forceRegenerate
+  slides = await runSingleChart(
+    OPERATIONAL_SUPPLY_PIPELINE_SLIDE_IDS[marketAsset] ?? [],
+    (force) =>
+      enrichOperationalSupplyPipeline(
+        slides,
+        assetType,
+        { city, country },
+        projectContext,
+        force
+      ),
+    slides
   );
 
-  slides = await enrichOperationalTenantProfile(
-    slides,
-    assetType,
-    { city, country },
-    projectContext,
-    forceRegenerate
+  slides = await runSingleChart(
+    OPERATIONAL_TENANT_PROFILE_SLIDE_IDS[marketAsset] ?? [],
+    (force) =>
+      enrichOperationalTenantProfile(
+        slides,
+        assetType,
+        { city, country },
+        projectContext,
+        force
+      ),
+    slides
   );
 
+  logStoreEnrichmentDiagnostics();
   return { ...result, slides };
 }
 

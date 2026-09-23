@@ -13,6 +13,9 @@ import UpgradeModal from "@/components/ui/UpgradeModal";
 import { useReportExportGate } from "@/hooks/useReportExportGate";
 import { SlideCaptureProvider } from "@/components/feasibility/SlideContainer";
 import { generateSaleSlidesWithPuter } from "@/lib/feasibility/sale/enrich-sale-slides-puter";
+import AiEnrichmentStatus, {
+  useAiEnrichmentUi,
+} from "@/components/feasibility/AiEnrichmentStatus";
 import { getSaleStreamConfig } from "@/lib/feasibility/sale/sale-stream-config";
 import {
   clearAllCaches,
@@ -56,7 +59,9 @@ export default function SaleFeasibilityStudyPage() {
     isEditing,
     toggleEditing,
     setMarketResearchCache,
+    resetAiSections,
   } = useFeasibilityStore();
+  const aiUi = useAiEnrichmentUi();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,9 +79,13 @@ export default function SaleFeasibilityStudyPage() {
 
   const studyTitle = `${getSaleStreamConfig(buildingSubType).assetLabel} Feasibility Study`;
 
-  const generateReport = useCallback(async (options?: { force?: boolean }) => {
+  const generateReport = useCallback(async (options?: {
+    force?: boolean;
+    onlySlideIds?: string[];
+  }) => {
     const forceRegenerate = options?.force ?? false;
-    setLoading(true);
+    const onlySlideIds = options?.onlySlideIds;
+    if (!onlySlideIds?.length) setLoading(true);
     setError(null);
     try {
       const projectData = getSaleFeasibilityBundle();
@@ -90,6 +99,8 @@ export default function SaleFeasibilityStudyPage() {
         const result = await generateSaleSlidesWithPuter(projectData, {
           oldHashes,
           forceRegenerate,
+          onlySlideIds,
+          onDeckReady: () => setLoading(false),
         });
         slidesResult = result.slides;
         await setStoredHashes(SALE_HASHES_STORAGE_KEY, result.hashes, user?.id);
@@ -119,7 +130,7 @@ export default function SaleFeasibilityStudyPage() {
       if (marketResearch) {
         setMarketResearchCache(marketResearch);
       }
-      setCurrentSlideIndex(0);
+      if (!onlySlideIds?.length) setCurrentSlideIndex(0);
 
       if (slidesResult.length > 0) {
         void (async () => {
@@ -144,12 +155,23 @@ export default function SaleFeasibilityStudyPage() {
         })();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate study");
-      setSlides([]);
+      if (!onlySlideIds?.length) {
+        setError(e instanceof Error ? e.message : "Failed to generate study");
+        setSlides([]);
+        resetAiSections();
+      } else {
+        const store = useFeasibilityStore.getState();
+        for (const id of onlySlideIds) {
+          const row = store.aiSections[id];
+          if (row?.status === "pending") {
+            store.setAiSectionStatus(id, "failed", row.attempts);
+          }
+        }
+      }
     } finally {
       setLoading(false);
     }
-  }, [setSlides, setMarketResearchCache, user?.id, user?.primaryEmailAddress?.emailAddress, showToast]);
+  }, [setSlides, setMarketResearchCache, resetAiSections, user?.id, user?.primaryEmailAddress?.emailAddress, showToast]);
 
   useEffect(() => {
     void checkPuterStatusAndLog();
@@ -278,6 +300,9 @@ export default function SaleFeasibilityStudyPage() {
             Part {SECTION_LABEL[currentSlide.section]} ·{" "}
             {currentSlide.section} — 16:9 presentation (sale stream)
           </p>
+          <AiEnrichmentStatus
+            onRetry={(ids) => void generateReport({ onlySlideIds: ids })}
+          />
         </div>
       </div>
 
@@ -386,8 +411,9 @@ export default function SaleFeasibilityStudyPage() {
               id="download-pdf-btn"
               type="button"
               onClick={() => void handleExportPDF()}
-              disabled={exportingPdf}
-              className={btnPrimary}
+              disabled={exportingPdf || aiUi.exportBlocked}
+              title={aiUi.exportBlocked ? "AI sections still completing" : undefined}
+              className={`${btnPrimary} disabled:!pointer-events-auto`}
             >
               <span id="download-btn-text">
                 {exportingPdf
@@ -396,7 +422,9 @@ export default function SaleFeasibilityStudyPage() {
               </span>
             </button>
             <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 w-64 rounded bg-slate-800 p-2 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-              Captures all slides with charts and tables as a single PDF file.
+              {aiUi.exportBlocked
+                ? "AI sections still completing"
+                : "Captures all slides with charts and tables as a single PDF file."}
             </div>
           </div>
         </div>

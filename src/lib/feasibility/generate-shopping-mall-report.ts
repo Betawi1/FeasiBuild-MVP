@@ -149,6 +149,7 @@ export async function generateMallCommentary(
       cacheKey,
       forceRegenerate: options?.forceRegenerate,
       section,
+      slideKey: options?.slideId,
     });
     // generateCommentary already returns cleaned paragraphs
     return raw;
@@ -163,7 +164,7 @@ export async function generateShoppingMallSlidesWithPuter(
   bundle: FeasibilityProjectBundle,
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
-  const baseSlides = generateShoppingMallSlides(bundle);
+  const baseSlides = options.baseSlides ?? generateShoppingMallSlides(bundle);
   return enrichOperationalSlidesWithCache(
     baseSlides,
     bundle,
@@ -172,6 +173,7 @@ export async function generateShoppingMallSlidesWithPuter(
       generateMallCommentary(section as MallCommentarySection, b, {
         cacheKey: opts.cacheKey,
         forceRegenerate: opts.forceRegenerate,
+        slideId: opts.slideId,
       }),
     options
   );

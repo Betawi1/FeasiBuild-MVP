@@ -17,6 +17,7 @@ import {
 import type { FinancingConfig } from "@/lib/sale-financing-engine";
 import type { PreferenceShares, ProjectInfo } from "@/store/useFinModelStore";
 import AustraliaEscrowConfig from "./escrow-config/AustraliaEscrowConfig";
+import ClosedLoopEscrowConfig from "./escrow-config/ClosedLoopEscrowConfig";
 import MalaysiaEscrowConfig from "./escrow-config/MalaysiaEscrowConfig";
 import UaeEscrowConfig from "./escrow-config/UaeEscrowConfig";
 import type {
@@ -25,12 +26,15 @@ import type {
   MalaysiaPropertyType,
 } from "./escrow-config/types";
 import {
+  CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC,
   ESCROW_RULE_DISPLAY_NAME,
   ESCROW_RULE_IDS,
   defaultEscrowRuleForLocation,
+  isChinaLocation,
   isCommercialSaleAsset,
   isLandEquitySliderLocked,
   normalizeEscrowRuleId,
+  resolveClosedLoopToppingOut,
   type EscrowRuleId,
 } from "@/lib/financing-engine/escrow-rules";
 
@@ -303,6 +307,8 @@ type FormData = {
   retentionPercent: number;
   auDepositPct: number;
   auBalancePct: number;
+  toppingOutEnabled: boolean;
+  toppingOutPct: number;
   milestoneThresholdPct: number;
   drawdownMode: DrawdownModeUi;
   interestRateType: "fixed" | "floating";
@@ -559,6 +565,12 @@ function ResidentialFinancingWizardContent() {
     const initialEscrowMode = honorStoredEscrow
       ? normalizeEscrowRuleId(storedEscrow?.withdrawalMode)
       : defaultEscrowWithdrawalMode(projectInfo);
+    const toppingOut = resolveClosedLoopToppingOut({
+      toppingOutEnabled: storedEscrow?.closedLoop?.toppingOutEnabled,
+      toppingOutPercent: storedEscrow?.closedLoop?.toppingOutPercent,
+      toppingOutPct: storedEscrow?.closedLoop?.toppingOutPct,
+      china: isChinaLocation(projectInfo.country, projectInfo.countryCode),
+    });
 
     return {
       debtType: financing.debtType ?? "conventional",
@@ -592,6 +604,8 @@ function ResidentialFinancingWizardContent() {
         storedEscrow?.australia?.balancePct ??
         storedEscrow?.australia?.releasePct ??
         90,
+      toppingOutEnabled: toppingOut.enabled,
+      toppingOutPct: toppingOut.percent,
       certificationIntervalMonths:
         storedEscrow?.uaeSa?.certificationInterval ??
         financingConfig?.certificationIntervalMonths ??
@@ -645,7 +659,9 @@ function ResidentialFinancingWizardContent() {
       field === "retentionPercent" ||
       field === "certificationIntervalMonths" ||
       field === "auDepositPct" ||
-      field === "auBalancePct"
+      field === "auBalancePct" ||
+      field === "toppingOutPct" ||
+      field === "toppingOutEnabled"
     ) {
       const nextMode =
         field === "escrowWithdrawalMode"
@@ -685,6 +701,20 @@ function ResidentialFinancingWizardContent() {
                     ? Math.max(0, Math.min(100, 100 - (value as number)))
                     : formData.auBalancePct,
             },
+            closedLoop: {
+              toppingOutEnabled:
+                field === "toppingOutEnabled"
+                  ? (value as boolean)
+                  : formData.toppingOutEnabled,
+              toppingOutPercent:
+                field === "toppingOutPct"
+                  ? (value as number)
+                  : formData.toppingOutPct,
+              toppingOutPct:
+                field === "toppingOutPct"
+                  ? (value as number)
+                  : formData.toppingOutPct,
+            },
           },
         },
         "sale"
@@ -698,7 +728,7 @@ function ResidentialFinancingWizardContent() {
     ) {
       auditSaleFinancingField(field as string, value);
     }
-  }, [updateFinancing, financing.escrowConfig, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct]);
+  }, [updateFinancing, financing.escrowConfig, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled]);
 
   const updateEscrowField: EscrowConfigUpdateField = useCallback(
     (field, value) => {
@@ -893,8 +923,14 @@ function ResidentialFinancingWizardContent() {
         : "LTC";
   const totalEquityRequired = Math.max(0, tdc - approvedDebtAmount);
 
+  const closedLoopLandLock =
+    formData.escrowWithdrawalMode === "closed_loop_escrow" &&
+    isChinaLocation(projectInfo.country, projectInfo.countryCode);
+  // Display / engine overlay only. The stored percent is left alone so leaving the rule restores it.
+  const modeledLandEquityPercent = closedLoopLandLock ? 100 : formData.landEquityPercent;
+
   const landEquityCounted =
-    formData.landEquityPercent === 100 ? landCost * LAND_EQUITY_HAIRCUT : 0;
+    modeledLandEquityPercent === 100 ? landCost * LAND_EQUITY_HAIRCUT : 0;
   const cashEquityRequired = Math.max(0, totalEquityRequired - landEquityCounted);
 
   // Re-hydrate preference shares when store or cash-equity base changes (e.g. return from preview).
@@ -914,10 +950,10 @@ function ResidentialFinancingWizardContent() {
   const prefSharesAmount = formData.prefSharesEnabled
     ? cashEquityRequired * (formData.prefSharesAllocationPercent / 100)
     : 0;
-  // Lock at 100% only for UAE + Dubai. Escrow rule must never drive this.
-  const isLandEquityLocked = landEquityLockedByLocation;
+  // Dubai locks by location. Closed-loop locks only as a China overlay, and only while that rule is selected.
+  const isLandEquityLocked = landEquityLockedByLocation || closedLoopLandLock;
 
-  const landLoanAmount = Math.max(0, landCost * (1 - formData.landEquityPercent / 100));
+  const landLoanAmount = Math.max(0, landCost * (1 - modeledLandEquityPercent / 100));
   const australiaLandLoanCap = landCost * 0.65;
   const australiaEquityShortfall =
     jurisdiction === "Australia" && landLoanAmount > australiaLandLoanCap
@@ -1051,7 +1087,7 @@ function ResidentialFinancingWizardContent() {
         financingModel: isCommercialProduct ? "commercial" : "residential",
         landFinancing: {
           type: formData.landEquityPercent >= 100 ? "equity" : "land_loan",
-          landLoanAmount: landLoanAmount,
+          landLoanAmount: Math.max(0, lc * (1 - formData.landEquityPercent / 100)),
           landLoanRatePercent: formData.landLoanRatePercent,
           landLoanTenorYears: Math.max(1, Math.ceil(landTenorMonths / 12)),
           landLoanTenorMonths: landTenorMonths,
@@ -1101,6 +1137,11 @@ function ResidentialFinancingWizardContent() {
             depositPct: formData.auDepositPct,
             balancePct: formData.auBalancePct,
           },
+          closedLoop: {
+            toppingOutEnabled: formData.toppingOutEnabled,
+            toppingOutPercent: formData.toppingOutPct,
+            toppingOutPct: formData.toppingOutPct,
+          },
         },
         escrowSetupFee: formData.escrowSetupFee,
         escrowManagementFeePct: formData.escrowManagementFeePercent / 100,
@@ -1109,7 +1150,6 @@ function ResidentialFinancingWizardContent() {
     );
   }, [
     formData,
-    landLoanAmount,
     landTenorMonths,
     cashOutflows.tdc,
     cashOutflows.landCost,
@@ -1650,7 +1690,7 @@ function ResidentialFinancingWizardContent() {
                     {isLandEquityLocked ? "Land Equity (Locked)" : "Land Equity"}
                   </span>
                   <span className="text-lg font-bold text-emerald-400">
-                    {formData.landEquityPercent}%
+                    {modeledLandEquityPercent}%
                   </span>
                 </div>
 
@@ -1659,7 +1699,7 @@ function ResidentialFinancingWizardContent() {
                   min={isLandEquityLocked ? 100 : LAND_EQUITY_SLIDER_MIN}
                   max={100}
                   step={5}
-                  value={formData.landEquityPercent}
+                  value={modeledLandEquityPercent}
                   onChange={(e) =>
                     !isLandEquityLocked &&
                     updateField("landEquityPercent", Number(e.target.value))
@@ -1675,14 +1715,21 @@ function ResidentialFinancingWizardContent() {
                   <span>100% (Full Equity)</span>
                 </div>
 
-                {isLandEquityLocked && (
+                {landEquityLockedByLocation && (
                   <p className="mt-2 text-xs text-amber-400">
                     Dubai projects require 100% land equity. The land term loan is not used.
                   </p>
                 )}
+                {closedLoopLandLock && (
+                  <p className="mt-2 text-xs text-amber-400">
+                    Closed-Loop Escrow in this location requires 100% land equity. The land term
+                    loan is suspended while this rule is selected and returns if you choose another
+                    rule.
+                  </p>
+                )}
               </div>
 
-              {formData.landEquityPercent < 100 && !isLandEquityLocked && (
+              {modeledLandEquityPercent < 100 && !isLandEquityLocked && (
                 <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
                   <h4 className="mb-2 font-semibold text-amber-400">Land Term Loan Required</h4>
                   <p className="text-sm text-slate-300">
@@ -1891,7 +1938,7 @@ function ResidentialFinancingWizardContent() {
                 you own 100% of the land as equity (70% of land value credited after bank haircut).
               </p>
 
-              {formData.landEquityPercent === 100 ? (
+              {modeledLandEquityPercent === 100 ? (
                 <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
                   <p className="text-xs text-emerald-300">
                     100% land ownership:{" "}
@@ -1922,7 +1969,7 @@ function ResidentialFinancingWizardContent() {
                 <div className="flex justify-between border-b border-slate-700/80 pb-2">
                   <span className="text-slate-400">
                     Land (counted as equity
-                    {formData.landEquityPercent === 100 ? ", 70% haircut" : ""})
+                    {modeledLandEquityPercent === 100 ? ", 70% haircut" : ""})
                   </span>
                   <span
                     className={`font-medium ${
@@ -2155,7 +2202,7 @@ function ResidentialFinancingWizardContent() {
                       Select Your Escrow Withdrawal Method
                     </h4>
                     <p className="mt-1 text-sm text-slate-300">
-                      For projects without a default rule (e.g. Thailand, China, KSA, or UAE
+                      For projects without a default rule (e.g. Thailand, KSA, China commercial, or UAE
                       emirates other than Dubai), you can choose any of the following approaches
                     </p>
                     <ul className="mt-2 space-y-1 text-sm text-slate-400">
@@ -2170,6 +2217,11 @@ function ResidentialFinancingWizardContent() {
                       <li>
                         • <strong className="text-slate-300">Staged Escrow Rule:</strong>{" "}
                         time-based withdrawals at certification intervals
+                      </li>
+                      <li>
+                        • <strong className="text-slate-300">Closed-Loop Escrow Rule:</strong> buyer
+                        funds stay in escrow until practical completion, with contractor retention
+                        to CP+24
                       </li>
                       <li>
                         • <strong className="text-slate-300">No Escrow Rules:</strong> sales
@@ -2207,6 +2259,22 @@ function ResidentialFinancingWizardContent() {
                 />
               )}
 
+              {formData.escrowWithdrawalMode === "closed_loop_escrow" && (
+                <ClosedLoopEscrowConfig
+                  chinaOverlay={isChinaLocation(
+                    projectInfo.country,
+                    projectInfo.countryCode
+                  )}
+                  toppingOutEnabled={formData.toppingOutEnabled}
+                  toppingOutPct={formData.toppingOutPct}
+                  onToppingOutEnabled={(value) => updateField("toppingOutEnabled", value)}
+                  onToppingOutPct={(value) => updateField("toppingOutPct", value)}
+                  maxConstructionLoanLabel={formatCurrency(
+                    (cashOutflows.tdc || 0) * CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC
+                  )}
+                />
+              )}
+
               {formData.escrowWithdrawalMode === "none" && (
                 <div className="space-y-4 rounded-lg bg-slate-800/80 p-6 ring-1 ring-slate-700">
                   <p className="text-sm text-slate-300">
@@ -2232,6 +2300,8 @@ function ResidentialFinancingWizardContent() {
                 <p className="font-semibold text-white">
                   {formData.escrowWithdrawalMode === "none" ? (
                     <>No escrow retention</>
+                  ) : formData.escrowWithdrawalMode === "closed_loop_escrow" ? (
+                    <>100% of buyer funds locked until practical completion • 3% contractor retention to CP+24</>
                   ) : formData.escrowWithdrawalMode === "ten_ninety" ? (
                     <>
                       {formData.auDepositPct}% purchase deposit in trust •{" "}
@@ -2253,9 +2323,11 @@ function ResidentialFinancingWizardContent() {
                 <p className="font-semibold text-white">
                   {formData.escrowWithdrawalMode === "none"
                     ? "N/A — no escrow release schedule"
-                    : formData.escrowWithdrawalMode === "progress"
-                      ? "24 months post completion"
-                      : "12 months post completion"}
+                    : formData.escrowWithdrawalMode === "closed_loop_escrow"
+                      ? "Escrow lump sum at practical completion • contractor retention at CP+24"
+                      : formData.escrowWithdrawalMode === "progress"
+                        ? "24 months post completion"
+                        : "12 months post completion"}
                 </p>
               </div>
             </div>

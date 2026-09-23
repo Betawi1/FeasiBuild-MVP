@@ -675,7 +675,7 @@ export interface SalePostFinancingMonthlyRow {
 
 export interface SaleEscrowWithdrawalData {
   currency: string;
-  /** Selected withdrawal rule id (ten_ninety | staged | progress | none). */
+  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | none). */
   ruleId: string;
   ruleName: string;
   configTitle: string;
@@ -700,6 +700,15 @@ export interface SaleEscrowWithdrawalData {
     managementFee: number;
   };
   australiaConfig: Record<string, string | number>;
+  /** Present when the selected rule is closed-loop escrow. */
+  closedLoopConfig?: {
+    chinaOverlay: boolean;
+    /** Off-plan sales wait for the topping-out %. Independent of the China loan cap. */
+    toppingOutEnabled?: boolean;
+    toppingOutPct: number;
+    contractorRetentionPct: number;
+    maxLoanOfTdcPct: number;
+  };
 }
 
 export interface SalePostFinancingCashFlowData {

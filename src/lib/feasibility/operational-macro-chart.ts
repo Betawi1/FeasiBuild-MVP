@@ -132,7 +132,8 @@ export async function generateOperationalMacroChartData(
   macroType: string,
   country: string,
   cacheKey: string,
-  forceRegenerate: boolean
+  forceRegenerate: boolean,
+  slideKey?: string
 ): Promise<SlideChart | null> {
   const prompt = createOperationalMacroChartPrompt(macroType, country);
   if (!prompt) return null;
@@ -152,6 +153,7 @@ export async function generateOperationalMacroChartData(
     const result = await aiProvider.generateChartData(prompt, {
       cacheKey,
       forceRegenerate,
+      slideKey,
     });
     if (!result) return null;
 
@@ -160,11 +162,7 @@ export async function generateOperationalMacroChartData(
 
     await setCachedContent(normalizedCacheKey, chart);
     return chart;
-  } catch (e) {
-    console.warn(
-      "[generateChartData] chart JSON unavailable — skipping chart.",
-      e
-    );
+  } catch {
     return null;
   }
 }

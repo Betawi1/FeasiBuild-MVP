@@ -5,11 +5,17 @@ import {
   setCachedContent,
 } from "@/lib/cache-service";
 import { sendOpsAlert } from "@/lib/ops-monitor";
+import { enrichmentPuterChat } from "@/lib/feasibility/enrichment-chat";
 import {
-  chatWithPuterFallback,
-  parseJsonFromPuterText,
-  waitForPuter,
-} from "@/lib/puter-chat";
+  asFallbackCommentary,
+  buildCompactChartPrompt,
+  buildCondensedCommentaryPrompt,
+  chartPayloadUsable,
+  isAiFallbackCommentary,
+  recordEnrichmentAttempts,
+  warnChartSkippedOnce,
+} from "@/lib/feasibility/enrichment-ladder";
+import { parseJsonFromPuterText } from "@/lib/puter-chat";
 import { FALLBACK_MODEL_ID, DEFAULT_MODEL } from "@/lib/puter-models";
 import {
   COMMENTARY_NO_QUOTES_CONSTRAINT,
@@ -31,6 +37,8 @@ export interface AIGenerateOptions {
   cacheKey?: string;
   forceRegenerate?: boolean;
   section?: string;
+  /** Deck slide id used for status, diagnostics, and the once-per-run chart warning. */
+  slideKey?: string;
 }
 
 export interface AIProvider {
@@ -203,18 +211,6 @@ ${originalPrompt}
 `.trim();
 }
 
-async function chatWithPuter(
-  puter: NonNullable<typeof window.puter>,
-  prompt: string,
-  extras?: { jsonMode?: boolean; maxTokens?: number; requireJson?: boolean }
-): Promise<string> {
-  const result = await chatWithPuterFallback(puter, prompt, extras);
-  if (result.fallbackNotice) {
-    console.warn("[AI Service]", result.fallbackNotice);
-  }
-  return result.text;
-}
-
 class PuterAIProvider implements AIProvider {
   isAvailable(): boolean {
     return typeof window !== "undefined" && !!window.puter?.ai?.chat;
@@ -232,8 +228,8 @@ class PuterAIProvider implements AIProvider {
     options: AIGenerateOptions,
     retryCount: number
   ): Promise<string[]> {
-    const { cacheKey, forceRegenerate, section } = options;
-    const logKey = cacheKey ?? section ?? "unknown";
+    const { cacheKey, forceRegenerate, section, slideKey } = options;
+    const logKey = slideKey ?? cacheKey ?? section ?? "unknown";
     const shortLogKey =
       logKey.length > 50 ? `${logKey.substring(0, 50)}...` : logKey;
     const isStubborn = cacheKey ? isStubbornSlideKey(cacheKey) : false;
@@ -269,8 +265,12 @@ class PuterAIProvider implements AIProvider {
             .map((p) => stripSourceAttributionLines(p))
             .filter((p) => p.trim().length > 0);
 
-          if (!hasPlaceholderContent(paragraphs)) {
+          if (
+            !hasPlaceholderContent(paragraphs) &&
+            !isAiFallbackCommentary(paragraphs)
+          ) {
             console.log(`[AI Service] ✅ Cache HIT: ${cacheKey}`);
+            recordEnrichmentAttempts(logKey, 0);
             return paragraphs;
           }
 
@@ -284,21 +284,21 @@ class PuterAIProvider implements AIProvider {
 
       console.log(`[AI Service] Calling AI for: ${logKey}`);
 
-      const puter = await waitForPuter();
-      if (!puter) {
-        throw new Error(
-          "Puter.js is not loaded. Ensure the script is in layout.tsx."
-        );
-      }
-
       const fullPrompt = `${prompt}\n\n${COMMENTARY_LENGTH_CONSTRAINT}\n\n${COMMENTARY_NO_QUOTES_CONSTRAINT}\n\nReturn EXACTLY 5 bullet points. One bullet per line. Plain text only — NO JSON, NO markdown code blocks, NO quotation marks.`;
+      const outcome = await enrichmentPuterChat({
+        slideKey: logKey,
+        prompt: fullPrompt,
+        compactPrompt: buildCondensedCommentaryPrompt(fullPrompt),
+        temperature: AI_MODEL_CONFIG.TEMPERATURE,
+        maxTokens: AI_MODEL_CONFIG.MAX_TOKENS,
+        accept: (text) => text.trim().length > 0,
+      });
 
-      const content = await chatWithPuter(puter, fullPrompt);
-
-      if (!content || content.trim().length === 0) {
-        console.error(`[AI Service] Empty response for: ${logKey}`);
+      if (!outcome.ok || !outcome.text.trim()) {
         throw new Error("Empty AI response");
       }
+
+      const content = outcome.text;
 
       // parseParagraphs already strips + cleans — do not wrap with cleanAIContent again
       const paragraphs = parseParagraphs(content);
@@ -333,7 +333,7 @@ class PuterAIProvider implements AIProvider {
           );
         }
 
-        return withPlaceholderWarning(paragraphs);
+        return asFallbackCommentary(withPlaceholderWarning(paragraphs));
       }
 
       if (cacheKey && paragraphs.length > 0) {
@@ -342,11 +342,7 @@ class PuterAIProvider implements AIProvider {
 
       return paragraphs;
     } catch (error: unknown) {
-      console.error(`[AI Service] Streaming error:`, error);
-      const err = error as { message?: string; response?: { data?: unknown } };
-      if (err?.response?.data) {
-        console.error("[AI Service] API Error Details:", err.response.data);
-      }
+      const err = error as { message?: string };
       const message =
         error instanceof Error
           ? error.message
@@ -357,7 +353,7 @@ class PuterAIProvider implements AIProvider {
         source: "Feasibility AI Service",
         cacheKey: logKey,
       });
-      return [`Content generation failed: ${message}`];
+      return asFallbackCommentary([`Content generation failed: ${message}`]);
     }
   }
 
@@ -365,52 +361,61 @@ class PuterAIProvider implements AIProvider {
     prompt: string,
     options?: string | AIGenerateOptions
   ): Promise<unknown> {
-    const { cacheKey, forceRegenerate } = resolveOptions(options);
+    const { cacheKey, forceRegenerate, slideKey } = resolveOptions(options);
     const chartCacheKey = cacheKey ? `${cacheKey}_chart` : undefined;
-    const logKey = chartCacheKey ?? cacheKey ?? "unknown";
+    const logKey = slideKey ?? chartCacheKey ?? cacheKey ?? "unknown";
 
     try {
       console.log(`[AI Service] Generating chart data for: ${logKey}`);
 
       if (chartCacheKey && !forceRegenerate) {
         const cached = await getCachedContent(chartCacheKey);
-        if (cached) {
+        if (chartPayloadUsable(cached)) {
           console.log(`[AI Service] Chart cache HIT for: ${logKey}`);
+          recordEnrichmentAttempts(logKey, 0);
           return cached;
         }
       }
 
       console.log(`[AI Service] Chart cache miss, calling AI: ${logKey}`);
 
-      const puter = await waitForPuter();
-      if (!puter) {
-        throw new Error("Puter.js is not loaded");
-      }
-
       const chartPrompt = `${prompt}\n\nRespond with compact raw JSON only. Do NOT wrap the JSON in quotation marks. Do NOT use markdown fences. Keep the reply under 3,500 tokens. The response must start with { or [.`;
-      const result = await chatWithPuterFallback(puter, chartPrompt, {
-        jsonMode: true,
-        requireJson: true,
-        maxTokens: 8000,
+      const outcome = await enrichmentPuterChat({
+        slideKey: logKey,
+        prompt: chartPrompt,
+        compactPrompt: buildCompactChartPrompt(prompt),
         temperature: 0.1,
+        maxTokens: 8000,
+        jsonMode: true,
+        accept: (text) => {
+          try {
+            return chartPayloadUsable(parseJsonFromPuterText(text));
+          } catch {
+            return false;
+          }
+        },
       });
-      if (result.fallbackNotice) {
-        console.warn("[AI Service]", result.fallbackNotice);
+
+      if (!outcome.ok) {
+        warnChartSkippedOnce(logKey);
+        return null;
       }
 
-      const parsed = result.json ?? parseJsonFromPuterText(result.text);
+      const parsed = parseJsonFromPuterText(outcome.text);
+      if (!chartPayloadUsable(parsed)) {
+        warnChartSkippedOnce(logKey);
+        return null;
+      }
 
       console.log(`[AI Service] Chart data parsed for: ${logKey}`);
 
-      if (chartCacheKey && parsed) {
+      if (chartCacheKey) {
         await setCachedContent(chartCacheKey, parsed);
       }
 
       return parsed;
     } catch {
-      console.warn(
-        "[generateChartData] chart JSON unavailable — skipping chart."
-      );
+      warnChartSkippedOnce(logKey);
       return null;
     }
   }

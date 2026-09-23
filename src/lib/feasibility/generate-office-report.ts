@@ -148,6 +148,7 @@ export async function generateOfficeCommentary(
       cacheKey,
       forceRegenerate: options?.forceRegenerate,
       section,
+      slideKey: options?.slideId,
     });
     // generateCommentary already returns cleaned paragraphs
     return raw;
@@ -162,7 +163,7 @@ export async function generateOfficeSlidesWithPuter(
   bundle: FeasibilityProjectBundle,
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
-  const baseSlides = generateOfficeSlides(bundle);
+  const baseSlides = options.baseSlides ?? generateOfficeSlides(bundle);
   return enrichOperationalSlidesWithCache(
     baseSlides,
     bundle,
@@ -171,6 +172,7 @@ export async function generateOfficeSlidesWithPuter(
       generateOfficeCommentary(section as OfficeCommentarySection, b, {
         cacheKey: opts.cacheKey,
         forceRegenerate: opts.forceRegenerate,
+        slideId: opts.slideId,
       }),
     options
   );

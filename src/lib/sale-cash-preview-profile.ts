@@ -1043,6 +1043,10 @@ export type SalePreFinancingCashFlows = {
 /**
  * Single source of truth for Components 1+2 pre-financing cash flows.
  * Used by `/preview/cash-inflows` and `/preview/project-irr` so NCF matches exactly.
+ *
+ * Closed-loop escrow does not rewrite this series. Component 3 keeps the raw C2
+ * schedule. The financing engine shifts a copy (China topping-out only) before
+ * post-financing NCF — see `shiftSalesInflowsToStartMonth`.
  */
 export function buildSalePreFinancingCashFlows(
   cashOutflows: CashOutflows,
@@ -1091,4 +1095,63 @@ export function buildSalePreFinancingCashFlows(
     net,
     detail,
   };
+}
+
+/**
+ * Cumulative construction progress (0–100) from the C1 building-works series.
+ * Month 0 … `constructionPeriodMonths`. Does not mutate `constructionMonthly`.
+ */
+export function cumulativeConstructionProgressPct(
+  constructionMonthly: number[],
+  constructionPeriodMonths: number
+): number[] {
+  const cp = Math.max(0, Math.round(Number(constructionPeriodMonths) || 0));
+  let total = 0;
+  for (let m = 0; m <= cp; m++) total += Number(constructionMonthly[m]) || 0;
+  const out: number[] = [];
+  let cum = 0;
+  for (let m = 0; m <= cp; m++) {
+    cum += Number(constructionMonthly[m]) || 0;
+    out.push(total > 0 ? (cum / total) * 100 : m === cp ? 100 : 0);
+  }
+  return out;
+}
+
+/** First month whose cumulative progress reaches `thresholdPct`. Falls back to the last month. */
+export function findFirstMonthAtCumulativeProgress(
+  cumulativePct: number[],
+  thresholdPct: number
+): number {
+  if (!cumulativePct.length) return 0;
+  const threshold = Number(thresholdPct);
+  for (let m = 0; m < cumulativePct.length; m++) {
+    if ((Number(cumulativePct[m]) || 0) >= threshold) return m;
+  }
+  return cumulativePct.length - 1;
+}
+
+export function lastNonZeroMonth(series: number[]): number {
+  for (let i = series.length - 1; i >= 0; i--) {
+    if ((Number(series[i]) || 0) !== 0) return i;
+  }
+  return 0;
+}
+
+/**
+ * Right-shift buyer inflows so the first non-zero month is `startMonth`.
+ * Returns a new array. Months already at or after `startMonth` are left in place.
+ */
+export function shiftSalesInflowsToStartMonth(
+  sales: number[],
+  startMonth: number
+): number[] {
+  const source = sales.map((v) => Number(v) || 0);
+  const first = source.findIndex((v) => v !== 0);
+  if (first < 0) return source;
+  const target = Math.max(0, Math.round(Number(startMonth) || 0));
+  const delay = Math.max(0, target - first);
+  if (delay === 0) return source;
+  const shifted = Array.from({ length: source.length + delay }, () => 0);
+  for (let i = 0; i < source.length; i++) shifted[i + delay] = source[i] ?? 0;
+  return shifted;
 }

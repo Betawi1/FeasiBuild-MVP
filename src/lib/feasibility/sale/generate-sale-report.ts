@@ -35,6 +35,7 @@ import {
   buildSaleSuccessFactorsData,
 } from "@/lib/feasibility/sale/build-sale-market-data";
 import { cleanAIContent } from "@/lib/feasibility/clean-ai-content";
+import { asFallbackCommentary } from "@/lib/feasibility/enrichment-ladder";
 import {
   createPromptForSection,
 } from "@/lib/feasibility/sale/create-sale-puter-prompts";
@@ -51,11 +52,13 @@ function commentary(
 export async function generateSaleCommentary(
   section: SaleCommentarySection,
   bundle: SaleFeasibilityBundle,
-  options?: { cacheKey?: string; forceRegenerate?: boolean }
+  options?: { cacheKey?: string; forceRegenerate?: boolean; slideKey?: string }
 ): Promise<string[]> {
   const config = getSaleStreamConfig(bundle.buildingSubType);
   const fallback = () =>
-    cleanAIContent(generateSaleCommentaryFallback(section, bundle));
+    asFallbackCommentary(
+      cleanAIContent(generateSaleCommentaryFallback(section, bundle))
+    );
 
   try {
     const { aiProvider, COMMENTARY_LENGTH_CONSTRAINT, COMMENTARY_FORMAT_CONSTRAINT } =
@@ -66,6 +69,7 @@ export async function generateSaleCommentary(
       cacheKey: options?.cacheKey,
       forceRegenerate: options?.forceRegenerate,
       section,
+      slideKey: options?.slideKey,
     });
 
     const looksFailed =
@@ -75,7 +79,8 @@ export async function generateSaleCommentary(
           !p.trim() ||
           /content generation failed/i.test(p) ||
           /invalid\/empty streaming response/i.test(p)
-      );
+      ) ||
+      raw.some((p) => /content may contain placeholder/i.test(p));
 
     if (looksFailed) {
       console.warn(
@@ -335,7 +340,8 @@ function generateSaleFinancialSlides(
       paragraphs: commentary(bundle, "Revolving Credit Facility"),
       data: buildSaleRevolvingCreditData(bundle),
     },
-    // Escrow slide for every sale asset class — format follows the selected rule
+    // Escrow slide follows the selected rule, including closed_loop_escrow.
+    // Residential subtypes are the closed-loop default; the slide stays on the sale deck.
     {
       id: "sale-escrow",
       section: "financial" as const,

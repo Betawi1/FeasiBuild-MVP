@@ -1,3 +1,4 @@
+import { guardEnrichmentCacheWrite } from "@/lib/feasibility/enrichment-ladder";
 import {
   getSecureKvUserId,
   probePuterKvAccess,
@@ -292,13 +293,19 @@ export async function setCachedContent(
   ttlMs: number = FEASIBILITY_CACHE_TTL_MS,
   userId?: string | null
 ): Promise<void> {
-  await setWithFallback(
+  // Success-only: null charts and fallback commentary must not become the next run's hit.
+  if (!guardEnrichmentCacheWrite(cacheKey, content)) return;
+
+  // Background persistence for the next run. The in-progress deck reads the store, not KV.
+  void setWithFallback(
     `${CACHE_PREFIX}${cacheKey}`,
     content,
     cacheKey,
     ttlMs,
     userId
-  );
+  ).catch(() => {
+    /* setWithFallback already logs and falls back to localStorage */
+  });
 }
 
 export async function getStoredHashes(

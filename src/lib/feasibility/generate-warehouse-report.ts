@@ -135,6 +135,7 @@ export async function generateWarehouseCommentary(
       cacheKey,
       forceRegenerate: options?.forceRegenerate,
       section,
+      slideKey: options?.slideId,
     });
     return raw;
   } catch (error) {
@@ -148,7 +149,7 @@ export async function generateWarehouseSlidesWithPuter(
   bundle: FeasibilityProjectBundle,
   options: OperationalSlideCacheOptions = {}
 ): Promise<OperationalSlideCacheResult> {
-  const baseSlides = generateWarehouseSlides(bundle);
+  const baseSlides = options.baseSlides ?? generateWarehouseSlides(bundle);
   return enrichOperationalSlidesWithCache(
     baseSlides,
     bundle,
@@ -157,6 +158,7 @@ export async function generateWarehouseSlidesWithPuter(
       generateWarehouseCommentary(section as WarehouseCommentarySection, b, {
         cacheKey: opts.cacheKey,
         forceRegenerate: opts.forceRegenerate,
+        slideId: opts.slideId,
       }),
     options
   );

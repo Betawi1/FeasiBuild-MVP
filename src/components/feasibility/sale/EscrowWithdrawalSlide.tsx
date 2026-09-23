@@ -23,6 +23,7 @@ function resolveSlideRule(data: SaleEscrowWithdrawalData): EscrowRuleId {
   if (j === "uae" || j.includes("rera") || j.includes("staged")) return "staged";
   if (j === "malaysia" || j.includes("hda") || j.includes("progress")) return "progress";
   if (j === "australia" || j.includes("10/90") || j.includes("ten_ninety")) return "ten_ninety";
+  if (j.includes("closed") && j.includes("loop")) return "closed_loop_escrow";
   if (j.includes("no escrow") || j === "none") return "none";
   return normalizeEscrowRuleId(data.jurisdiction);
 }
@@ -281,6 +282,79 @@ export default function EscrowWithdrawalSlide({
                     {data.australiaConfig.managementFee}% p.a.
                   </td>
                 </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {rule === "closed_loop_escrow" && (
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                100% of buyer funds are locked in escrow until practical completion. There are no
+                progress withdrawals; the balance is released as a single lump sum at completion.
+              </li>
+              <li>
+                {data.closedLoopConfig?.contractorRetentionPct ?? 3}% of building works are retained
+                from the main contractor until practical completion + 24 months.
+              </li>
+              {data.closedLoopConfig?.toppingOutEnabled && (
+                <li>
+                  Off-plan sales begin only after cumulative construction progress reaches the
+                  topping-out threshold of {data.closedLoopConfig.toppingOutPct}%.
+                </li>
+              )}
+              {data.closedLoopConfig?.chinaOverlay && (
+                <li>
+                  Land is 100% equity. The construction loan is capped at{" "}
+                  {data.closedLoopConfig.maxLoanOfTdcPct}% of total development cost.
+                </li>
+              )}
+            </ul>
+            <table className="feasibility-table w-full text-xs border border-slate-300">
+              <tbody>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Buyer funds</td>
+                  <td className="border border-slate-300 p-2">
+                    100% locked until practical completion
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Progress withdrawals</td>
+                  <td className="border border-slate-300 p-2">None</td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Contractor retention</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.closedLoopConfig?.contractorRetentionPct ?? 3}% of building works until
+                    CP+24
+                  </td>
+                </tr>
+                {data.closedLoopConfig?.toppingOutEnabled && (
+                  <tr>
+                    <td className="border border-slate-300 p-2 font-medium">Topping out</td>
+                    <td className="border border-slate-300 p-2">
+                      {data.closedLoopConfig.toppingOutPct}% cumulative construction progress
+                    </td>
+                  </tr>
+                )}
+                {data.closedLoopConfig?.chinaOverlay && (
+                  <>
+                    <tr>
+                      <td className="border border-slate-300 p-2 font-medium">Land funding</td>
+                      <td className="border border-slate-300 p-2">100% equity</td>
+                    </tr>
+                    <tr>
+                      <td className="border border-slate-300 p-2 font-medium">
+                        Max construction loan
+                      </td>
+                      <td className="border border-slate-300 p-2">
+                        {data.closedLoopConfig.maxLoanOfTdcPct}% of total development cost
+                      </td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
           </div>

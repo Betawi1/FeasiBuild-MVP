@@ -19,7 +19,6 @@ import { buildConstructionCostPreviewRow } from "@/lib/financing-preview-rows";
 import {
   buildFinancingEnginePreview,
   financingEngineTimelineLastMonth,
-  financingEngineTimelineMonthCount,
   isResidentialSaleProject,
   mapEngineRowsToAustralia,
   mapEngineRowsToMalaysia,
@@ -3553,15 +3552,21 @@ function FinancingPreviewPageContent({
       businessModel: projectInfo.businessModel ?? "DEV_FOR_SALE",
       projectType: projectInfo.projectType ?? "DEV_FOR_SALE",
     };
+    const staticLast = financingEngineTimelineLastMonth(j, constructionPeriod, timelineOpts);
+    const rowLast = financingEnginePreview?.rows?.length
+      ? financingEnginePreview.rows[financingEnginePreview.rows.length - 1]?.month ?? staticLast
+      : staticLast;
+    const lastMonth = Math.max(staticLast, rowLast);
     return {
-      lastMonth: financingEngineTimelineLastMonth(j, constructionPeriod, timelineOpts),
-      monthCount: financingEngineTimelineMonthCount(j, constructionPeriod, timelineOpts),
+      lastMonth,
+      monthCount: lastMonth + 1,
     };
   }, [
     projectInfo,
     constructionPeriod,
     withdrawalMode,
     financing.escrowConfig,
+    financingEnginePreview?.rows,
   ]);
 
   /**

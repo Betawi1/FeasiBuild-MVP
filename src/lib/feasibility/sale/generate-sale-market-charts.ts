@@ -279,7 +279,7 @@ export async function generateSaleMarketChartDataWithPuter(
   ) => Promise<unknown>,
   cacheKey: string,
   fallbackInput?: SaleMarketChartsInput
-): Promise<SlideChart[]> {
+): Promise<{ charts: SlideChart[]; fromAi: boolean }> {
   const prompt = buildSaleMarketChartPrompt(
     sectionKey,
     country,
@@ -295,22 +295,18 @@ export async function generateSaleMarketChartDataWithPuter(
         ? (result as { charts?: unknown }).charts
         : result
     );
-    if (charts.length > 0) return charts;
-  } catch (error) {
-    console.error(
-      `[Puter] Chart data generation failed for ${sectionKey}:`,
-      error
-    );
+    if (charts.length > 0) return { charts, fromAi: true };
+  } catch {
+    /* generateChartData already swallowed the model failure */
   }
 
-  if (fallbackInput) {
-    return buildFallbackCharts(sectionKey, fallbackInput);
-  }
-
-  return buildFallbackCharts(sectionKey, {
-    projectInfo: { city, country, currency: resolveCurrency(country) },
-    component2Data: { avgPricePSF },
-  });
+  const charts = fallbackInput
+    ? buildFallbackCharts(sectionKey, fallbackInput)
+    : buildFallbackCharts(sectionKey, {
+        projectInfo: { city, country, currency: resolveCurrency(country) },
+        component2Data: { avgPricePSF },
+      });
+  return { charts, fromAi: false };
 }
 
 /** Generate country-specific market charts via Qwen, with deterministic fallback. */

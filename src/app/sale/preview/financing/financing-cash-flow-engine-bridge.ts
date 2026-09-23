@@ -5,11 +5,14 @@ import type {
 } from "@/lib/financing-engine/generate-cash-flow";
 import {
   generateFinancingCashFlow,
+  resolveSaleHorizonLastMonth,
 } from "@/lib/financing-engine/generate-cash-flow";
 import {
   ESCROW_RULE_HORIZON_OFFSET,
+  resolveClosedLoopToppingOut,
   isDubaiCity,
   isAustraliaLocation,
+  isChinaLocation,
   isMalaysiaLocation,
   isCommercialSaleAsset,
   resolveEscrowRule,
@@ -31,6 +34,23 @@ import type { MonthlyRow as UaeCashFlowRow } from "./components/cash-flow-table-
 import type { MonthlyRow as MalaysiaCashFlowRow } from "./components/cash-flow-table-malaysia";
 import type { MonthlyRow as AustraliaCashFlowRow } from "./components/cash-flow-table-australia";
 
+function closedLoopToppingEngineFields(
+  financing: Financing,
+  jurisdiction: Jurisdiction
+): Pick<FinancingInputs, "closedLoopToppingOutEnabled" | "closedLoopToppingOutPct"> {
+  const closed = financing.escrowConfig?.closedLoop;
+  const resolved = resolveClosedLoopToppingOut({
+    toppingOutEnabled: closed?.toppingOutEnabled,
+    toppingOutPercent: closed?.toppingOutPercent,
+    toppingOutPct: closed?.toppingOutPct,
+    china: jurisdiction === "CHINA",
+  });
+  return {
+    closedLoopToppingOutEnabled: resolved.enabled,
+    closedLoopToppingOutPct: resolved.percent,
+  };
+}
+
 export function resolveFinancingEngineJurisdiction(projectInfo: ProjectInfo): Jurisdiction {
   const code = projectInfo.countryCode?.toUpperCase() ?? "";
   const c = projectInfo.country?.toLowerCase() ?? "";
@@ -47,6 +67,9 @@ export function resolveFinancingEngineJurisdiction(projectInfo: ProjectInfo): Ju
     isDubaiCity(projectInfo.city)
   ) {
     return "UAE_SA";
+  }
+  if (isChinaLocation(projectInfo.country, projectInfo.countryCode)) {
+    return "CHINA";
   }
 
   return "OTHER";
@@ -388,8 +411,68 @@ export function buildFinancingEnginePreview(params: {
     businessModel: projectInfo.businessModel ?? "DEV_FOR_SALE",
     projectType: projectInfo.projectType ?? "DEV_FOR_SALE",
   };
+  const maxInflowMonth = monthlyInflowSchedule.reduce((max, point) => {
+    const month = Math.round(Number(point.month));
+    return Number.isFinite(month) ? Math.max(max, month) : max;
+  }, 0);
+  const naturalSalesLength = Math.max(
+    constructionPeriod + 1,
+    maxInflowMonth + 1,
+    (outflowProfile.construction || []).length
+  );
+  const rawSales = monthlySalesInflowsFromInflowSchedule(
+    monthlyInflowSchedule,
+    naturalSalesLength
+  );
+  const horizonLastMonth = resolveSaleHorizonLastMonth({
+    stream: "sale",
+    exitStrategy: "sale",
+    constructionPeriodMonths: constructionPeriod,
+    jurisdiction,
+    escrowWithdrawalMode: withdrawalMode,
+    country: projectInfo.country,
+    countryCode: projectInfo.countryCode,
+    city: projectInfo.city,
+    buildingType: projectInfo.buildingType,
+    buildingSubType: projectInfo.buildingSubType,
+    monthlySalesInflows: rawSales,
+    monthlyCosts: {
+      construction: outflowProfile.construction || [],
+      soft: [],
+      powc: [],
+    },
+    ...closedLoopToppingEngineFields(financing, jurisdiction),
+    landCost: 0,
+    landEquityPercent: 100,
+    landEquityValue: 0,
+    cashEquityRequired: 0,
+    approvedCreditFacility: 0,
+    constructionLoanLtcPct: 0,
+    interestRatePct: 0,
+    idcTreatment: "capitalize",
+    landLoanAmount: 0,
+    landLoanRatePct: 0,
+    landLoanArrangementFeePct: 0,
+    landLoanValuationFeePct: 0,
+    prefSharesEnabled: false,
+    prefSharesAmount: 0,
+    prefSharesReturnPct: 0,
+    commitmentFeePct: 0,
+    escrowSetupFee: 0,
+    escrowManagementFeePct: 0,
+    escrowDepositRatePct: 0,
+    milestoneMonths: [],
+    certificationIntervalMonths: 6,
+    hdaDepositPct: 0,
+    totalConstructionCosts: 0,
+    trustAccountFeePct: 0,
+    trustAccountDepositRatePct: 0,
+    sCurveMonthly: [],
+    phases: [],
+  });
   const engineMonths = Math.max(
     1,
+    horizonLastMonth + 1,
     financingEngineTimelineMonthCount(jurisdiction, constructionPeriod, timelineOpts)
   );
 
@@ -557,6 +640,7 @@ export function buildFinancingEnginePreview(params: {
       financing.escrowConfig?.australia?.balancePct ??
       financing.escrowConfig?.australia?.releasePct ??
       90,
+    ...closedLoopToppingEngineFields(financing, jurisdiction),
   };
 
   console.log("🔍 [DEBUG BRIDGE] Inputs sent to engine:", {
