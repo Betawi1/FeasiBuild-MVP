@@ -56,6 +56,103 @@ function assets(slug: string) {
 
 export const posts: BlogPost[] = [
   {
+    slug: "go-no-go-in-hours-not-weeks",
+    title: "Go / No-Go in Hours, Not Weeks",
+    excerpt: "In acquisitions, speed isn't an advantage. It's the whole game. Here is the 48-hour underwriting workflow.",
+    category: "Persona",
+    persona: "Scout",
+    jurisdictions: ["UAE", "MY", "AU"],
+    tags: ["Land Acquisition", "Deal Sourcing", "Private Equity", "Underwriting"],
+    keywords: ["real estate acquisition", "land residual value", "48 hour underwriting", "real estate scout"],
+    date: "2026-09-24",
+    readTime: "2 min read",
+    author: "Rashdan",
+    poster: "/blog/go-no-go-in-hours-not-weeks/poster.png",
+    deckPdf: "/blog/go-no-go-in-hours-not-weeks/deck.pdf",
+    slides: [],
+    body: [
+      { type: "p", text: "The most expensive mistake in development isn't buying a bad deal." },
+      { type: "p", text: "It's being slow on a good one." },
+      { type: "p", text: "While you wait 3 weeks for a feasibility model, the land parcel you spotted has already been bought by a developer who decided in 48 hours." },
+      { type: "p", text: "In acquisitions, speed isn't an advantage. It's the whole game." },
+      { type: "h2", text: "The Cost of Slow" },
+      { type: "p", text: "I've sat on both sides of the table for 30 years — structuring the financing and chasing the deals. The pattern is always the same:" },
+      { type: "ul", items: [
+        "Wait 3 weeks for the consultant's model",
+        "By then, the land price has moved",
+        "Or a competitor has already signed"
+      ]},
+      { type: "h2", text: "The 48-Hour Underwriting Workflow" },
+      { type: "p", text: "So I built FeasiBuild for the Scout:" },
+      { type: "ul", items: [
+        "Pin-drop the parcel",
+        "Get the Residual Land Value in minutes",
+        "Shock the downside before you offer",
+        "Walk into Monday's meeting with a Go / No-Go"
+      ]},
+      { type: "p", text: "Same rigor. A fraction of the time." },
+      { type: "p", text: "The question isn't 'is this a good deal?' It's 'can you answer before the market moves?'" }
+    ],
+  },
+  {
+    slug: "a-user-asked-me-to-keep-his-name-secret",
+    title: "A User Asked Me to Keep His Name Secret",
+    excerpt: "When a user refuses to give a testimonial because they don't want competitors knowing their edge, you know the tool works.",
+    category: "Case Study",
+    persona: "All",
+    jurisdictions: ["UAE"],
+    tags: ["Competitive Advantage", "Zero-Knowledge", "Data Privacy", "Founder Story"],
+    keywords: ["real estate competitive advantage", "zero knowledge data privacy", "AI feasibility tool"],
+    date: "2026-09-24",
+    readTime: "2 min read",
+    author: "Rashdan",
+    poster: "/blog/a-user-asked-me-to-keep-his-name-secret/poster.png",
+    deckPdf: "/blog/a-user-asked-me-to-keep-his-name-secret/deck.pdf",
+    slides: [],
+    body: [
+      { type: "p", text: "One of my first users declined to provide a testimonial." },
+      { type: "p", text: "Not because he's unhappy. The opposite." },
+      { type: "p", text: "He's a Dubai realtor using FeasiBuild to generate feasibility studies for the land plots he is pitching to investors — and he doesn't want his competitors knowing how he produces his institutional-grade reports." },
+      { type: "p", text: "I respect that. And honestly? It's the best feedback I've ever received." },
+      { type: "h2", text: "An Edge, Not Just a Tool" },
+      { type: "p", text: "Because it means the tool isn't just useful. It's an edge. And people protect their edges." },
+      { type: "quote", text: "Our promise to every FeasiBuild user: your data lives in your own private cloud (we couldn't see it if we tried), and your secrets stay yours." },
+      { type: "p", text: "We'll keep building. You keep winning. Quietly." }
+    ],
+  },
+  {
+    slug: "are-you-a-valuer-or-an-excel-mechanic",
+    title: "Are You a Valuer, or an Excel Mechanic?",
+    excerpt: "Most valuers and consultants are secretly overworked Excel mechanics. Here is how to get your weekends back and explode your margins.",
+    category: "Persona",
+    persona: "Workhorse",
+    jurisdictions: ["UAE", "MY", "AU"],
+    tags: ["Valuation", "RICS", "BOVAEP", "Financial Modeling", "Consulting"],
+    keywords: ["real estate valuer", "RICS valuation", "BOVAEP", "real estate financial modeling", "excel proforma alternative"],
+    date: "2026-09-24",
+    readTime: "2 min read",
+    author: "Rashdan",
+    poster: "/blog/are-you-a-valuer-or-an-excel-mechanic/poster.png",
+    deckPdf: "/blog/are-you-a-valuer-or-an-excel-mechanic/deck.pdf",
+    slides: [],
+    body: [
+      { type: "p", text: "Most valuers and consultants are secretly overworked Excel mechanics." },
+      { type: "p", text: "You charge for your expertise, your judgment, and your market knowledge. But what do you actually spend 80% of your time doing?" },
+      { type: "ul", items: [
+        "Fixing broken circular references",
+        "Formatting PDF charts to look \"professional\"",
+        "Manually updating generic templates for new jurisdictions",
+        "Starting the model over when the client changes their mind on the unit mix"
+      ]},
+      { type: "h2", text: "The 80/20 Problem" },
+      { type: "p", text: "The dirty secret of the industry: Clients pay for the final 20% (the analysis). But you are burning your weekends doing the first 80% (the formatting)." },
+      { type: "h2", text: "The Workhorse's New Workflow" },
+      { type: "p", text: "I built FeasiBuild specifically for the Workhorse." },
+      { type: "p", text: "You input the raw assumptions and the capital stack. The platform handles the jurisdiction logic (HDA, 10/90, Escrow), builds the dynamic financial waterfall, and auto-generates the bankable PDF report." },
+      { type: "p", text: "You get your weekends back. Your clients get faster turnaround. Your margins explode." }
+    ],
+  },
+  {
     slug: "Institutional-grade-feasibility-studies-in-minutes",
     title: "Institutional-grade feasibility studies in minutes",
     excerpt:
