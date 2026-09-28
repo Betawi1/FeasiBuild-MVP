@@ -1,5 +1,7 @@
 "use client";
 
+import { SLIDE_COMMENTARY_PARAGRAPH_CLASS } from "@/components/feasibility/slide-typography";
+
 export function hasAiContentWarning(paragraphs: string[]): boolean {
   return paragraphs.some((p) => p.includes("⚠️"));
 }
@@ -24,5 +26,5 @@ export function AiContentWarningBanner({
 export function aiParagraphClassName(text: string): string {
   return text.includes("⚠️")
     ? "text-sm leading-relaxed text-yellow-700 italic"
-    : "text-sm leading-relaxed text-slate-700";
+    : SLIDE_COMMENTARY_PARAGRAPH_CLASS;
 }

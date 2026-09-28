@@ -1098,6 +1098,24 @@ export interface FeasibilityReport {
   generatedAt: string;
 }
 
+export type CustomSlideBlockType = "paragraph" | "bullets";
+
+export interface CustomSlideBlock {
+  id: string;
+  type: CustomSlideBlockType;
+  /** Paragraphs store a string; bullet blocks store one line per item. */
+  text: string | string[];
+}
+
+/** User-authored 16:9 page. Positioned after an AI slide id, or at deck end. */
+export interface CustomSlide {
+  id: string;
+  insertAfter: string | "end";
+  title: string;
+  subtitle: string;
+  blocks: CustomSlideBlock[];
+}
+
 /** Layer 1 payload — Components 1–4/6 via Zustand operational slice. */
 export interface AggregatedProjectData {
   location: {

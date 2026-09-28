@@ -1,4 +1,4 @@
-import { isUnlimitedActive } from "@/lib/validity";
+import { isUnlimitedActive, isWithinValidity } from "./validity";
 
 export type CustomerTier = "explorer" | "pro" | "advisory";
 
@@ -48,15 +48,32 @@ const PRO_LOGO_PACK_ALLOWLIST: string[] = [
   // e.g. "consultant@firm.com",
 ];
 
-/** Advisory = always; Professional (`pro`) = only with 100-Pack; Explorer = never. */
-export function hasWhiteLabelAccess(
+/** Professional with a 100-Pack that is still inside its 12-month window. */
+function hasActiveHundredPack(
+  subscription?: SubscriptionLike | null
+): boolean {
+  if (!subscription) return false;
+  if (isUnlimitedActive(subscription)) return false;
+  if (tierFromSubscription(subscription) !== "pro") return false;
+  return (
+    subscription.whiteLabel === true &&
+    isWithinValidity(subscription.packPurchasedAt)
+  );
+}
+
+/**
+ * Advisory always (active Unlimited Pack, or getCustomerTier === "advisory").
+ * Professional only with an active 100-Pack (or the logo-pack allowlist).
+ * Explorer never. Expired Unlimited and expired 100-Packs are false —
+ * a leftover `whiteLabel` flag does not extend access past expiry.
+ * Custom pages and white-label are this one check.
+ */
+function resolvePackAccess(
   email: string | null | undefined,
   subscription?: SubscriptionLike | null
 ): boolean {
-  if (subscription?.whiteLabel) return true;
-  if (subscription && isUnlimitedActive(subscription)) {
-    return true;
-  }
+  if (subscription && isUnlimitedActive(subscription)) return true;
+  if (hasActiveHundredPack(subscription)) return true;
   const normalized = (email ?? "").trim().toLowerCase();
   const tier = getCustomerTier(normalized, subscription);
   if (tier === "advisory") return true;
@@ -64,4 +81,23 @@ export function hasWhiteLabelAccess(
     return PRO_LOGO_PACK_ALLOWLIST.includes(normalized);
   }
   return false;
+}
+
+export const hasCustomPagesAccess = resolvePackAccess;
+export const hasWhiteLabelAccess = resolvePackAccess;
+
+/** Dev-only. The upsell pill must never render for advisory or an active 100-Pack. */
+export function reportCustomPagesPillRegression(
+  email: string,
+  subscription?: SubscriptionLike | null
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  if (
+    getCustomerTier(email, subscription) === "advisory" ||
+    hasActiveHundredPack(subscription)
+  ) {
+    console.warn(
+      "[custom-pages] Upsell pill rendered while the customer is entitled (advisory tier or an active 100-Pack)."
+    );
+  }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
@@ -15,6 +15,8 @@ import { useSubscription } from "@/hooks/useSubscription";
 export interface UpgradeModalProps {
   open: boolean;
   onClose: () => void;
+  /** Scrolls to and highlights the 100-Pack and Unlimited Pack. */
+  focus?: "custom-pages";
 }
 
 function formatUsd(amount: string): string {
@@ -30,6 +32,70 @@ function usePaypalCheckoutVisible() {
   return { ready: true, visible: paypalVisible() };
 }
 
+function useUpgradeModalDismiss(open: boolean, onClose: () => void) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previous =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onCloseRef.current();
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (previous && document.contains(previous)) previous.focus();
+    };
+  }, [open]);
+}
+
+function UpgradeModalFrame({
+  onClose,
+  panelClassName,
+  children,
+}: {
+  onClose: () => void;
+  panelClassName: string;
+  children: ReactNode;
+}) {
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[300] bg-black/70" onClick={onClose}>
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="upgrade-modal-title"
+          className={`relative ${panelClassName}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 z-10 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+          <div id="upgrade-modal-body" className="max-h-[85vh] overflow-y-auto p-6">
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 const CREDIT_NOTES: Record<string, string> = {
   credit_1: "Pay as you go",
   credit_10: "Save 20%",
@@ -37,7 +103,11 @@ const CREDIT_NOTES: Record<string, string> = {
   credit_100: "Save 61% + Logo Branding",
 };
 
-export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
+export default function UpgradeModal({
+  open,
+  onClose,
+  focus,
+}: UpgradeModalProps) {
   const { ready, visible } = usePaypalCheckoutVisible();
   const { isSignedIn } = useUser();
   const {
@@ -50,6 +120,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const [redirecting, setRedirecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const packsLocked = reportCredits > 0;
+  useUpgradeModalDismiss(open, onClose);
 
   const professional = ONE_TIME_PRODUCTS.professional;
   const unlimitedPack = ONE_TIME_PRODUCTS.unlimited;
@@ -60,6 +131,24 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
       setError(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || focus !== "custom-pages") return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById("upgrade-100-pack");
+      const scroller = document.getElementById("upgrade-modal-body");
+      if (!target || !scroller) return;
+      const targetRect = target.getBoundingClientRect();
+      const scrollerRect = scroller.getBoundingClientRect();
+      const delta =
+        targetRect.top -
+        scrollerRect.top -
+        scrollerRect.height / 2 +
+        targetRect.height / 2;
+      scroller.scrollTo({ top: scroller.scrollTop + delta });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, focus]);
 
   async function startOneTime(productKey: ProductKey) {
     if (redirecting) return;
@@ -95,32 +184,33 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
 
   if (!visible) {
     return (
-      <div className="fixed inset-0 z-[300] overflow-y-auto bg-black/70">
-        <div className="flex min-h-full items-center justify-center p-4">
-          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200">
-            <h2 className="text-lg font-semibold text-white">Upgrade</h2>
-            <p className="mt-2 text-sm text-slate-400">
-              Paid checkout is not available on this domain while PayPal is in
-              sandbox. See pricing, or use a preview deployment to purchase.
-            </p>
-            <div className="mt-4 flex gap-3">
-              <a
-                href="/#pricing"
-                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-              >
-                See Pricing
-              </a>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
-              >
-                Close
-              </button>
-            </div>
-          </div>
+      <UpgradeModalFrame
+        onClose={onClose}
+        panelClassName="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 text-slate-200"
+      >
+        <h2 id="upgrade-modal-title" className="pr-8 text-lg font-semibold text-white">
+          Upgrade
+        </h2>
+        <p className="mt-2 text-sm text-slate-400">
+          Paid checkout is not available on this domain while PayPal is in
+          sandbox. See pricing, or use a preview deployment to purchase.
+        </p>
+        <div className="mt-4 flex gap-3">
+          <a
+            href="/#pricing"
+            className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+          >
+            See Pricing
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800"
+          >
+            Close
+          </button>
         </div>
-      </div>
+      </UpgradeModalFrame>
     );
   }
 
@@ -128,30 +218,22 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
   const unlimitedLocked = !isPro;
   const busy = Boolean(redirecting);
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/70"
-      style={{ position: "fixed", inset: 0, overflowY: "auto" }}
+  return (
+    <UpgradeModalFrame
+      onClose={onClose}
+      panelClassName="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 text-slate-200"
     >
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div
-          className="relative w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-200"
-          style={{ maxHeight: "85vh", overflowY: "auto" }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="absolute right-4 top-4 rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-40"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-
-          <h2 className="pr-8 text-2xl font-bold text-white">Upgrade FeasiBuild</h2>
+          <h2 id="upgrade-modal-title" className="pr-8 text-2xl font-bold text-white">
+            Upgrade FeasiBuild
+          </h2>
           <p className="mt-1 text-sm text-slate-400">
             Lifetime access, report credits, or the Unlimited Pack.
           </p>
+          {focus === "custom-pages" ? (
+            <p className="mt-3 text-sm text-amber-200">
+              Custom pages are included with the 100-Pack and the Unlimited Pack.
+            </p>
+          ) : null}
 
           {packsLocked ? (
             <div className="mb-4 mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
@@ -237,13 +319,18 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {CREDIT_PRODUCT_KEYS.map((key) => {
                 const product = ONE_TIME_PRODUCTS[key];
+                const highlight =
+                  focus === "custom-pages" && key === "credit_100";
                 return (
                   <div
                     key={key}
+                    id={key === "credit_100" ? "upgrade-100-pack" : undefined}
                     className={`rounded-xl border p-4 ${
-                      creditsLocked || packsLocked
-                        ? "border-slate-700 bg-slate-900/50 opacity-40"
-                        : "border-slate-700 bg-slate-900/50"
+                      highlight
+                        ? "border-amber-400 bg-amber-500/10 ring-2 ring-amber-400"
+                        : creditsLocked || packsLocked
+                          ? "border-slate-700 bg-slate-900/50 opacity-40"
+                          : "border-slate-700 bg-slate-900/50"
                     }`}
                   >
                     <p className="text-sm font-medium text-slate-300">
@@ -276,10 +363,13 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
               Unlimited Pack — {formatUsd(unlimitedPack.amount)} · 12 months
             </h3>
             <div
+              id="upgrade-unlimited-pack"
               className={`mt-3 w-full rounded-xl border p-4 ${
-                hasUnlimitedReports || unlimitedLocked || packsLocked
-                  ? "border-slate-700 bg-slate-900/50 opacity-70"
-                  : "border-emerald-500 bg-emerald-500/10"
+                focus === "custom-pages"
+                  ? "border-amber-400 bg-amber-500/10 ring-2 ring-amber-400"
+                  : hasUnlimitedReports || unlimitedLocked || packsLocked
+                    ? "border-slate-700 bg-slate-900/50 opacity-70"
+                    : "border-emerald-500 bg-emerald-500/10"
               }`}
             >
               <div className="flex items-baseline justify-between gap-3">
@@ -332,10 +422,7 @@ export default function UpgradeModal({ open, onClose }: UpgradeModalProps) {
             </Link>
             .
           </p>
-        </div>
-      </div>
-    </div>,
-    document.body
+    </UpgradeModalFrame>
   );
 }
 

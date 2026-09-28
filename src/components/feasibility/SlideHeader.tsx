@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import InlineAutoGrow from "@/components/feasibility/InlineAutoGrow";
 
 export interface SlidePagination {
   pageNumber: number | null;
@@ -24,12 +25,20 @@ export function SlidePaginationProvider({
   );
 }
 
+export const SLIDE_TITLE_CLASS = "text-3xl font-bold text-slate-900 mb-2";
+export const SLIDE_SUBTITLE_CLASS = "text-lg text-slate-500";
+
 interface SlideHeaderProps {
   title: string;
   subtitle: string;
   className?: string;
   pageNumber?: number | null;
   totalNumbered?: number;
+  /** Click-to-edit. Blur returns to the static title node. */
+  onTitleChange?: (value: string) => void;
+  onSubtitleChange?: (value: string) => void;
+  /** Shown when `title` is empty and the field is not focused. */
+  emptyTitleFallback?: string;
 }
 
 export default function SlideHeader({
@@ -38,17 +47,67 @@ export default function SlideHeader({
   className = "",
   pageNumber,
   totalNumbered,
+  onTitleChange,
+  onSubtitleChange,
+  emptyTitleFallback,
 }: SlideHeaderProps) {
   const pagination = useContext(SlidePaginationContext);
   const resolvedPage = pageNumber !== undefined ? pageNumber : pagination.pageNumber;
   const resolvedTotal =
     totalNumbered !== undefined ? totalNumbered : pagination.totalNumbered;
+  const [titleFocused, setTitleFocused] = useState(false);
+  const [subtitleFocused, setSubtitleFocused] = useState(false);
+
+  const displayTitle =
+    title.trim().length > 0 ? title : (emptyTitleFallback ?? title);
+  const subtitleEmpty = subtitle.trim().length === 0;
 
   return (
     <div className={`mb-6 shrink-0 ${className}`.trim()}>
-      <h1 className="text-3xl font-bold text-slate-900 mb-2">{title}</h1>
+      {onTitleChange && titleFocused ? (
+        <InlineAutoGrow
+          value={title}
+          onChange={onTitleChange}
+          onBlur={() => setTitleFocused(false)}
+          className={SLIDE_TITLE_CLASS}
+          placeholder={emptyTitleFallback}
+        />
+      ) : (
+        <h1
+          className={SLIDE_TITLE_CLASS}
+          onClick={
+            onTitleChange
+              ? () => {
+                  setTitleFocused(true);
+                }
+              : undefined
+          }
+        >
+          {displayTitle}
+        </h1>
+      )}
       <div className="mb-3 flex items-end justify-between gap-4">
-        <p className="text-lg text-slate-500">{subtitle}</p>
+        {onSubtitleChange && subtitleFocused ? (
+          <InlineAutoGrow
+            value={subtitle}
+            onChange={onSubtitleChange}
+            onBlur={() => setSubtitleFocused(false)}
+            className={`${SLIDE_SUBTITLE_CLASS} min-w-0 flex-1`}
+            placeholder="Subtitle"
+          />
+        ) : subtitleEmpty && onSubtitleChange ? (
+          <p
+            data-pdf-hide
+            className="min-w-0 flex-1 text-lg text-slate-400"
+            onClick={() => setSubtitleFocused(true)}
+          >
+            Subtitle
+          </p>
+        ) : subtitleEmpty && emptyTitleFallback ? (
+          <span className="min-w-0 flex-1" />
+        ) : (
+          <p className={SLIDE_SUBTITLE_CLASS}>{subtitle}</p>
+        )}
         {resolvedPage !== null && (
           <span className="shrink-0 text-sm font-medium text-slate-500">
             Page {resolvedPage} of {resolvedTotal}

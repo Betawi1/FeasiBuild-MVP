@@ -1,5 +1,7 @@
 import { create } from "zustand";
+import { normalizeCustomSlides } from "@/lib/feasibility/custom-slides";
 import type {
+  CustomSlide,
   FeasibilityReport,
   FeasibilitySlide,
   FeasibilitySlideData,
@@ -14,6 +16,13 @@ export interface AiSectionState {
 
 interface FeasibilityStore {
   slides: FeasibilitySlide[];
+  /**
+   * User-authored deck pages. AI regenerate / enrich / cache paths must not
+   * read, rewrite, or clear this slice. `setSlides` leaves it untouched.
+   */
+  customSlides: CustomSlide[];
+  /** Project id the in-memory custom pages belong to. Null until claimed. */
+  customSlidesOwnerId: string | null;
   report: FeasibilityReport | null;
   marketResearchCache: Record<string, unknown> | null;
   isEditing: boolean;
@@ -21,6 +30,12 @@ interface FeasibilityStore {
   aiSections: Record<string, AiSectionState>;
   aiBannerDismissed: boolean;
   setSlides: (slides: FeasibilitySlide[]) => void;
+  setCustomSlides: (slides: CustomSlide[], ownerId?: string | null) => void;
+  updateCustomSlide: (
+    id: string,
+    updater: (slide: CustomSlide) => CustomSlide
+  ) => void;
+  clearCustomSlides: () => void;
   setReport: (report: FeasibilityReport) => void;
   patchSlide: (slideId: string, slide: FeasibilitySlide) => void;
   updateSlideParagraph: (slideId: string, index: number, newText: string) => void;
@@ -39,6 +54,8 @@ interface FeasibilityStore {
 
 export const useFeasibilityStore = create<FeasibilityStore>((set) => ({
   slides: [],
+  customSlides: [],
+  customSlidesOwnerId: null,
   report: null,
   marketResearchCache: null,
   isEditing: false,
@@ -49,6 +66,20 @@ export const useFeasibilityStore = create<FeasibilityStore>((set) => ({
       slides,
       report: { slides, generatedAt: new Date().toISOString() },
     }),
+  setCustomSlides: (slides, ownerId) =>
+    set((state) => ({
+      customSlides: normalizeCustomSlides(slides),
+      customSlidesOwnerId:
+        ownerId !== undefined ? ownerId : state.customSlidesOwnerId,
+    })),
+  updateCustomSlide: (id, updater) =>
+    set((state) => ({
+      customSlides: state.customSlides.map((slide) =>
+        slide.id === id ? updater(slide) : slide
+      ),
+    })),
+  clearCustomSlides: () =>
+    set({ customSlides: [], customSlidesOwnerId: null }),
   setReport: (report) => set({ report, slides: report.slides }),
   patchSlide: (slideId, slide) =>
     set((state) => {

@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { useAuditStore } from "@/store/useAuditStore";
+import { useFeasibilityStore } from "@/store/useFeasibilityStore";
 import useScenarioStore from "@/store/useScenarioStore";
+import { normalizeCustomSlides } from "@/lib/feasibility/custom-slides";
 import type { ProjectSaveData } from "@/types/project";
 import type { HotelOperatingType } from "@/config/hotel-cost-profiles";
 import { allocatePowcMonthlyFromStep13 } from "@/lib/cash-outflow-powc-timing";
@@ -4077,6 +4079,12 @@ const useFinModelStore = create<FinModelStore>()(
           savedData.projectId,
           savedData.projectName || null
         );
+        useFeasibilityStore
+          .getState()
+          .setCustomSlides(
+            normalizeCustomSlides(savedData.customSlides),
+            savedData.projectId
+          );
       },
 
       setActiveProject: (projectId, projectName = null) => {
@@ -4096,6 +4104,7 @@ const useFinModelStore = create<FinModelStore>()(
       },
 
       resetOperational: () => {
+        useFeasibilityStore.getState().clearCustomSlides();
         set({
           assetType: "operational",
           operational: cloneDefaultStreamSlice(),
@@ -4105,6 +4114,7 @@ const useFinModelStore = create<FinModelStore>()(
       },
 
       resetSale: () => {
+        useFeasibilityStore.getState().clearCustomSlides();
         set({
           assetType: "sale",
           sale: cloneDefaultStreamSlice(),
@@ -4121,6 +4131,7 @@ const useFinModelStore = create<FinModelStore>()(
           return;
         }
         useAuditStore.getState().clearLog();
+        useFeasibilityStore.getState().clearCustomSlides();
         try {
           // Clear persisted storage first, then reset in-memory.
           // eslint-disable-next-line @typescript-eslint/no-floating-promises

@@ -16,6 +16,7 @@ import type {
   OperationalRetailHoldSnapshot,
 } from "@/lib/operational-pnl";
 import type { ScenarioState } from "@/types/scenario";
+import type { CustomSlide } from "@/types/feasibility";
 
 export const PROJECT_SAVE_VERSION = "1.0.0";
 
@@ -67,6 +68,11 @@ export interface ProjectSaveData {
   aiCommentary: AICommentary;
   /** Set when the feasibility study has been generated at least once. */
   feasibilityStudyGeneratedAt?: string;
+  /**
+   * User-authored feasibility pages. Absent on legacy projects — treat as [].
+   * AI regenerate/enrich paths never write this field.
+   */
+  customSlides?: CustomSlide[];
   collectedState?: CollectedProjectState;
   metadata: ProjectSaveMetadata;
 }

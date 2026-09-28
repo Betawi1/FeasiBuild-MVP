@@ -5,6 +5,10 @@ import {
   AiContentWarningBanner,
   aiParagraphClassName,
 } from "@/components/feasibility/AiContentWarning";
+import {
+  SLIDE_COMMENTARY_BULLET_ITEM_CLASS,
+  SLIDE_COMMENTARY_BULLET_LIST_CLASS,
+} from "@/components/feasibility/slide-typography";
 import { cleanParagraphsForDisplay, stripSourceAttributionLines } from "@/lib/feasibility/clean-ai-content";
 import EditableSlideParagraphs from "../EditableSlideParagraphs";
 import SlideContainer from "../SlideContainer";
@@ -67,12 +71,12 @@ function ParagraphBlock({
         itemClassName={`${aiParagraphClassName(displayParagraphs[0] ?? "")} mb-2 last:mb-0`}
       />
       {slide.bulletPoints ? (
-        <ul className="list-disc pl-5 space-y-1 mt-2">
+        <ul className={SLIDE_COMMENTARY_BULLET_LIST_CLASS}>
           {slide.bulletPoints
             .map((bp) => stripSourceAttributionLines(bp))
             .filter((bp) => bp.trim().length > 0)
             .map((bp, i) => (
-              <li key={i} className="text-sm text-slate-700">
+              <li key={i} className={SLIDE_COMMENTARY_BULLET_ITEM_CLASS}>
                 {bp}
               </li>
             ))}

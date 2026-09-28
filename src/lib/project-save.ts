@@ -29,6 +29,8 @@ import {
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import { sanitizeForStorage } from "@/lib/sanitize";
 import { getCustomerTier, type SubscriptionLike } from "@/lib/entitlements";
+import { normalizeCustomSlides } from "@/lib/feasibility/custom-slides";
+import type { CustomSlide } from "@/types/feasibility";
 import { canCreateProject } from "@/lib/report-entitlements";
 import { getSecureKvUserId } from "@/lib/secure-puter-kv";
 import type {
@@ -116,6 +118,43 @@ function parseStoredProject(raw: unknown): ProjectSaveData | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Load saved custom pages into the feasibility store once per project.
+ * Skips when this session already owns the project, so regenerate and
+ * in-progress edits are not replaced by the last KV copy.
+ */
+export async function ensureCustomSlidesLoaded(
+  projectId: string,
+  userId?: string
+): Promise<void> {
+  const state = useFeasibilityStore.getState();
+  if (state.customSlidesOwnerId === projectId) return;
+  const saved = await loadProjectFromKV(projectId, userId);
+  if (useFeasibilityStore.getState().customSlidesOwnerId === projectId) return;
+  useFeasibilityStore.getState().setCustomSlides(
+    normalizeCustomSlides(saved?.customSlides),
+    projectId
+  );
+}
+
+function resolveCustomSlidesForSave(
+  projectId: string,
+  existing: ProjectSaveData | null,
+  isNewProject: boolean
+): CustomSlide[] {
+  const state = useFeasibilityStore.getState();
+  if (state.customSlidesOwnerId === projectId) {
+    return state.customSlides;
+  }
+  if (isNewProject) {
+    useFeasibilityStore.getState().setCustomSlides(state.customSlides, projectId);
+    return state.customSlides;
+  }
+  const adopted = normalizeCustomSlides(existing?.customSlides);
+  useFeasibilityStore.getState().setCustomSlides(adopted, projectId);
+  return adopted;
 }
 
 export async function loadProjectFromKV(
@@ -619,6 +658,11 @@ export async function buildAndSaveProject(
   const studyGeneratedAt =
     feasibilityState.report?.generatedAt ??
     existingProject?.feasibilityStudyGeneratedAt;
+  const customSlides = resolveCustomSlidesForSave(
+    projectId,
+    existingProject,
+    isNewProject
+  );
 
   const draft: ProjectSaveData = {
     projectId,
@@ -643,6 +687,7 @@ export async function buildAndSaveProject(
     feasibilityStudyGeneratedAt:
       existingProject?.feasibilityStudyGeneratedAt ??
       (slideCount > 0 ? studyGeneratedAt ?? now : undefined),
+    customSlides,
     collectedState: collected,
     metadata: {
       version: PROJECT_SAVE_VERSION,

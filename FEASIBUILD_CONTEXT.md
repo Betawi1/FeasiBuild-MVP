@@ -206,7 +206,7 @@ Two agents share the founder’s Telegram bot (`@FeasiBuild_Support_Bot`) as the
 
 ### 2.8 Feasibility study branding, pagination, and export gating
 
-Applies to **both** Operational and Sale 16:9 decks. **No financial engines or `useFeasibilityStore` data shape.**
+Applies to **both** Operational and Sale 16:9 decks. Custom pages are the one addition to `useFeasibilityStore` (invariant 33). **No financial engines.**
 
 | Rule | Behavior |
 |------|----------|
@@ -218,6 +218,7 @@ Applies to **both** Operational and Sale 16:9 decks. **No financial engines or `
 | **Clear cache copy** | “Clear AI Cache & Regenerate” dialog text is **dynamic per asset class** — never hardcode Data Centre. |
 | **Explorer watermark** | Diagonal “FeasiBuild · Free Preview” + footer banner on every slide (incl. title). `pointer-events-none`. Present in PDF. Professional (credits) / Unlimited Pack: clean. |
 | **Export / credits** | **Clean PDF requires a credit (`effectiveCredits > 0`) or an active Unlimited Pack.** Explorer: one watermarked PDF (`fs_exports_used`), then lock. Unlimited Pack: never consumes credits. Failed PDF jobs do not consume. |
+| **Custom pages** | 100-Pack & Unlimited (same gate as white-label). User-inserted 16:9 pages reusing SlideHeader/FitSlide/watermark; anchor-positioned; survive regeneration; export header-only when empty; edit-mode upsell pill for others. |
 | **Explorer dashboard lock** | After the free report is consumed, **no new project creation** (dashboard buttons, sidebar “New … Study”, minting a new `proj_…` on save). Existing projects stay openable / editable / regenerable. |
 
 ### 2.9 Monetization & pricing
@@ -228,8 +229,8 @@ One-time PayPal products only. **There is no monthly subscription SKU.**
 |---------|--------|-----------------|
 | **Explorer** | Free | 1 watermarked report; then dashboard lock |
 | **Professional** | **$99 one-time lifetime** | Unlocks pack / Unlimited Pack purchases; unlimited projects |
-| **1 / 10 / 50 / 100 credit packs** | **$49 / $390 / $1,450 / $1,900** | 12-month validity; **one active pack at a time**. 100-Pack includes logo branding |
-| **Unlimited Pack** | **$2,400 / 12 months** | Unlimited clean reports + white-label for 12 months from purchase |
+| **1 / 10 / 50 / 100 credit packs** | **$49 / $390 / $1,450 / $1,900** | 12-month validity; **one active pack at a time**. 100-Pack includes logo branding and custom deck pages |
+| **Unlimited Pack** | **$2,400 / 12 months** | Unlimited clean reports + white-label and custom deck pages for 12 months from purchase |
 
 **Strict repurchase:** no pack or Unlimited Pack purchase while `effectiveCredits > 0`. Enforced in `create-order`, `capture-order`, **and** the PayPal webhook. Expired pack → `effectiveCredits = 0` (auto-unlocks repurchase). A new pack **replaces** the expired balance — never adds.
 
@@ -726,7 +727,8 @@ Verified on the Labu Warehouse test project (Component 4 Monthly Cash Flow Proje
 30. **Escrow ledger guards:** interest/fees only on a positive prior-month balance (1-month offset); escrow balance never negative; no accruals after account closure; guarantee-rule reimbursements capped by available balance with shortfall carry.  
 31. **Closed-loop cash-flow placement:** the 3% contractor retention is a construction-outflow shift (97% during S-curve, 3% at CP+24) — never an escrow row; the C2 sales shift (China, or Others with toggle ON) is engine-internal — raw C2 store never mutated.  
 32. **Guarantee rule priorities:** permitted uses = hard construction + POWC + soft costs excl. “Other Fees” + FF&E + toggled construction-loan interest; never land / Other Fees / commissions. Lender cash sweep on the construction loan is mandatory at 60%/100% surplus (never land loans); developer withdrawals pass through the waterfall (land-loan gate). Retention basis: construction cost (Abu Dhabi default) or escrow proceeds (Others default); post-completion inflows top up the target before any release.
+33. **Custom pages:** user content lives only in `useFeasibilityStore.customSlides`; AI regenerate/enrich/cache paths never touch it; rendering merges by anchor with end-fallback; chrome and typography reused, never redefined.
 
 ---
 
-*Last updated 23 Sep 2026 (Closed-Loop + Project Guarantee Account escrow rules; slide-gate, defaults and invariant amendments). Prefer editing this file over scattering architecture notes across chats.*
+*Last updated 27 Sep 2026 (custom deck pages). Prefer editing this file over scattering architecture notes across chats.*

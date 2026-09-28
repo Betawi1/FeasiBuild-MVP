@@ -4,6 +4,8 @@
  * when buildingType is empty/unknown. Never default to Data Centre.
  */
 
+import { CUSTOM_PAGES_REGENERATE_NOTE } from "@/lib/feasibility/custom-slides";
+
 export type OperationalAssetType =
   | "hotel"
   | "mall"
@@ -160,6 +162,7 @@ export function buildRegenerateFeasibilityConfirmMessage(
     return (
       "Regenerate feasibility from scratch?\n\n" +
       "This clears the AI cache and force-regenerates every slide with class-specific prompts.\n\n" +
+      `${CUSTOM_PAGES_REGENERATE_NOTE}\n\n` +
       "This may take 30–60 seconds."
     );
   }
@@ -168,6 +171,7 @@ export function buildRegenerateFeasibilityConfirmMessage(
   return (
     `Regenerate ${name} feasibility from scratch?\n\n` +
     `This clears the AI cache and force-regenerates every slide with ${name}–specific prompts ${descriptors}.\n\n` +
+    `${CUSTOM_PAGES_REGENERATE_NOTE}\n\n` +
     "This may take 30–60 seconds."
   );
 }
