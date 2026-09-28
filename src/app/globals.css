@@ -41,6 +41,44 @@ body {
   color: #059669;
 }
 
+/*
+ * FitSlide unconstrained layout: flex-1 / min-h-0 / overflow scrollports report
+ * the canvas height instead of the body, so scale stays at 1 and the 16:9 edge
+ * clips the last row. While scaling, let the body use its natural height.
+ * Explicit chart boxes (h-56/64/72) keep their height.
+ */
+[data-fit-unconstrained] .flex-1,
+[data-fit-unconstrained] .flex-auto,
+[data-fit-unconstrained] .flex-\[1\.15\] {
+  flex: none !important;
+  min-height: min-content !important;
+  max-height: none !important;
+}
+
+[data-fit-unconstrained] .min-h-0 {
+  min-height: min-content !important;
+}
+
+[data-fit-unconstrained] .h-full {
+  height: auto !important;
+}
+
+[data-fit-unconstrained] .max-h-full,
+[data-fit-unconstrained] .max-h-24,
+[data-fit-unconstrained] .max-h-\[150px\] {
+  max-height: none !important;
+}
+
+[data-fit-unconstrained] .overflow-auto:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)),
+[data-fit-unconstrained] .overflow-hidden:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)),
+[data-fit-unconstrained] .overflow-scroll:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)),
+[data-fit-unconstrained] .overflow-y-auto:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)),
+[data-fit-unconstrained] .overflow-y-hidden:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)),
+[data-fit-unconstrained] .overflow-x-auto:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)),
+[data-fit-unconstrained] .overflow-x-hidden:not(:has(.recharts-wrapper)):not(:has(.leaflet-container)) {
+  overflow: visible !important;
+}
+
 @page {
   size: 1280px 720px;
   margin: 0;

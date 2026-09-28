@@ -12,6 +12,17 @@ import {
 import { exportToPDF } from "@/lib/pdf-export";
 import type { FeasibilityProjectBundle } from "@/types/feasibility";
 import FeasibilitySlideView from "@/components/feasibility/FeasibilitySlideView";
+import CustomSlideView from "@/components/feasibility/CustomSlideView";
+import {
+  CustomPageAddButton,
+  CustomPageInsertDivider,
+  CustomPagesUpsellPill,
+} from "@/components/feasibility/CustomDeckChrome";
+import {
+  customMoveFlags,
+  replaceCustomSlide,
+  useCustomDeck,
+} from "@/components/feasibility/useCustomDeck";
 import { SlideErrorBoundary } from "@/components/feasibility/SlideErrorBoundary";
 import UpgradeModal from "@/components/ui/UpgradeModal";
 import { useReportExportGate } from "@/hooks/useReportExportGate";
@@ -32,7 +43,11 @@ import {
   setStoredHashes,
 } from "@/lib/cache-service";
 import { checkPuterStatusAndLog } from "@/lib/puter-auth";
-import { markFeasibilityStudyCompleted } from "@/lib/project-save";
+import {
+  ensureCustomSlidesLoaded,
+  markFeasibilityStudyCompleted,
+} from "@/lib/project-save";
+import { customSlideDisplayTitle } from "@/lib/feasibility/custom-slides";
 import { ensureProjectAutoSaved } from "@/hooks/useOptimisticProjectSave";
 import { useToast } from "@/components/ui/Toast";
 import useFinModelStore from "@/store/useFinModelStore";
@@ -104,12 +119,14 @@ export default function FeasibilityStudyPage() {
     setMarketResearchCache,
     resetAiSections,
   } = useFeasibilityStore();
+  const deck = useCustomDeck(slides);
   const aiUi = useAiEnrichmentUi();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportProgress, setExportProgress] = useState("");
+  const [customPagesUpgrade, setCustomPagesUpgrade] = useState(false);
   const [projectBundle, setProjectBundle] =
     useState<FeasibilityProjectBundle | null>(null);
   const {
@@ -129,6 +146,10 @@ export default function FeasibilityStudyPage() {
     if (!onlySlideIds?.length) setLoading(true);
     setError(null);
     try {
+      const activeId = useFinModelStore.getState().activeProjectId;
+      if (activeId) {
+        await ensureCustomSlidesLoaded(activeId, user?.id);
+      }
       const projectData = getFeasibilityProjectBundle();
       setProjectBundle(projectData);
 
@@ -271,6 +292,13 @@ export default function FeasibilityStudyPage() {
     document.body.classList.remove("printing-pdf");
   }, []);
 
+  useEffect(() => {
+    if (deck.entries.length === 0) return;
+    if (currentSlideIndex > deck.entries.length - 1) {
+      setCurrentSlideIndex(deck.entries.length - 1);
+    }
+  }, [currentSlideIndex, deck.entries.length]);
+
   const handleBack = () => {
     router.push("/operational/preview/scenario-analysis");
   };
@@ -291,14 +319,15 @@ export default function FeasibilityStudyPage() {
     const originalIndex = currentSlideIndex;
     const bundle = projectBundle ?? getFeasibilityProjectBundle();
     const container = document.getElementById("slide-capture-container");
+    const captureSlides = deck.entries.map((entry) => ({ id: entry.id }));
 
     setExportingPdf(true);
-    setExportProgress(`Generating PDF... (0/${slides.length})`);
+    setExportProgress(`Generating PDF... (0/${captureSlides.length})`);
     container?.classList.add("pdf-capturing");
 
     try {
       await exportToPDF({
-        slides,
+        slides: captureSlides,
         getCurrentSlideIndex: () => currentSlideIndex,
         setCurrentSlideIndex: async (index: number) => {
           setCurrentSlideIndex(index);
@@ -364,8 +393,19 @@ export default function FeasibilityStudyPage() {
     );
   }
 
-  const currentSlide = slides[currentSlideIndex]!;
+  const entry =
+    deck.entries[Math.min(currentSlideIndex, Math.max(deck.entries.length - 1, 0))];
+  if (!entry) return null;
+  const currentGenerated = entry.kind === "generated" ? entry.generated! : null;
+  const currentCustom = entry.kind === "custom" ? entry.custom! : null;
+  const pagerTitle = currentGenerated
+    ? currentGenerated.title
+    : customSlideDisplayTitle(currentCustom!.title);
+  const sectionKey = currentGenerated?.section;
   const bundle = projectBundle ?? getFeasibilityProjectBundle();
+  const moveFlags = currentCustom
+    ? customMoveFlags(deck.entries, currentCustom.id)
+    : null;
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -375,8 +415,8 @@ export default function FeasibilityStudyPage() {
             {feasibilityStudyTitle(buildingType)}
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            Part {SECTION_LABEL[currentSlide.section]} ·{" "}
-            {currentSlide.section} — 16:9 presentation
+            Part {sectionKey ? SECTION_LABEL[sectionKey] : "Custom"} ·{" "}
+            {sectionKey ?? "custom"} — 16:9 presentation
             {buildingType !== "hotel" ? ` (model: ${buildingType})` : ""}
           </p>
           <AiEnrichmentStatus
@@ -386,31 +426,70 @@ export default function FeasibilityStudyPage() {
       </div>
 
       <div className="flex flex-1 items-center justify-center bg-slate-950 p-4">
-        <SlideCaptureProvider captureId="slide-capture-container">
+        <SlideCaptureProvider
+          captureId="slide-capture-container"
+          slideKey={entry.id}
+        >
           <SlideErrorBoundary
-            key={`${currentSlide.id}:${JSON.stringify(currentSlide.charts ?? [])}`}
+            key={entry.id}
             fallback={
               <div className="flex h-[720px] w-[1280px] items-center justify-center bg-white">
                 <p className="text-red-600">Error rendering slide</p>
               </div>
             }
           >
-            <FeasibilitySlideView
-              slide={currentSlide}
-              projectData={bundle}
-              isEditing={isEditing}
-              slideIndex={currentSlideIndex}
-              slideCount={slides.length}
-              onParagraphChange={(index, text) =>
-                updateSlideParagraph(currentSlide.id, index, text)
-              }
-              onDataChange={(data) =>
-                updateSlideData(currentSlide.id, data)
-              }
-            />
+            {currentGenerated ? (
+              <FeasibilitySlideView
+                key={`${currentGenerated.id}:${JSON.stringify(currentGenerated.charts ?? [])}`}
+                slide={currentGenerated}
+                projectData={bundle}
+                isEditing={isEditing}
+                slideIndex={currentSlideIndex}
+                slideCount={deck.entries.length}
+                onParagraphChange={(index, text) =>
+                  updateSlideParagraph(currentGenerated.id, index, text)
+                }
+                onDataChange={(data) =>
+                  updateSlideData(currentGenerated.id, data)
+                }
+              />
+            ) : (
+              <CustomSlideView
+                slide={currentCustom!}
+                isEditing={isEditing}
+                slideIndex={currentSlideIndex}
+                slideCount={deck.entries.length}
+                canMoveUp={moveFlags?.canMoveUp ?? false}
+                canMoveDown={moveFlags?.canMoveDown ?? false}
+                onChange={(next) => replaceCustomSlide(deck.updateCustomSlide, next)}
+                onMove={(direction) =>
+                  deck.move(currentCustom!.id, direction, setCurrentSlideIndex)
+                }
+                onDelete={() =>
+                  deck.remove(
+                    currentCustom!.id,
+                    currentSlideIndex,
+                    setCurrentSlideIndex
+                  )
+                }
+              />
+            )}
           </SlideErrorBoundary>
         </SlideCaptureProvider>
       </div>
+
+      {isEditing &&
+      deck.entitlementReady &&
+      deck.canInsert &&
+      currentSlideIndex < deck.entries.length - 1 ? (
+        <div className="no-print px-4 pb-2">
+          <CustomPageInsertDivider
+            onInsert={() =>
+              deck.insertAfter(currentSlideIndex, setCurrentSlideIndex)
+            }
+          />
+        </div>
+      ) : null}
 
       <div className="no-print h-px bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
 
@@ -425,16 +504,16 @@ export default function FeasibilityStudyPage() {
             ← Previous Slide
           </button>
           <span className="font-medium text-white">
-            Slide {currentSlideIndex + 1} of {slides.length} — {currentSlide.title}
+            Slide {currentSlideIndex + 1} of {deck.entries.length} — {pagerTitle}
           </span>
           <button
             type="button"
             onClick={() =>
               setCurrentSlideIndex(
-                Math.min(slides.length - 1, currentSlideIndex + 1)
+                Math.min(deck.entries.length - 1, currentSlideIndex + 1)
               )
             }
-            disabled={currentSlideIndex >= slides.length - 1}
+            disabled={currentSlideIndex >= deck.entries.length - 1}
             className={btnPrimary}
           >
             Next Slide →
@@ -488,6 +567,15 @@ export default function FeasibilityStudyPage() {
           >
             {isEditing ? "✓ Done Editing" : "✎ Edit Content"}
           </button>
+          {isEditing && deck.entitlementReady && deck.canInsert ? (
+            <CustomPageAddButton
+              className={btnOutline}
+              onAdd={() => deck.addAtEnd(setCurrentSlideIndex)}
+            />
+          ) : null}
+          {isEditing && deck.entitlementReady && !deck.canInsert ? (
+            <CustomPagesUpsellPill onClick={() => setCustomPagesUpgrade(true)} />
+          ) : null}
           <div className="group relative">
             <button
               id="download-pdf-btn"
@@ -512,8 +600,12 @@ export default function FeasibilityStudyPage() {
         </div>
       </div>
       <UpgradeModal
-        open={showUpgrade}
-        onClose={() => setShowUpgrade(false)}
+        open={showUpgrade || customPagesUpgrade}
+        focus={customPagesUpgrade ? "custom-pages" : undefined}
+        onClose={() => {
+          setShowUpgrade(false);
+          setCustomPagesUpgrade(false);
+        }}
       />
     </div>
   );

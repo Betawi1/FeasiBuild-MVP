@@ -52,8 +52,8 @@ export default function ScenarioComparisonSlide({
         subtitle="Scenario Comparison & IRR Sensitivity"
       />
 
-      <div className="grid grid-cols-3 gap-6 flex-1 min-h-0">
-        <div className="bg-slate-50 border border-slate-200 rounded p-4 overflow-y-auto min-h-0">
+      <div className="grid grid-cols-3 gap-6 shrink-0">
+        <div className="bg-slate-50 border border-slate-200 rounded p-4">
           <h3 className="text-sm font-bold text-slate-800 mb-3">
             Scenario Shocks
           </h3>
@@ -66,7 +66,7 @@ export default function ScenarioComparisonSlide({
           </ol>
         </div>
 
-        <div className="col-span-2 bg-slate-50 border border-slate-200 rounded p-4 flex flex-col min-h-0">
+        <div className="col-span-2 bg-slate-50 border border-slate-200 rounded p-4 flex flex-col">
           <h3 className="text-sm font-bold text-slate-800 mb-2 text-center shrink-0">
             IRR Sensitivity by Driver
           </h3>

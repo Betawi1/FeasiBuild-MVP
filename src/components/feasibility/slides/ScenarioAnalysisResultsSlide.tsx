@@ -130,7 +130,7 @@ export default function ScenarioAnalysisResultsSlide({
         className="!mb-2"
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
+      <div className="shrink-0 space-y-2">
         <div>
           <h3 className="text-sm font-bold text-slate-800 mb-2">
             Scenario Summary

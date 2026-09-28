@@ -1,8 +1,8 @@
 import { domToPng } from "modern-screenshot";
 import { jsPDF } from "jspdf";
 import { sendOpsAlert } from "@/lib/ops-monitor";
-import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
-import { requestFitSlideRemeasure } from "@/components/feasibility/fit-slide-events";
+import type { FeasibilityProjectBundle } from "@/types/feasibility";
+import { remeasure } from "@/components/feasibility/fit-slide-events";
 
 const SLIDE_WIDTH = 1280;
 const SLIDE_HEIGHT = 720;
@@ -14,7 +14,8 @@ const MAP_EXTRA_SETTLE_MS = 2500;
 const MAP_LOAD_TIMEOUT_MS = 8000;
 
 export interface ExportOptions {
-  slides: FeasibilitySlide[];
+  /** Generated and custom pages in merged order. Only `id` is read. */
+  slides: Array<{ id: string }>;
   getCurrentSlideIndex: () => number;
   setCurrentSlideIndex: (index: number) => Promise<void>;
   onProgress: (current: number, total: number) => void;
@@ -59,19 +60,20 @@ async function waitForLeafletTiles(container: HTMLElement): Promise<void> {
 }
 
 async function waitForFitSlide(container: HTMLElement): Promise<void> {
-  requestFitSlideRemeasure();
+  const fit = container.querySelector("[data-fit-slide]");
+  fit?.setAttribute("data-fit-ready", "false");
+  await remeasure();
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
   const start = Date.now();
   while (Date.now() - start < 1500) {
-    const fit = container.querySelector("[data-fit-slide]");
-    if (fit?.getAttribute("data-fit-ready") === "true") {
-      await delay(50);
-      return;
-    }
+    if (!fit || fit.getAttribute("data-fit-ready") === "true") return;
     await delay(50);
   }
 }
 
-async function waitBeforeCapture(slide: FeasibilitySlide): Promise<void> {
+async function waitBeforeCapture(slide: { id: string }): Promise<void> {
   // Always settle so charts / fonts / layout finish painting
   await delay(SLIDE_SETTLE_MS);
 

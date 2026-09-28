@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import FitSlide from "./FitSlide";
 import SlideWatermark, { useSlideWatermark } from "./SlideWatermark";
 
@@ -8,22 +8,37 @@ interface SlideContainerProps {
   children: ReactNode;
   id?: string;
   className?: string;
+  /** Edit chrome rendered outside the scaled body. Hide with `data-pdf-hide`. */
+  chrome?: ReactNode;
+  remeasureKey?: string;
 }
 
-const SlideCaptureIdContext = createContext<string | undefined>(undefined);
+interface SlideFrame {
+  captureId?: string;
+  /** Stable generated slide id or custom slide id. Never an array index. */
+  slideKey?: string;
+}
 
-/** Provides a capture id to nested SlideContainer instances (e.g. for PDF export). */
+const SlideFrameContext = createContext<SlideFrame>({});
+
+/** Provides a capture id and stable slide key to nested SlideContainer instances. */
 export function SlideCaptureProvider({
   captureId,
+  slideKey,
   children,
 }: {
   captureId?: string;
+  slideKey?: string;
   children: ReactNode;
 }) {
+  const value = useMemo(
+    () => ({ captureId, slideKey }),
+    [captureId, slideKey]
+  );
   return (
-    <SlideCaptureIdContext.Provider value={captureId}>
+    <SlideFrameContext.Provider value={value}>
       {children}
-    </SlideCaptureIdContext.Provider>
+    </SlideFrameContext.Provider>
   );
 }
 
@@ -32,9 +47,11 @@ export default function SlideContainer({
   children,
   id,
   className = "",
+  chrome,
+  remeasureKey,
 }: SlideContainerProps) {
-  const contextId = useContext(SlideCaptureIdContext);
-  const resolvedId = id ?? contextId;
+  const frame = useContext(SlideFrameContext);
+  const resolvedId = id ?? frame.captureId;
   const watermark = useSlideWatermark();
 
   return (
@@ -48,9 +65,14 @@ export default function SlideContainer({
         flexShrink: 0,
       }}
     >
-      <FitSlide className="p-12">
+      <FitSlide
+        className="p-12"
+        remeasureKey={remeasureKey}
+        slideKey={frame.slideKey}
+      >
         {children}
       </FitSlide>
+      {chrome}
       {watermark && <SlideWatermark />}
     </div>
   );

@@ -69,7 +69,7 @@ export default function EscrowWithdrawalSlide({
           />
         </div>
       )}
-      <div className="flex-1 overflow-auto min-h-0">
+      <div className="shrink-0">
         {rule === "staged" && (
           <div>
             <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
