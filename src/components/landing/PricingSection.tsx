@@ -109,6 +109,8 @@ const tiers = [
       "Clean, unwatermarked PDF reports",
       "Buy report credits as you need them",
       "White-label logo branding with 100-Pack",
+      // Gated by hasCustomPagesAccess in src/lib/entitlements.ts.
+      "Custom deck pages with 100-Pack",
       "Priority email support (human-reviewed)",
     ],
   },
@@ -123,6 +125,8 @@ const tiers = [
       "Everything in Professional",
       "Unlimited clean reports for 12 months",
       "White-label logo branding included",
+      // Gated by hasCustomPagesAccess in src/lib/entitlements.ts.
+      "Custom deck pages included",
       "Advanced custom shock parameters",
       "Direct founder / human escalation",
       "Priority email support (human-reviewed)",
@@ -180,6 +184,11 @@ const comparison: {
     rows: [
       { label: "PDF Export", values: ["Watermarked", "Clean", "Clean"] },
       { label: "White-Label Logo Branding", values: [false, "With 100-Pack", true] },
+      // Gated by hasCustomPagesAccess in src/lib/entitlements.ts.
+      {
+        label: "Custom Deck Pages (insert your own slides)",
+        values: [false, "With 100-Pack", true],
+      },
     ],
   },
   {
