@@ -41,6 +41,11 @@ import {
 } from "@/lib/feasibility/sale/create-sale-puter-prompts";
 import useFinModelStore from "@/store/useFinModelStore";
 import {
+  assertSaleBuaSingleSource,
+  deriveC1SaleBua,
+  selectSalePanelBua,
+} from "@/lib/feasibility/sale/sale-bua";
+import {
   resolveSaleProjectEscrowRule,
   shouldRenderSaleEscrowSlide,
 } from "@/lib/financing-engine/escrow-rules";
@@ -411,7 +416,25 @@ function generateSaleFinancialSlides(
  * use `generateSaleSlidesWithPuter` from `./enrich-sale-slides-puter` (Puter.js).
  * Server API route uses Qwen via `/api/feasibility/generate-sale`.
  */
+function assertDeckBuaMatchesStore(bundle: SaleFeasibilityBundle): void {
+  if (process.env.NODE_ENV === "production") return;
+  if (typeof window === "undefined") return;
+  const projectInfo = useFinModelStore.getState().sale.projectInfo;
+  const c1 = deriveC1SaleBua(projectInfo);
+  const panel = selectSalePanelBua(projectInfo);
+  if (c1.totalBuildingBua <= 0 && panel.totalBuildingBua <= 0) return;
+  assertSaleBuaSingleSource({
+    c1Total: c1.totalBuildingBua,
+    c2Total: panel.totalBuildingBua,
+    reportTotal: bundle.saleMetrics.totalArea,
+    c1Saleable: c1.saleableBua,
+    c2Saleable: panel.saleableBua,
+    reportSaleable: bundle.saleMetrics.saleableArea,
+  });
+}
+
 export function generateSaleSlides(bundle: SaleFeasibilityBundle): FeasibilitySlide[] {
+  assertDeckBuaMatchesStore(bundle);
   const config = getSaleStreamConfig(bundle.buildingSubType);
   return [
     generateSaleTitleSlide(bundle),

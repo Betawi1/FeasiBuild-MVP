@@ -1,6 +1,7 @@
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
 import type { FeasibilityProjectBundle } from "@/types/feasibility";
 import { generateDataHash } from "@/lib/cache-service";
+import { SALE_BUA_CACHE_EPOCH } from "@/lib/feasibility/sale/sale-bua";
 
 function roundForHash(value: number, precision = 2): number {
   if (!Number.isFinite(value)) return 0;
@@ -248,17 +249,26 @@ export function buildSaleBundleHashes(
       currency: bundle.currency,
       buildingSubType: bundle.buildingSubType,
       buildingType: bundle.buildingType,
+      saleBuaCacheEpoch: SALE_BUA_CACHE_EPOCH,
+      saleTotalBua: roundForHash(bundle.saleMetrics.totalArea, 0),
+      saleSaleableBua: roundForHash(bundle.saleMetrics.saleableArea, 0),
     }),
     marketData: generateDataHash({
       location: bundle.location,
       assetType: bundle.assetType,
       segment: bundle.segment,
     }),
-    component1Data: generateDataHash(stableComponent1(bundle.component1)),
+    component1Data: generateDataHash({
+      ...stableComponent1(bundle.component1),
+      saleBuaCacheEpoch: SALE_BUA_CACHE_EPOCH,
+      saleTotalBua: roundForHash(bundle.saleMetrics.totalArea, 0),
+      saleSaleableBua: roundForHash(bundle.saleMetrics.saleableArea, 0),
+    }),
     component2Data: generateDataHash({
       component2: stableComponent2(bundle.component2),
       saleMetrics: stableSaleMetrics(bundle),
       cashInflows: stableSaleCashInflows(bundle),
+      saleBuaCacheEpoch: SALE_BUA_CACHE_EPOCH,
     }),
     component4Data: generateDataHash(stableComponent4(bundle.component4)),
     component6Data: generateDataHash(stableFinancing(bundle)),

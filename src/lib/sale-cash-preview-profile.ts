@@ -4,6 +4,10 @@
  */
 
 import type { CashInflows, CashOutflows, ProjectInfo } from "@/store/useFinModelStore";
+import {
+  resolveSaleInflowSchedule,
+  saleCostBuildingBua,
+} from "@/lib/feasibility/sale/sale-bua";
 import type { CashOutflowProfile, CashOutflowStageHeader } from "@/store/useFinModelStore";
 import {
   generateWarehousePhasingSCurve,
@@ -193,7 +197,7 @@ function buildSaleWarehouseCapExBreakdown(
   const buildingShell =
     costs?.buildingShellCost ??
     (cashOutflows.warehouseBuildingRate ?? 0) *
-      (cashOutflows.buildingBUA || 0);
+      saleCostBuildingBua(projectInfo, cashOutflows);
   const siteYard =
     costs?.siteYardWorksCost ??
     (cashOutflows.warehouseSiteYardRate ?? 0) *
@@ -930,7 +934,8 @@ export function buildSaleCashflowDetailProfile(
 
   // Construction component $ (pre-contingency splits proportional to CC monthly)
   const bc = projectInfo.buildingConfig;
-  const buildingAmt = cashOutflows.buildingBUA * cashOutflows.buildingRate;
+  const buildingAmt =
+    saleCostBuildingBua(projectInfo, cashOutflows) * cashOutflows.buildingRate;
   const parkingAmt = cashOutflows.parkingBUA * cashOutflows.parkingRate;
   const basementAmt = cashOutflows.basementBUA * cashOutflows.basementRate;
   const landedSaleable =
@@ -1050,7 +1055,7 @@ export type SalePreFinancingCashFlows = {
  */
 export function buildSalePreFinancingCashFlows(
   cashOutflows: CashOutflows,
-  cashInflows: Pick<CashInflows, "monthlyInflowSchedule">,
+  cashInflows: CashInflows,
   projectInfo: ProjectInfo,
   options?: { postCompletionBuffer?: number }
 ): SalePreFinancingCashFlows {
@@ -1062,8 +1067,13 @@ export function buildSalePreFinancingCashFlows(
   const isWarehouse =
     projectInfo.buildingSubType === "commercial_strata_warehouse";
 
+  const inflowSchedule = resolveSaleInflowSchedule(
+    projectInfo,
+    cashOutflows,
+    cashInflows
+  );
   const inflowByMonth = new Map<number, number>();
-  for (const p of cashInflows.monthlyInflowSchedule || []) {
+  for (const p of inflowSchedule) {
     inflowByMonth.set(
       p.month,
       (inflowByMonth.get(p.month) || 0) + (p.amount || 0)

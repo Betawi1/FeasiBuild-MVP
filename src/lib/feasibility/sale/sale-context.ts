@@ -13,6 +13,14 @@ import {
 } from "@/lib/scenario-irr-calculation";
 import { formatDrawdownLabel } from "@/lib/feasibility/build-term-loan-data";
 import { getSaleStreamConfig } from "@/lib/feasibility/sale/sale-stream-config";
+import {
+  assertSaleBuaSingleSource,
+  assertSaleGdvIdentity,
+  buildSaleRevenueSchedule,
+  deriveC1SaleBua,
+  saleCostBuildingBua,
+  selectSalePanelBua,
+} from "@/lib/feasibility/sale/sale-bua";
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
 import {
   ESCROW_RULE_DISPLAY_NAME,
@@ -46,15 +54,6 @@ function resolveSaleTitleProfile(
     businessType,
     saleAssetLabel: titleParts.join(" ") || assetType,
   };
-}
-
-function totalBua(co: CashOutflows): number {
-  return (co.buildingBUA || 0) + (co.parkingBUA || 0) + (co.basementBUA || 0);
-}
-
-function saleableArea(co: CashOutflows, ci: CashInflows): number {
-  const bua = totalBua(co);
-  return Math.round(bua * ((ci.saleableBUARatio || 86) / 100));
 }
 
 function legacyEngineJurisdiction(projectInfo: ProjectInfo): string {
@@ -94,14 +93,46 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
   });
 
   const tdc = cashOutflows.tdc || 0;
-  const gdv = cashInflows.grossSales || financingMetrics?.netExitProceeds || tdc * 1.2;
+  const c1Bua = deriveC1SaleBua(projectInfo);
+  const panelBua = selectSalePanelBua(projectInfo);
+  const costBuildingBua = saleCostBuildingBua(projectInfo, cashOutflows);
+  const hasSchedule =
+    (cashInflows.monthlyInflowSchedule?.length ?? 0) > 0 ||
+    (cashInflows.grossSales || 0) > 0;
+  const revenue =
+    c1Bua.totalBuildingBua > 0 && hasSchedule
+      ? buildSaleRevenueSchedule(
+          cashInflows,
+          cashOutflows.constructionPeriod,
+          c1Bua.saleableBua
+        )
+      : null;
+  const grossFromC1 =
+    c1Bua.totalBuildingBua > 0
+      ? c1Bua.saleableBua * (cashInflows.salesPrice || 0)
+      : null;
+  const gdv =
+    grossFromC1 ??
+    (cashInflows.grossSales || financingMetrics?.netExitProceeds || tdc * 1.2);
+  const bundleInflows: CashInflows = {
+    ...cashInflows,
+    saleableBUARatio: c1Bua.saleableBuaRatio,
+    grossSales: revenue?.grossSales ?? grossFromC1 ?? cashInflows.grossSales,
+    netProceeds: revenue?.netProceeds ?? cashInflows.netProceeds,
+    monthlyInflowSchedule:
+      revenue?.monthlyInflowSchedule ?? cashInflows.monthlyInflowSchedule,
+  };
+  const bundleOutflows: CashOutflows = {
+    ...cashOutflows,
+    buildingBUA: costBuildingBua,
+  };
   const config = getSaleStreamConfig(projectInfo.buildingSubType);
-  const detail = buildSaleCashflowDetailProfile(cashOutflows, projectInfo);
+  const detail = buildSaleCashflowDetailProfile(bundleOutflows, projectInfo);
   const constructionMonths = cashOutflows.constructionPeriod || 30;
   const postCompletionBuffer = 6;
 
   const inflowByMonth = new Map<number, number>();
-  for (const p of cashInflows.monthlyInflowSchedule || []) {
+  for (const p of bundleInflows.monthlyInflowSchedule || []) {
     inflowByMonth.set(p.month, (inflowByMonth.get(p.month) ?? 0) + (p.amount || 0));
   }
 
@@ -144,7 +175,7 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
   const currency = projectInfo.currency || "AED";
   const totalUnits = projectInfo.buildingConfig?.landedUnits ?? 0;
 
-  return {
+  const bundle: SaleFeasibilityBundle = {
     stream: "sale",
     location: {
       city,
@@ -160,7 +191,7 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
     saleConfigKey: config.assetLabel,
     component1: {
       rooms: 0,
-      bua: totalBua(cashOutflows),
+      bua: c1Bua.totalBuildingBua,
       constructionPeriod: constructionMonths,
       landCost: cashOutflows.landCost || 0,
       constructionCost: cashOutflows.constructionCost || 0,
@@ -170,7 +201,7 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
       buildingRate: cashOutflows.buildingRate || 0,
       parkingRate: cashOutflows.parkingRate || 0,
       basementRate: cashOutflows.basementRate || 0,
-      buildingBUA: cashOutflows.buildingBUA || 0,
+      buildingBUA: costBuildingBua,
       parkingBUA: cashOutflows.parkingBUA || 0,
     },
     component2: {
@@ -211,7 +242,7 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
       starRating: "—",
       currency,
       keys: totalUnits,
-      bua: totalBua(cashOutflows),
+      bua: c1Bua.totalBuildingBua,
       constructionPeriod: constructionMonths,
       tdc,
       gdv,
@@ -230,11 +261,11 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
     },
     saleMetrics: {
       totalUnits,
-      totalArea: totalBua(cashOutflows),
-      saleableArea: saleableArea(cashOutflows, cashInflows),
+      totalArea: c1Bua.totalBuildingBua,
+      saleableArea: c1Bua.saleableBua,
       avgPricePsf: cashInflows.salesPrice || 0,
-      grossSales: cashInflows.grossSales || 0,
-      netProceeds: cashInflows.netProceeds || 0,
+      grossSales: bundleInflows.grossSales || 0,
+      netProceeds: bundleInflows.netProceeds || 0,
       paybackMonth: paybackMonth >= 0 ? paybackMonth : 0,
       netCashFlow,
       cumulativeCashFlow,
@@ -243,13 +274,30 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
       constructionMonths,
       escrowJurisdiction: escrowJurisdictionLabel(projectInfo, financing),
     },
-    cashOutflows,
-    cashInflows,
+    cashOutflows: bundleOutflows,
+    cashInflows: bundleInflows,
     financing,
     projectIRR,
     financingMetrics,
     titleProfile: resolveSaleTitleProfile(projectInfo, config),
   };
+
+  assertSaleBuaSingleSource({
+    c1Total: c1Bua.totalBuildingBua,
+    c2Total: panelBua.totalBuildingBua,
+    reportTotal: bundle.saleMetrics.totalArea,
+    c1Saleable: c1Bua.saleableBua,
+    c2Saleable: panelBua.saleableBua,
+    reportSaleable: bundle.saleMetrics.saleableArea,
+  });
+  assertSaleGdvIdentity(
+    c1Bua.totalBuildingBua,
+    c1Bua.saleableBua,
+    cashInflows.salesPrice || 0,
+    bundle.component4.gdv
+  );
+
+  return bundle;
 }
 
 export { resolveSaleTitleProfile };

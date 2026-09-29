@@ -26,6 +26,10 @@ import {
 } from "@/lib/operational-pnl";
 import type { FinancingMetrics, ProjectMetrics } from "./financingStore";
 import type { FieldValueSource } from "@/lib/field-value-source";
+import {
+  reconcileSaleBuaState,
+  saleC1BuaInputTouched,
+} from "@/lib/feasibility/sale/sale-bua";
 import { alignStaleFinancingConstructionPeriod } from "@/lib/construction-end";
 import { buildRecommendationQuery } from "../app/sale/utils/db-mapping";
 import {
@@ -3454,10 +3458,29 @@ const useFinModelStore = create<FinModelStore>()(
           const key = resolveFinModelStreamKey(streamArg, state.assetType);
           const slice = state[key];
           const nextProjectInfo = { ...slice.projectInfo, ...data };
+          if (key !== "sale") {
+            return {
+              [key]: {
+                ...slice,
+                projectInfo: nextProjectInfo,
+                ...(data.buildingConfig && {
+                  buildingConfig: data.buildingConfig,
+                }),
+              },
+            } as Partial<FinModelState>;
+          }
+          const reconciled = reconcileSaleBuaState(
+            nextProjectInfo,
+            slice.cashOutflows,
+            slice.cashInflows,
+            { c1Authoritative: saleC1BuaInputTouched(data) }
+          );
           return {
-            [key]: {
+            sale: {
               ...slice,
-              projectInfo: nextProjectInfo,
+              projectInfo: reconciled.projectInfo,
+              cashOutflows: reconciled.cashOutflows,
+              cashInflows: reconciled.cashInflows,
               ...(data.buildingConfig && {
                 buildingConfig: data.buildingConfig,
               }),
@@ -4025,12 +4048,23 @@ const useFinModelStore = create<FinModelStore>()(
               c1Period
             ),
           };
+          const loaded =
+            stream === "sale"
+              ? reconcileSaleBuaState(
+                  savedData.projectInfo,
+                  savedData.cashOutflows,
+                  savedData.cashInflows
+                )
+              : null;
+          const projectInfo = loaded?.projectInfo ?? savedData.projectInfo;
+          const cashOutflows = loaded?.cashOutflows ?? savedData.cashOutflows;
+          const cashInflows = loaded?.cashInflows ?? savedData.cashInflows;
           const hydratedSlice: FinModelStreamSlice = {
             ...currentSlice,
-            projectInfo: savedData.projectInfo,
-            buildingConfig: savedData.projectInfo.buildingConfig,
-            cashOutflows: savedData.cashOutflows,
-            cashInflows: savedData.cashInflows,
+            projectInfo,
+            buildingConfig: projectInfo.buildingConfig,
+            cashOutflows,
+            cashInflows,
             financing: financingAligned,
             projectIRR: savedData.projectIRR,
             equityReturns:
@@ -4055,7 +4089,7 @@ const useFinModelStore = create<FinModelStore>()(
           return {
             assetType: stream,
             [stream]: hydratedSlice,
-            cashInflows: savedData.cashInflows,
+            cashInflows,
             projectIRR: savedData.projectIRR,
             financing: financingAligned,
             equityReturns: collected?.equityReturns ?? state.equityReturns,
@@ -4454,6 +4488,26 @@ const useFinModelStore = create<FinModelStore>()(
     }
   )
 );
+
+useFinModelStore.persist.onFinishHydration(() => {
+  const current = useFinModelStore.getState();
+  const sale = current.sale;
+  if (!sale?.projectInfo || !sale.cashOutflows || !sale.cashInflows) return;
+  const reconciled = reconcileSaleBuaState(
+    sale.projectInfo,
+    sale.cashOutflows,
+    sale.cashInflows
+  );
+  if (!reconciled.changed) return;
+  useFinModelStore.setState({
+    sale: {
+      ...sale,
+      projectInfo: reconciled.projectInfo,
+      cashOutflows: reconciled.cashOutflows,
+      cashInflows: reconciled.cashInflows,
+    },
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Cash outflow preview helpers

@@ -24,6 +24,10 @@ import {
   logSaleCashInflow,
   SALE_CASH_INFLOW_AUDIT_FIELDS,
 } from "@/lib/sale-audit-fields";
+import {
+  buildSaleRevenueSchedule,
+  selectSalePanelBua,
+} from "@/lib/feasibility/sale/sale-bua";
 
 type C2OverrideKey =
   | "salesPrice"
@@ -60,14 +64,14 @@ function CashInflowsPageContent() {
   c2OverridesRef.current = c2Overrides;
   const cashInflowStepVisitLogged = useRef<Set<number>>(new Set());
 
-  const isSaleLandedProduct = useMemo(
-    () => Boolean(projectInfo.buildingSubType?.includes("landed")),
-    [projectInfo.buildingSubType]
-  );
-
   const isSaleWarehouseProduct = useMemo(
     () => projectInfo.buildingSubType === "commercial_strata_warehouse",
     [projectInfo.buildingSubType]
+  );
+
+  const saleBua = useMemo(
+    () => selectSalePanelBua(projectInfo),
+    [projectInfo]
   );
 
   // Sale Development stream (8 steps)
@@ -100,25 +104,17 @@ function CashInflowsPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync Step 5 Saleable BUA Ratio to Cash Inflows state when entering Component 2 Step 1
+  // Mirror C1 saleable ratio into C2 state for schedule readers. Display uses C1 directly.
   useEffect(() => {
-    if (currentStep === 0) {
-      const ratio = isSaleWarehouseProduct
-        ? 100
-        : isSaleLandedProduct
-          ? projectInfo.salesLandedSaleableRatio
-          : projectInfo.salesHighRiseSaleableRatio;
-      if (ratio !== undefined) {
-        updateCashInflows({ saleableBUARatio: ratio });
-        console.log("🔗 Synced Step 5 Saleable BUA Ratio to Cash Inflows:", ratio);
-      }
-    }
+    if (cashInflows.fieldSources?.saleableBUARatio === "override") return;
+    if (saleBua.totalBuildingBua <= 0) return;
+    if (cashInflows.saleableBUARatio === saleBua.saleableBuaRatio) return;
+    updateCashInflows({ saleableBUARatio: saleBua.saleableBuaRatio });
   }, [
-    isSaleLandedProduct,
-    isSaleWarehouseProduct,
-    currentStep,
-    projectInfo.salesLandedSaleableRatio,
-    projectInfo.salesHighRiseSaleableRatio,
+    cashInflows.fieldSources?.saleableBUARatio,
+    cashInflows.saleableBUARatio,
+    saleBua.saleableBuaRatio,
+    saleBua.totalBuildingBua,
     updateCashInflows,
   ]);
 
@@ -128,7 +124,7 @@ function CashInflowsPageContent() {
 
     if (uiStep === 1 && !cashInflowStepVisitLogged.current.has(1)) {
       cashInflowStepVisitLogged.current.add(1);
-      logSaleCashInflow("saleableBUARatio", cashInflows.saleableBUARatio, 1);
+      logSaleCashInflow("saleableBUARatio", saleBua.saleableBuaRatio, 1);
     }
 
     if (uiStep === 2 && !cashInflowStepVisitLogged.current.has(2)) {
@@ -265,16 +261,14 @@ function CashInflowsPageContent() {
     cashInflows.paymentPlans.mortgageLtvPercent,
     cashInflows.paymentPlans.mortgageRatePercent,
     cashInflows.paymentPlans.mortgageTenorYears,
-    cashInflows.saleableBUARatio,
+    saleBua.saleableBuaRatio,
     cashInflows.salesPrice,
     cashInflows.salesUptake.mode,
     cashInflows.salesUptake.preset,
   ]);
 
   // Live calculations for Net Proceeds card (final step)
-  const totalSaleableBUA = useMemo(() => {
-    return cashOutflows.buildingBUA * (cashInflows.saleableBUARatio / 100);
-  }, [cashOutflows.buildingBUA, cashInflows.saleableBUARatio]);
+  const totalSaleableBUA = saleBua.saleableBua;
 
   const grossSalesLive = useMemo(() => {
     return totalSaleableBUA * cashInflows.salesPrice;
@@ -739,7 +733,7 @@ function CashInflowsPageContent() {
     // Step 1: Saleable BUA Ratio
     if (step === 0) {
       validatePercentRange(
-        cashInflows.saleableBUARatio,
+        saleBua.saleableBuaRatio,
         10,
         100,
         "saleableBUARatio",
@@ -944,82 +938,17 @@ function CashInflowsPageContent() {
 
     // Last step => Generate Model
     if (currentStep === totalSteps - 1) {
-      // Very simplified derived inflows
-      const totalSaleableBUA =
-        cashOutflows.buildingBUA * (cashInflows.saleableBUARatio / 100);
-      const grossSales =
-        totalSaleableBUA * cashInflows.salesPrice;
-
-      const deductionsPercent =
-        cashInflows.buyerMix.brokerCommissionPercent +
-        cashInflows.buyerMix.vatPercent +
-        cashInflows.buyerMix.escrowFeePercent +
-        cashInflows.buyerMix.salesDiscountPercent +
-        cashInflows.defaultRate +
-        (cashInflows.bulkSales.bulkSalesSharePercent *
-          cashInflows.bulkSales.bulkSalesDiscountPercent) /
-          100;
-
-      const effectiveDeductionPct = Math.max(0, deductionsPercent);
-      const netProceeds =
-        grossSales * (1 - effectiveDeductionPct / 100);
-
-      // Dynamic sales timeline (no negative months):
-      // - M0 includes ALL pre-launch sales (lumped)
-      // - M1..M{constructionPeriod} = construction period
-      // - M{constructionPeriod+1}..M{constructionPeriod+postCompletionBuffer} = post-completion buffer
-      const constructionPeriod = cashOutflows.constructionPeriod || 30;
-      const postCompletionBufferMonths = 6;
-      const timelineMonths = constructionPeriod + postCompletionBufferMonths; // months after M0
-
-      // We distribute post-M0 proceeds over months 1..timelineMonths
-      const months = Math.max(1, timelineMonths);
-      const weights: number[] = [];
-      if (cashInflows.salesUptake.mode === "manual") {
-        const parts = cashInflows.salesUptake.manualCsv
-          .split(",")
-          .map((p) => Number(p.trim()))
-          .filter((n) => !Number.isNaN(n) && n > 0);
-        const sum = parts.reduce((s, n) => s + n, 0) || 1;
-        for (let i = 0; i < months; i++) {
-          const idx = i < parts.length ? i : parts.length - 1;
-          weights.push(parts[idx] / sum);
-        }
-      } else {
-        for (let i = 0; i < months; i++) {
-          let w = 1;
-          if (cashInflows.salesUptake.preset === "front_loaded") {
-            w = months - i;
-          } else if (cashInflows.salesUptake.preset === "back_loaded") {
-            w = i + 1;
-          }
-          weights.push(w);
-        }
-        const sum = weights.reduce((s, n) => s + n, 0) || 1;
-        for (let i = 0; i < months; i++) {
-          weights[i] = weights[i] / sum;
-        }
-      }
-
-      const preLaunchPct = Math.max(
-        0,
-        Math.min(100, cashInflows.launchTiming.preLaunchSalesPercent || 0)
+      const revenue = buildSaleRevenueSchedule(
+        cashInflows,
+        cashOutflows.constructionPeriod,
+        saleBua.saleableBua
       );
-      const preLaunchAmount = netProceeds * (preLaunchPct / 100);
-      const remainingProceeds = Math.max(0, netProceeds - preLaunchAmount);
-
-      const schedule = [
-        { month: 0, amount: preLaunchAmount },
-        ...weights.map((w, i) => ({
-          month: i + 1,
-          amount: remainingProceeds * w,
-        })),
-      ];
 
       updateCashInflows({
-        grossSales,
-        netProceeds,
-        monthlyInflowSchedule: schedule,
+        saleableBUARatio: saleBua.saleableBuaRatio,
+        grossSales: revenue.grossSales,
+        netProceeds: revenue.netProceeds,
+        monthlyInflowSchedule: revenue.monthlyInflowSchedule,
       });
       router.push(withStreamPrefix(streamPrefix, "/preview/cash-inflows"));
       return;
@@ -1141,13 +1070,7 @@ function CashInflowsPageContent() {
                 </label>
                 <input
                   type="number"
-                  value={
-                    isSaleWarehouseProduct
-                      ? 100
-                      : isSaleLandedProduct
-                        ? projectInfo.salesLandedSaleableRatio ?? 0
-                        : projectInfo.salesHighRiseSaleableRatio ?? 0
-                  }
+                  value={saleBua.saleableBuaRatio}
                   readOnly
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
                 />
@@ -1242,7 +1165,7 @@ function CashInflowsPageContent() {
                         Total Building BUA
                       </p>
                       <p className="mt-1 text-sm font-semibold text-emerald-400">
-                        {cashOutflows.buildingBUA.toLocaleString(undefined, {
+                        {saleBua.totalBuildingBua.toLocaleString(undefined, {
                           maximumFractionDigits: 0,
                         })}{" "}
                         sqft
@@ -1253,10 +1176,7 @@ function CashInflowsPageContent() {
                         Saleable BUA
                       </p>
                       <p className="mt-1 text-sm font-semibold text-emerald-400">
-                        {(
-                          cashOutflows.buildingBUA *
-                          (cashInflows.saleableBUARatio / 100)
-                        ).toLocaleString(undefined, {
+                        {saleBua.saleableBua.toLocaleString(undefined, {
                           maximumFractionDigits: 0,
                         })}{" "}
                         sqft
@@ -1273,9 +1193,7 @@ function CashInflowsPageContent() {
                         currency: projectInfo.currency || "AED",
                         maximumFractionDigits: 0,
                       }).format(
-                        cashOutflows.buildingBUA *
-                          (cashInflows.saleableBUARatio / 100) *
-                          cashInflows.salesPrice
+                        saleBua.saleableBua * cashInflows.salesPrice
                       )}
                     </p>
                   </div>
@@ -2089,7 +2007,7 @@ function CashInflowsPageContent() {
                     </p>
                     <p className="text-slate-300">
                       <span className="text-slate-400">Saleable BUA Ratio:</span>{" "}
-                      {cashInflows.saleableBUARatio}%
+                      {saleBua.saleableBuaRatio}%
                     </p>
                     <p className="text-slate-300">
                       <span className="text-slate-400">

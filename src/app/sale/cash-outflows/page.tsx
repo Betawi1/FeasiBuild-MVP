@@ -69,6 +69,11 @@ import {
   SALE_CASH_OUTFLOW_AUDIT_FIELDS,
   SALE_CASH_OUTFLOW_STAGE_ALLOCATION_FIELDS,
 } from "@/lib/sale-audit-fields";
+import {
+  deriveC1SaleBua,
+  omitSaleBuaAiFields,
+  saleCostBuildingBua,
+} from "@/lib/feasibility/sale/sale-bua";
 
 const LocationMapPicker = dynamic(() => import("@/components/LocationMapPicker"), {
   ssr: false,
@@ -377,7 +382,10 @@ function CashOutflowsPageContent() {
   useEffect(() => {
     if (!isSaleLandedProduct && !isSaleWarehouseProduct && currentStep === 5) {
       const updates: Partial<CashOutflows> = {};
-      if (projectInfo.salesHighRiseTotalBUA) {
+      if (
+        projectInfo.salesHighRiseTotalBUA &&
+        cashOutflows.fieldSources?.buildingBUA !== "override"
+      ) {
         updates.buildingBUA = projectInfo.salesHighRiseTotalBUA;
       }
       if (projectInfo.salesHighRiseBasementBUA) {
@@ -399,6 +407,7 @@ function CashOutflowsPageContent() {
     projectInfo.salesHighRiseTotalBUA,
     projectInfo.salesHighRiseBasementBUA,
     projectInfo.salesHighRisePodiumBUA,
+    cashOutflows.fieldSources?.buildingBUA,
     updateCashOutflowsForStream,
   ]);
 
@@ -409,7 +418,10 @@ function CashOutflowsPageContent() {
         basementBUA: 0,
         parkingBUA: 0,
       };
-      if (salesLandedTotalBUA) {
+      if (
+        salesLandedTotalBUA &&
+        cashOutflows.fieldSources?.buildingBUA !== "override"
+      ) {
         updates.buildingBUA = salesLandedTotalBUA;
       }
 
@@ -420,6 +432,7 @@ function CashOutflowsPageContent() {
     isSaleLandedProduct,
     currentStep,
     salesLandedTotalBUA,
+    cashOutflows.fieldSources?.buildingBUA,
     updateCashOutflowsForStream,
   ]);
 
@@ -430,7 +443,10 @@ function CashOutflowsPageContent() {
         basementBUA: 0,
         parkingBUA: 0,
       };
-      if (salesWarehouseTotalBUA) {
+      if (
+        salesWarehouseTotalBUA &&
+        cashOutflows.fieldSources?.buildingBUA !== "override"
+      ) {
         updates.buildingBUA = salesWarehouseTotalBUA;
       }
       updateCashOutflowsForStream(updates);
@@ -443,6 +459,7 @@ function CashOutflowsPageContent() {
     isSaleWarehouseProduct,
     currentStep,
     salesWarehouseTotalBUA,
+    cashOutflows.fieldSources?.buildingBUA,
     projectInfo.salesHighRiseSaleableRatio,
     updateCashOutflowsForStream,
     updateProjectInfoForStream,
@@ -855,7 +872,7 @@ function CashOutflowsPageContent() {
           }
           const { aiResearchData, ...aiFields } = patch;
           const { values: aiValues, fieldSources } = applyAIValues(
-            aiFields as Record<string, unknown>,
+            omitSaleBuaAiFields(aiFields as Record<string, unknown>),
             {
               currentSources: cashOutflows.fieldSources,
               overriddenKeys: overriddenSourceKeys(cashOutflows.fieldSources),
@@ -897,7 +914,7 @@ function CashOutflowsPageContent() {
                   : {}),
               };
             }
-            const inflowSources = applyAIValues(inflowPatch, {
+            const inflowSources = applyAIValues(omitSaleBuaAiFields(inflowPatch), {
               currentSources: existingInflows.fieldSources,
               overriddenKeys: overriddenSourceKeys(existingInflows.fieldSources),
             });
@@ -1320,7 +1337,8 @@ function CashOutflowsPageContent() {
   }, []);
 
   // Derived calculations (from store state)
-  const buildingCost = cashOutflows.buildingBUA * cashOutflows.buildingRate;
+  const buildingAreaForCost = saleCostBuildingBua(projectInfo, cashOutflows);
+  const buildingCost = buildingAreaForCost * cashOutflows.buildingRate;
   const parkingCost = cashOutflows.parkingBUA * cashOutflows.parkingRate;
   const basementCost = cashOutflows.basementBUA * cashOutflows.basementRate;
 
@@ -2114,8 +2132,9 @@ function CashOutflowsPageContent() {
     if (!isValid) return;
 
     if (currentStep === totalSteps - 1) {
-      const buildingCost =
-        cashOutflows.buildingBUA * cashOutflows.buildingRate;
+      const canonicalBua = deriveC1SaleBua(projectInfo);
+      const buildingQty = saleCostBuildingBua(projectInfo, cashOutflows);
+      const buildingCost = buildingQty * cashOutflows.buildingRate;
       const parkingCost =
         cashOutflows.parkingBUA * cashOutflows.parkingRate;
       const basementCost =
@@ -2171,7 +2190,9 @@ function CashOutflowsPageContent() {
         tdc,
         ...(isSaleWarehouseProduct
           ? {
-              buildingBUA: salesWarehouseTotalBUA,
+              ...(cashOutflows.fieldSources?.buildingBUA === "override"
+                ? {}
+                : { buildingBUA: salesWarehouseTotalBUA }),
               buildingRate:
                 warehouseCosts?.buildingShellRate ??
                 cashOutflows.warehouseBuildingRate ??
@@ -2180,7 +2201,10 @@ function CashOutflowsPageContent() {
               basementBUA: 0,
               landArea: salesWarehouseTotalLandArea || cashOutflows.landArea,
             }
-          : {}),
+          : canonicalBua.totalBuildingBua > 0 &&
+              cashOutflows.fieldSources?.buildingBUA !== "override"
+            ? { buildingBUA: buildingQty }
+            : {}),
       });
       if (isSaleWarehouseProduct) {
         updateProjectInfoForStream({ salesHighRiseSaleableRatio: 100 });

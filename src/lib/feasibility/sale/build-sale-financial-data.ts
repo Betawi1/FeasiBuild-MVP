@@ -368,7 +368,7 @@ export function buildSaleSalesSummaryTableData(
     salesDiscounts,
     defaults,
     bulkSalesDiscount,
-    saleableBUARatio: ci.saleableBUARatio || 86,
+    saleableBUARatio: ci.saleableBUARatio ?? 0,
     averagePrice: m.avgPricePsf,
     buyerMix: `${bm?.cashBuyerPercent ?? 50}% cash / ${bm?.mortgageBuyerPercent ?? 50}% mortgage`,
     launchOffset: ci.launchTiming?.launchMonthOffset ?? 6,
