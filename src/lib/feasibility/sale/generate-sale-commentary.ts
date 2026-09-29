@@ -7,7 +7,7 @@ import {
 } from "@/lib/feasibility/generate-macro-commentary";
 import { buildSaleMarketCommentaryPrompt } from "@/lib/feasibility/generate-sale-market-commentary-prompts";
 import { buildSaleEscrowWithdrawalData } from "@/lib/feasibility/sale/build-sale-financial-data";
-import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-context";
+import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-format";
 import {
   defaultEscrowRuleForLocation,
   isAbuDhabiCity,

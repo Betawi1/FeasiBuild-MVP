@@ -742,6 +742,8 @@ export interface SaleIrrMetricsData {
 
 export interface SaleFeasibilityBundle extends FeasibilityProjectBundle {
   stream: "sale";
+  /** Component 1 config. Client callers copy it from the sale store; routes read this payload. */
+  projectInfo: import("@/store/useFinModelStore").ProjectInfo;
   buildingSubType?: string;
   buildingType?: string;
   saleConfigKey?: string;

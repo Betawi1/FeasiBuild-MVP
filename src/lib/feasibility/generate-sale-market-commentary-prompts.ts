@@ -1,5 +1,5 @@
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
-import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-context";
+import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-format";
 import type { SaleStreamConfig } from "@/lib/feasibility/sale/sale-stream-config";
 import type { SaleCommentarySection } from "@/lib/feasibility/sale/generate-sale-commentary";
 

@@ -22,6 +22,7 @@ import {
   selectSalePanelBua,
 } from "@/lib/feasibility/sale/sale-bua";
 import type { SaleFeasibilityBundle } from "@/types/feasibility";
+import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-format";
 import {
   ESCROW_RULE_DISPLAY_NAME,
   isAustraliaLocation,
@@ -177,6 +178,7 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
 
   const bundle: SaleFeasibilityBundle = {
     stream: "sale",
+    projectInfo,
     location: {
       city,
       country,
@@ -300,15 +302,4 @@ export function getSaleFeasibilityBundle(): SaleFeasibilityBundle {
   return bundle;
 }
 
-export { resolveSaleTitleProfile };
-
-export function fmtSaleMoney(
-  amount: number,
-  currency: string,
-  compact = false
-): string {
-  if (compact && Math.abs(amount) >= 1_000_000) {
-    return `${currency} ${(amount / 1_000_000).toFixed(1)}M`;
-  }
-  return `${currency} ${Math.round(amount).toLocaleString("en-US")}`;
-}
+export { resolveSaleTitleProfile, fmtSaleMoney };

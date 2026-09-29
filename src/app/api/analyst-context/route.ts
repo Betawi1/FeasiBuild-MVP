@@ -11,7 +11,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DOCS_ROOT = path.resolve(process.cwd(), "src/app/docs");
+const DOCS_ROOT = path.join(
+  /*turbopackIgnore: true*/ process.cwd(),
+  "src/app/docs"
+);
 const ALLOWED_EXTENSIONS = new Set([".tsx", ".ts", ".mdx", ".md"]);
 
 const MISSING_STEP_FALLBACK =
@@ -20,7 +23,7 @@ const MISSING_STEP_FALLBACK =
 const MISSING_FILE_FALLBACK = "No documentation found for this step.";
 
 function resolveSafeDocPath(relativePath: string): string | null {
-  const absolute = path.resolve(process.cwd(), relativePath);
+  const absolute = path.join(/*turbopackIgnore: true*/ process.cwd(), relativePath);
   const relativeToDocs = path.relative(DOCS_ROOT, absolute);
   if (relativeToDocs.startsWith("..") || path.isAbsolute(relativeToDocs)) {
     return null;

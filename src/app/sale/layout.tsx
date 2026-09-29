@@ -12,6 +12,7 @@ import { UpgradeNavControl } from "@/components/ui/UpgradeModal";
 import UpgradeTrigger from "@/components/ui/UpgradeTrigger";
 import { studyToolbarResetBtn, studyToolbarSecondaryBtn } from "@/components/ui/studyToolbarStyles";
 import { ProjectHydrationLoader } from "@/hooks/useProjectHydration";
+import { useSaleBuaReconciliation } from "@/hooks/useSaleBuaReconciliation";
 
 export default function SaleLayout({ children }: { children: React.ReactNode }) {
   const [isAuditOpen, setIsAuditOpen] = useState(false);
@@ -19,6 +20,7 @@ export default function SaleLayout({ children }: { children: React.ReactNode }) 
   const setAssetType = useFinModelStore((s) => s.setAssetType);
   const resetAssetType = useFinModelStore((s) => s.resetAssetType);
   const resetProject = useFinModelStore((s) => s.resetProject);
+  useSaleBuaReconciliation();
 
   useEffect(() => {
     if (assetType === "sale") return;

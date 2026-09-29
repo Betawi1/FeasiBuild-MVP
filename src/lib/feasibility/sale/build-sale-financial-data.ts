@@ -8,7 +8,6 @@ import {
   guaranteeStage3RetentionFunding,
   type MonthlyRow as EngineMonthlyRow,
 } from "@/lib/financing-engine/generate-cash-flow";
-import useFinModelStore from "@/store/useFinModelStore";
 import { formatDrawdownLabel } from "@/lib/feasibility/build-term-loan-data";
 import {
   CLOSED_LOOP_CHINA_MAX_LOAN_OF_TDC,
@@ -76,7 +75,7 @@ function getSaleFinancingEngineRows(
   bundle: SaleFeasibilityBundle
 ): EngineMonthlyRow[] {
   try {
-    const projectInfo = useFinModelStore.getState().sale.projectInfo;
+    const projectInfo = bundle.projectInfo;
     const { cashOutflows, cashInflows, financing } = bundle;
     const constructionPeriod = cashOutflows.constructionPeriod || 30;
     const detail = buildSaleCashflowDetailProfile(cashOutflows, projectInfo);
@@ -130,7 +129,7 @@ export function buildSaleDevelopmentCostsData(
 ): SaleDevelopmentCostsData {
   const co = bundle.cashOutflows;
   const c = bundle.currency;
-  const projectInfo = useFinModelStore.getState().sale.projectInfo;
+  const projectInfo = bundle.projectInfo;
   const detail = buildSaleCashflowDetailProfile(co, projectInfo);
   const isWarehouse =
     projectInfo.buildingSubType === "commercial_strata_warehouse";
@@ -299,7 +298,7 @@ export function buildSaleDevelopmentScheduleData(
   bundle: SaleFeasibilityBundle
 ): SaleDevelopmentScheduleData {
   const co = bundle.cashOutflows;
-  const projectInfo = useFinModelStore.getState().sale.projectInfo;
+  const projectInfo = bundle.projectInfo;
   const detail = buildSaleCashflowDetailProfile(co, projectInfo);
 
   const monthlyOutflows = detail.months.map((month, i) => ({

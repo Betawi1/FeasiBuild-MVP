@@ -9,11 +9,11 @@ import {
   saleCostBuildingBua,
 } from "@/lib/feasibility/sale/sale-bua";
 import type { CashOutflowProfile, CashOutflowStageHeader } from "@/store/useFinModelStore";
-import {
-  generateWarehousePhasingSCurve,
-  type WarehousePhasing,
-  type WarehouseSubType,
+import type {
+  WarehousePhasing,
+  WarehouseSubType,
 } from "@/store/useFinModelStore";
+import { generateWarehousePhasingSCurve } from "@/lib/feasibility/sale/warehouse-phasing";
 import type { PowcAllocationFractions } from "@/lib/cash-outflow-default-allocations";
 import { allocateFfeMonthly } from "@/lib/cash-outflow-ffe-timing";
 

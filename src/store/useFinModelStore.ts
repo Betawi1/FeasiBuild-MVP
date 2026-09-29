@@ -2995,54 +2995,7 @@ export function calculateWarehouseOpEx(
   return updated;
 }
 
-export function generateWarehousePhasingSCurve(
-  constructionPeriodMonths: number,
-  _subType: WarehouseSubType
-): WarehousePhasing {
-  // Generate S-curve distributions for each cost category
-  // These are simplified distributions - in production, use more sophisticated curves
-
-  const generateCurve = (
-    earlyPct: number,
-    midPct: number,
-    latePct: number,
-    finalPct: number
-  ): number[] => {
-    const months = Math.max(1, Math.floor(constructionPeriodMonths));
-    const curve: number[] = new Array(months + 1).fill(0);
-    const quarter = Math.max(1, Math.floor(months / 4));
-
-    for (let m = 0; m <= months; m++) {
-      if (m <= quarter) {
-        curve[m] = earlyPct / (quarter + 1);
-      } else if (m <= quarter * 2) {
-        curve[m] = midPct / quarter;
-      } else if (m <= quarter * 3) {
-        curve[m] = latePct / quarter;
-      } else {
-        const finalMonths = Math.max(1, months - quarter * 3);
-        curve[m] = finalPct / finalMonths;
-      }
-    }
-
-    // Normalize so the monthly series sums to 100%
-    const sum = curve.reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      for (let i = 0; i < curve.length; i++) {
-        curve[i] = (curve[i] / sum) * 100;
-      }
-    }
-
-    return curve;
-  };
-
-  return {
-    buildingShell: generateCurve(15, 35, 35, 15), // Standard S-curve
-    siteYardWorks: generateCurve(40, 30, 20, 10), // Front-loaded
-    loadingAccess: generateCurve(10, 20, 40, 30), // Mid-Late
-    specialisedSystems: generateCurve(10, 20, 40, 30), // Back-loaded
-  };
-}
+export { generateWarehousePhasingSCurve } from "@/lib/feasibility/sale/warehouse-phasing";
 
 /** Data Centre CapEx category S-curves (percent by month, sum ≈ 100). */
 export function generateDataCentrePhasingSCurve(
@@ -4488,26 +4441,6 @@ const useFinModelStore = create<FinModelStore>()(
     }
   )
 );
-
-useFinModelStore.persist.onFinishHydration(() => {
-  const current = useFinModelStore.getState();
-  const sale = current.sale;
-  if (!sale?.projectInfo || !sale.cashOutflows || !sale.cashInflows) return;
-  const reconciled = reconcileSaleBuaState(
-    sale.projectInfo,
-    sale.cashOutflows,
-    sale.cashInflows
-  );
-  if (!reconciled.changed) return;
-  useFinModelStore.setState({
-    sale: {
-      ...sale,
-      projectInfo: reconciled.projectInfo,
-      cashOutflows: reconciled.cashOutflows,
-      cashInflows: reconciled.cashInflows,
-    },
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Cash outflow preview helpers

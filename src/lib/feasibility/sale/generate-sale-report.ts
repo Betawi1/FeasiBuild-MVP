@@ -10,7 +10,7 @@ import {
   generateSaleCommentaryFallback,
   type SaleCommentarySection,
 } from "@/lib/feasibility/sale/generate-sale-commentary";
-import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-context";
+import { fmtSaleMoney } from "@/lib/feasibility/sale/sale-format";
 import {
   getSaleStreamConfig,
   type SaleStreamConfig,
@@ -39,11 +39,9 @@ import { asFallbackCommentary } from "@/lib/feasibility/enrichment-ladder";
 import {
   createPromptForSection,
 } from "@/lib/feasibility/sale/create-sale-puter-prompts";
-import useFinModelStore from "@/store/useFinModelStore";
 import {
   assertSaleBuaSingleSource,
-  deriveC1SaleBua,
-  selectSalePanelBua,
+  assertSaleGdvIdentity,
 } from "@/lib/feasibility/sale/sale-bua";
 import {
   resolveSaleProjectEscrowRule,
@@ -272,8 +270,7 @@ function generateSaleMarketSlides(
       title: "Implications of the Market Findings on the Project",
       subtitle: resolveImplicationsSubtitle(config.assetLabel, {
         buildingSubType: bundle.buildingSubType,
-        salesWarehouseConfigType:
-          useFinModelStore.getState().sale.projectInfo.salesWarehouseConfigType,
+        salesWarehouseConfigType: bundle.projectInfo.salesWarehouseConfigType,
       }),
       paragraphs: commentary(bundle, "Market Implications"),
       data: buildSaleImplicationsData(bundle),
@@ -416,25 +413,32 @@ function generateSaleFinancialSlides(
  * use `generateSaleSlidesWithPuter` from `./enrich-sale-slides-puter` (Puter.js).
  * Server API route uses Qwen via `/api/feasibility/generate-sale`.
  */
-function assertDeckBuaMatchesStore(bundle: SaleFeasibilityBundle): void {
+/** Deck payload check. Figures travel on the bundle; this does not read a store. */
+function assertDeckBuaFromBundle(bundle: SaleFeasibilityBundle): void {
   if (process.env.NODE_ENV === "production") return;
-  if (typeof window === "undefined") return;
-  const projectInfo = useFinModelStore.getState().sale.projectInfo;
-  const c1 = deriveC1SaleBua(projectInfo);
-  const panel = selectSalePanelBua(projectInfo);
-  if (c1.totalBuildingBua <= 0 && panel.totalBuildingBua <= 0) return;
+  const total = bundle.saleMetrics.totalArea;
+  const saleable = bundle.saleMetrics.saleableArea;
+  const fromRatio = Math.round(
+    total * ((bundle.cashInflows.saleableBUARatio || 0) / 100)
+  );
   assertSaleBuaSingleSource({
-    c1Total: c1.totalBuildingBua,
-    c2Total: panel.totalBuildingBua,
+    c1Total: total,
+    c2Total: total,
     reportTotal: bundle.saleMetrics.totalArea,
-    c1Saleable: c1.saleableBua,
-    c2Saleable: panel.saleableBua,
+    c1Saleable: fromRatio,
+    c2Saleable: saleable,
     reportSaleable: bundle.saleMetrics.saleableArea,
   });
+  assertSaleGdvIdentity(
+    total,
+    saleable,
+    bundle.saleMetrics.avgPricePsf || 0,
+    bundle.component4.gdv
+  );
 }
 
 export function generateSaleSlides(bundle: SaleFeasibilityBundle): FeasibilitySlide[] {
-  assertDeckBuaMatchesStore(bundle);
+  assertDeckBuaFromBundle(bundle);
   const config = getSaleStreamConfig(bundle.buildingSubType);
   return [
     generateSaleTitleSlide(bundle),
