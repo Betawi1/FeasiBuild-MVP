@@ -28,6 +28,7 @@ import {
 } from "@/lib/puter-storage";
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import { sanitizeForStorage } from "@/lib/sanitize";
+import { fillUndefinedProportionateEscrow } from "@/lib/financing-engine/escrow-rules";
 import { getCustomerTier, type SubscriptionLike } from "@/lib/entitlements";
 import { normalizeCustomSlides } from "@/lib/feasibility/custom-slides";
 import type { CustomSlide } from "@/types/feasibility";
@@ -194,7 +195,10 @@ export function collectProjectState(
     projectInfo: slice.projectInfo,
     cashOutflows: slice.cashOutflows,
     cashInflows: slice.cashInflows,
-    financing: slice.financing,
+    financing: {
+      ...slice.financing,
+      escrowConfig: fillUndefinedProportionateEscrow(slice.financing.escrowConfig),
+    },
     projectIRR: slice.projectIRR,
     equityReturns: slice.equityReturns,
     scenarioAnalysis: slice.scenarioAnalysis,

@@ -18,7 +18,7 @@ export default function SaleComponent4Docs() {
           sales collections cover costs.
         </div>
         <p className="mt-4 text-sm text-slate-400 leading-relaxed">
-          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Abu Dhabi → Project Guarantee Account (all asset classes); Dubai → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial); China residential landed or high-rise → Closed-Loop. All six rules remain selectable everywhere.
+          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Abu Dhabi → Project Guarantee Account (all asset classes); Dubai → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial); China residential landed or high-rise → Closed-Loop; India → Proportionate Escrow (all sale asset classes). All seven rules remain selectable everywhere.
         </p>
       </div>
 
@@ -258,7 +258,7 @@ export default function SaleComponent4Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Escrow Withdrawal Configuration</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Six tabs, in order: <strong className="text-white">10/90 Rule</strong>, <strong className="text-white">Progress Drawdown Rule</strong>, <strong className="text-white">Staged Escrow Rule</strong>, <strong className="text-white">Closed-Loop Escrow Rule</strong>, <strong className="text-white">Project Guarantee Account Rule</strong>, and <strong className="text-white">No Escrow Rules</strong>. All six remain selectable everywhere.
+            Seven tabs, in order: <strong className="text-white">10/90 Rule</strong>, <strong className="text-white">Progress Drawdown Rule</strong>, <strong className="text-white">Staged Escrow Rule</strong>, <strong className="text-white">Closed-Loop Escrow Rule</strong>, <strong className="text-white">Project Guarantee Account Rule</strong>, <strong className="text-white">Proportionate Escrow Rule</strong>, and <strong className="text-white">No Escrow Rules</strong>. All seven remain selectable everywhere.
           </p>
           <p className="text-sm text-slate-400 leading-relaxed mb-4">
             These are withdrawal mechanisms, not country labels; the project&apos;s location only pre-selects a default.
@@ -272,7 +272,8 @@ export default function SaleComponent4Docs() {
               <li><strong className="text-white">10/90 Rule:</strong> Australia — all asset classes.</li>
               <li><strong className="text-white">Progress Drawdown Rule:</strong> Malaysia residential.</li>
               <li><strong className="text-white">Closed-Loop Escrow Rule:</strong> China residential landed or high-rise.</li>
-              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, other UAE emirates, and every other location (KSA, Thailand, China commercial, …). All six options remain selectable everywhere.</li>
+              <li><strong className="text-white">Proportionate Escrow Rule:</strong> India — every city, all sale asset classes. The split is locked at 70% and the lender sweep is locked on for that location only.</li>
+              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, other UAE emirates, and every other location (KSA, Thailand, China commercial, …). All seven options remain selectable everywhere.</li>
             </ul>
           </div>
 
@@ -338,6 +339,23 @@ export default function SaleComponent4Docs() {
               </ul>
             </div>
 
+            <div className="rounded-lg border border-teal-500/30 bg-teal-500/5 p-4">
+              <h4 className="text-teal-300 font-medium mb-1">Proportionate Escrow Rule</h4>
+              <p className="text-xs text-slate-500 mb-2">Proportionate Escrow Rule Configuration</p>
+              <p className="text-sm text-slate-400 mb-2">
+                Designated-account regime. Default for India across every sale asset class, including commercial and warehouse. Selectable anywhere else. The mechanism is not a country label: a local-regime note about state regulatory enforcement appears on the feasibility deck only when the project location&apos;s default is this rule.
+              </p>
+              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
+                <li><strong>Split:</strong> default 70% of every buyer payment enters the designated account. The remainder is immediate developer free cash and reduces the equity gap in the same month. India locks the split at 70%. Other locations can edit it.</li>
+                <li><strong>Certification:</strong> monthly (every month) or quarterly (months 2, 5, 8, …). The withdrawal is paid the following month. The account closes at completion plus one month.</li>
+                <li><strong>Entitlement:</strong> certified completion percent times permitted project cost, plus construction-loan interest actually paid when that toggle is on. Land-loan interest is never included. Permitted cost is construction including contingency, the land cost row, all POWC buckets, and soft costs excluding the Other Fees allocation. Marketing, brokerage, land finance costs, and head-office admin stay on the free-cash share.</li>
+                <li><strong>Lender sweep:</strong> when on, each certified withdrawal repays the construction loan first. India locks the sweep on. Other locations can turn it off. Land loans are never swept. The developer&apos;s share is operational cash and is not held for the land-loan distribution gate. The residual release at completion plus one month does go through that gate.</li>
+                <li><strong>No retention:</strong> a five-year structural defect liability is a separate legal obligation. Nothing is held back in the account for it. Late-possession interest is a risk note only and is not an escrow cash flow.</li>
+                <li><strong>Land loan:</strong> available in every location, including where this rule is the default. Selecting the rule does not change the stored land equity percent.</li>
+                <li><strong>Horizon:</strong> CP+6.</li>
+              </ul>
+            </div>
+
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
               <h4 className="text-white font-medium mb-2">No Escrow Rules</h4>
               <p className="text-sm text-slate-400 mb-3">
@@ -351,7 +369,7 @@ export default function SaleComponent4Docs() {
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Escrow Account Fees</h4>
             <p className="text-sm text-slate-400 mb-2">
-              Shown on every escrow rule except No Escrow Rules, including the Project Guarantee Account Rule. Hidden when No Escrow Rules is selected.
+              Shown on every escrow rule except No Escrow Rules, including the Project Guarantee Account Rule and the Proportionate Escrow Rule. Hidden when No Escrow Rules is selected.
             </p>
             <p className="text-sm text-slate-400 mb-2">
               <strong className="text-white">Setup fee (flat amount)</strong> — one-time setup fee, e.g. 5,000.

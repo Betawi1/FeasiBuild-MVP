@@ -3,6 +3,7 @@
 import type { FeasibilityProjectBundle, FeasibilitySlide } from "@/types/feasibility";
 import { getCachedContent } from "@/lib/cache-service";
 import { hasPlaceholderContent } from "@/lib/ai-service";
+import { noteCacheHit } from "@/lib/feasibility/enrichment-memory";
 import { isAiFallbackCommentary } from "@/lib/feasibility/enrichment-ladder";
 import { enrichStructuredSlideData } from "@/lib/feasibility/enrich-structured-slide-data";
 import {
@@ -119,6 +120,7 @@ export async function enrichOperationalSlidesWithCache(
           !isAiFallbackCommentary(cached)
         ) {
           console.log(`[Operational Cache HIT] ${slideId} (${cacheKey})`);
+          noteCacheHit();
           const slide = {
             ...enriched[idx]!,
             paragraphs: cached,

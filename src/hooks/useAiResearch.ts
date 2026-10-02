@@ -15,108 +15,12 @@ import {
 } from "@/lib/puter-chat";
 import { getPreferredModel } from "@/lib/puter-kv-preferences";
 import { isClaudeModel } from "@/lib/puter-models";
+import {
+  annotateResearchGuardrails,
+  coerceAiResearchPayload,
+} from "@/lib/ai-research-integrity";
 
 export type { AiResearchOptions, AiResearchResult } from "@/lib/constants/aiPrompts";
-
-/** Safety clamp to prevent UI-breaking hallucinations */
-const clamp = (val: number, min: number, max: number) => {
-  if (!Number.isFinite(val) || Number.isNaN(val)) return min;
-  return Math.min(Math.max(val, min), max);
-};
-
-function sanitizeAiData(
-  data: AiResearchResult,
-  projectCurrency: string
-): AiResearchResult {
-  if (!data?.c1_development) return data;
-
-  const currency = (projectCurrency || "USD").toUpperCase();
-  console.log(`🛡️ Running AI Sanity Checks for Currency: ${currency}`);
-
-  const researchedFx =
-    typeof data.fx_rate_to_usd === "number" &&
-    Number.isFinite(data.fx_rate_to_usd) &&
-    data.fx_rate_to_usd > 0
-      ? data.fx_rate_to_usd
-      : 1.0;
-  const fxRate = currency === "USD" ? 1.0 : researchedFx;
-  data.fx_rate_to_usd = fxRate;
-  console.log(`💱 Applied FX Rate (1 USD = ${fxRate} ${currency})`);
-
-  const USD_CLAMPS = {
-    buildingRate: { min: 50, max: 5000 },
-    parkingRate: { min: 20, max: 3000 },
-    basementRate: { min: 20, max: 3000 },
-    infrastructureRate: { min: 0, max: 1000 },
-    landRate: { min: 1, max: 5000 },
-    salesPrice: { min: 50, max: 10000 },
-  };
-
-  const toLocal = (usdVal: number) => usdVal * fxRate;
-
-  const c1 = data.c1_development as Record<string, unknown>;
-  const rates = c1.construction_rates as Record<string, number> | undefined;
-  if (rates) {
-    if (rates.building_rate_psf != null) {
-      rates.building_rate_psf = clamp(
-        rates.building_rate_psf,
-        toLocal(USD_CLAMPS.buildingRate.min),
-        toLocal(USD_CLAMPS.buildingRate.max)
-      );
-    }
-    if (rates.parking_rate_psf != null) {
-      rates.parking_rate_psf = clamp(
-        rates.parking_rate_psf,
-        toLocal(USD_CLAMPS.parkingRate.min),
-        toLocal(USD_CLAMPS.parkingRate.max)
-      );
-    }
-    if (rates.basement_rate_psf != null) {
-      rates.basement_rate_psf = clamp(
-        rates.basement_rate_psf,
-        toLocal(USD_CLAMPS.basementRate.min),
-        toLocal(USD_CLAMPS.basementRate.max)
-      );
-    }
-    if (rates.infrastructure_rate_psf != null) {
-      rates.infrastructure_rate_psf = clamp(
-        rates.infrastructure_rate_psf,
-        toLocal(USD_CLAMPS.infrastructureRate.min),
-        toLocal(USD_CLAMPS.infrastructureRate.max)
-      );
-    }
-  }
-
-  if (typeof c1.land_rate_psf === "number") {
-    c1.land_rate_psf = clamp(
-      c1.land_rate_psf,
-      toLocal(USD_CLAMPS.landRate.min),
-      toLocal(USD_CLAMPS.landRate.max)
-    );
-  }
-
-  const softCosts = c1.soft_costs as Record<string, number> | undefined;
-  if (softCosts) {
-    if (softCosts.sc_percentage != null) {
-      softCosts.sc_percentage = clamp(softCosts.sc_percentage, 1, 30);
-    }
-    if (softCosts.powc_percentage != null) {
-      softCosts.powc_percentage = clamp(softCosts.powc_percentage, 1, 20);
-    }
-  }
-
-  const c2Sales = data.c2_sales as Record<string, number> | undefined;
-  if (c2Sales && typeof c2Sales.avg_sales_price_psf === "number") {
-    c2Sales.avg_sales_price_psf = clamp(
-      c2Sales.avg_sales_price_psf,
-      toLocal(USD_CLAMPS.salesPrice.min),
-      toLocal(USD_CLAMPS.salesPrice.max)
-    );
-  }
-
-  console.log("✅ Sanity Checks complete. Data is safe.");
-  return data;
-}
 
 export const useAiResearch = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -162,7 +66,7 @@ export const useAiResearch = () => {
           setFallbackNotice(result.fallbackNotice);
         }
 
-        const parsedRaw = result.json as AiResearchResult;
+        const parsedRaw = coerceAiResearchPayload(result.json);
         if (!parsedRaw || typeof parsedRaw !== "object") {
           throw new Error("AI response JSON was not an object");
         }
@@ -170,10 +74,10 @@ export const useAiResearch = () => {
 
         const aiData =
           options.assetType === "operational-data-centre"
-            ? parsedRaw
+            ? (parsedRaw as AiResearchResult)
             : normalizeAiResearchData(parsedRaw);
 
-        const parsedData = sanitizeAiData(
+        const parsedData = annotateResearchGuardrails(
           aiData,
           options.location.currency || "USD"
         );

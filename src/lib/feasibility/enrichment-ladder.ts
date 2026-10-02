@@ -172,12 +172,14 @@ export function buildCondensedCommentaryPrompt(prompt: string): string {
 
 export async function withAttemptTimeout<T>(
   task: Promise<T>,
-  timeoutMs = ENRICHMENT_ATTEMPT_TIMEOUT_MS
+  timeoutMs = ENRICHMENT_ATTEMPT_TIMEOUT_MS,
+  onTimeout?: () => void
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new Error("ENRICHMENT_TIMEOUT"));
+      onTimeout?.();
     }, timeoutMs);
   });
   try {

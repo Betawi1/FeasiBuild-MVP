@@ -7,6 +7,11 @@ import {
 import { sendOpsAlert } from "@/lib/ops-monitor";
 import { enrichmentPuterChat } from "@/lib/feasibility/enrichment-chat";
 import {
+  noteCacheHit,
+  noteCacheMiss,
+  retainGeneratedChart,
+} from "@/lib/feasibility/enrichment-memory";
+import {
   asFallbackCommentary,
   buildCompactChartPrompt,
   buildCondensedCommentaryPrompt,
@@ -270,6 +275,7 @@ class PuterAIProvider implements AIProvider {
             !isAiFallbackCommentary(paragraphs)
           ) {
             console.log(`[AI Service] ✅ Cache HIT: ${cacheKey}`);
+            noteCacheHit();
             recordEnrichmentAttempts(logKey, 0);
             return paragraphs;
           }
@@ -277,8 +283,10 @@ class PuterAIProvider implements AIProvider {
           console.log(
             `[AI Service] Cached content stale/placeholder, regenerating: ${cacheKey}`
           );
+          noteCacheMiss();
         } else {
           console.log(`[AI Service] ❌ Cache MISS: ${cacheKey}`);
+          noteCacheMiss();
         }
       }
 
@@ -372,9 +380,12 @@ class PuterAIProvider implements AIProvider {
         const cached = await getCachedContent(chartCacheKey);
         if (chartPayloadUsable(cached)) {
           console.log(`[AI Service] Chart cache HIT for: ${logKey}`);
+          noteCacheHit();
+          retainGeneratedChart(logKey, cached);
           recordEnrichmentAttempts(logKey, 0);
           return cached;
         }
+        noteCacheMiss();
       }
 
       console.log(`[AI Service] Chart cache miss, calling AI: ${logKey}`);
@@ -398,12 +409,14 @@ class PuterAIProvider implements AIProvider {
 
       if (!outcome.ok) {
         warnChartSkippedOnce(logKey);
+        retainGeneratedChart(logKey, null);
         return null;
       }
 
       const parsed = parseJsonFromPuterText(outcome.text);
       if (!chartPayloadUsable(parsed)) {
         warnChartSkippedOnce(logKey);
+        retainGeneratedChart(logKey, null);
         return null;
       }
 
@@ -413,9 +426,11 @@ class PuterAIProvider implements AIProvider {
         await setCachedContent(chartCacheKey, parsed);
       }
 
+      retainGeneratedChart(logKey, parsed);
       return parsed;
     } catch {
       warnChartSkippedOnce(logKey);
+      retainGeneratedChart(logKey, null);
       return null;
     }
   }

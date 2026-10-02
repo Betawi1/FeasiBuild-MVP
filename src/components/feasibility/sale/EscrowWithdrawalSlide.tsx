@@ -29,6 +29,7 @@ function resolveSlideRule(data: SaleEscrowWithdrawalData): EscrowRuleId {
   if (j === "malaysia" || j.includes("hda") || j.includes("progress")) return "progress";
   if (j === "australia" || j.includes("10/90") || j.includes("ten_ninety")) return "ten_ninety";
   if (j.includes("closed") && j.includes("loop")) return "closed_loop_escrow";
+  if (j.includes("proportionate")) return "proportionate_escrow";
   if (j.includes("guarantee")) return "project_guarantee_account";
   if (j.includes("no escrow") || j === "none") return "none";
   return normalizeEscrowRuleId(data.jurisdiction);
@@ -51,6 +52,9 @@ export default function EscrowWithdrawalSlide({
   const showAdrec =
     rule === "project_guarantee_account" &&
     Boolean(data.localRegimeNote?.includes("ADREC"));
+  const showProportionateRegime =
+    rule === "proportionate_escrow" &&
+    Boolean(data.localRegimeNote?.includes("MahaRERA"));
 
   return (
     <SlideContainer>
@@ -364,6 +368,83 @@ export default function EscrowWithdrawalSlide({
                     </tr>
                   </>
                 )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {rule === "proportionate_escrow" && (
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                A fixed share of every buyer payment
+                {data.proportionateConfig
+                  ? ` (${data.proportionateConfig.splitPercent}%)`
+                  : ""}{" "}
+                is locked in a designated account. The remainder is immediate developer free cash.
+              </li>
+              <li>
+                Withdrawals are certified in proportion to construction completion by the project
+                engineer, architect, and chartered accountant, and are paid the following month.
+              </li>
+              <li>Land principal is recoverable only as construction progresses.</li>
+              <li>
+                Marketing, brokerage, and land finance costs are served by the free-cash share.
+              </li>
+              <li>
+                A five-year structural defect liability is a separate legal obligation. There is no
+                escrow retention for it.
+              </li>
+              <li>
+                Late-possession interest is a risk note only. It is not modeled as an escrow cash
+                flow.
+              </li>
+              {showProportionateRegime && (
+                <li>
+                  Local regime for this project: state regulatory authorities apply MahaRERA-style
+                  enforcement intensity to the designated account.
+                </li>
+              )}
+            </ul>
+            <table className="feasibility-table w-full text-xs border border-slate-300">
+              <tbody>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Designated-account split</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.proportionateConfig?.splitPercent ?? 70}% of each buyer payment
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Certification</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.proportionateConfig?.certFrequency === "quarterly"
+                      ? "Quarterly (months 2, 5, 8, …), paid the following month"
+                      : "Monthly, paid the following month"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Lender cash sweep</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.proportionateConfig?.sweepEnabled === false
+                      ? "Off. Land loans are never swept."
+                      : "Construction lender is swept first. Land loans are never swept."}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Construction finance</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.proportionateConfig?.interestPermitted === false
+                      ? "Cash interest is not in the entitlement"
+                      : "Cash interest paid on the construction loan is in the entitlement"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Defect liability</td>
+                  <td className="border border-slate-300 p-2">
+                    Five-year structural obligation. No escrow retention.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

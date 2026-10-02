@@ -54,6 +54,12 @@ import AiModelFallbackNotice from "@/components/AiModelFallbackNotice";
 import { useNeighborhoodLookupGate } from "@/hooks/useNeighborhoodLookupGate";
 import type { AiAssetType } from "@/lib/constants/aiPrompts";
 import { normalizeAiResearchData } from "@/lib/constants/aiPrompts";
+import {
+  coerceAiResearchPayload,
+  SALE_STANDARD_RATE_KEYS,
+  SALE_WAREHOUSE_RATE_KEYS,
+  unmatchedConstructionRateKeys,
+} from "@/lib/ai-research-integrity";
 import { CITY_LEVEL_LOOKUP_NOTICE } from "@/lib/reverse-geocode";
 import { AiInput } from "@/components/ui/AiInput";
 import { AiHintBox } from "@/components/ui/AiHintBox";
@@ -388,12 +394,8 @@ function CashOutflowsPageContent() {
       ) {
         updates.buildingBUA = projectInfo.salesHighRiseTotalBUA;
       }
-      if (projectInfo.salesHighRiseBasementBUA) {
-        updates.basementBUA = projectInfo.salesHighRiseBasementBUA;
-      }
-      if (projectInfo.salesHighRisePodiumBUA) {
-        updates.parkingBUA = projectInfo.salesHighRisePodiumBUA;
-      }
+      updates.basementBUA = projectInfo.salesHighRiseBasementBUA || 0;
+      updates.parkingBUA = projectInfo.salesHighRisePodiumBUA || 0;
 
       if (Object.keys(updates).length > 0) {
         updateCashOutflowsForStream(updates);
@@ -669,11 +671,12 @@ function CashOutflowsPageContent() {
         console.log("📍 Location & Building Payload:", researchParams);
         const rawAiData = await performResearch(researchParams);
         if (rawAiData) {
-          const researchData = rawAiData as unknown as AiResearchData;
-          console.log(
-            "🤖 Sales AI Research Data:",
-            JSON.stringify(researchData, null, 2)
-          );
+          const coerced = coerceAiResearchPayload(rawAiData);
+          if (!coerced || typeof coerced !== "object") {
+            throw new Error("Sales AI research payload was not an object");
+          }
+          const researchData = coerced as unknown as AiResearchData;
+          console.log("🤖 Sales AI Research Data:", researchData);
           const dataWithFingerprint = {
             ...researchData,
             _researchKey: researchKey,
@@ -718,7 +721,7 @@ function CashOutflowsPageContent() {
             const profFees =
               wr.professional_fees_percent ?? soft?.sc_percentage;
 
-            if (wr.building_rate_psf) {
+            if (wr.building_rate_psf != null) {
               patch.warehouseBuildingRate = wr.building_rate_psf;
             }
             if (wr.site_yard_rate_psf != null) {
@@ -809,18 +812,30 @@ function CashOutflowsPageContent() {
             patch.warehouseBuildingRate = nextCosts.buildingShellRate;
             patch.warehouseSiteYardRate = nextCosts.siteYardRate;
           } else {
-            if (rates?.building_rate_psf) {
+            if (rates?.building_rate_psf != null) {
               patch.buildingRate = rates.building_rate_psf;
             }
-            if (rates?.parking_rate_psf) {
+            if (rates?.parking_rate_psf != null) {
               patch.parkingRate = rates.parking_rate_psf;
             }
-            if (rates?.basement_rate_psf) {
+            if (rates?.basement_rate_psf != null) {
               patch.basementRate = rates.basement_rate_psf;
             }
-            if (isSaleLandedProduct && rates?.infrastructure_rate_psf) {
+            if (rates?.infrastructure_rate_psf != null) {
               patch.infrastructureRate = rates.infrastructure_rate_psf;
             }
+          }
+          const unmatchedRates = unmatchedConstructionRateKeys(
+            rates as Record<string, unknown> | undefined,
+            isSaleWarehouseProduct
+              ? SALE_WAREHOUSE_RATE_KEYS
+              : SALE_STANDARD_RATE_KEYS
+          );
+          if (unmatchedRates.length > 0) {
+            console.warn(
+              "[Sale C1] Unmatched AI research fields (not mapped to a row):",
+              unmatchedRates.join(", ")
+            );
           }
           if (soft?.sc_percentage != null)
             patch.softCostPercent = soft.sc_percentage;
@@ -834,40 +849,60 @@ function CashOutflowsPageContent() {
                 : undefined);
             if (ffeRec != null) patch.ffePercent = ffeRec;
           }
-          if (c1?.land_rate_psf) patch.landRate = c1.land_rate_psf;
-          if (c1?.construction_period?.months) {
+          if (c1?.land_rate_psf != null) patch.landRate = c1.land_rate_psf;
+          if (c1?.construction_period?.months != null) {
             patch.constructionPeriod = c1.construction_period.months;
           }
           if (c1?.s_curve) {
+            const curve = c1.s_curve;
             patch.stageAllocation = {
-              stage1Label:
-                cashOutflows.stageAllocation.stage1Label || "Enabling",
-              stage1Percent: c1.s_curve.stage_1_pct || 10,
-              stage2Label:
-                cashOutflows.stageAllocation.stage2Label || "Sub-Structure",
-              stage2Percent: c1.s_curve.stage_2_pct || 20,
-              stage3Label:
-                cashOutflows.stageAllocation.stage3Label || "Super Structure",
-              stage3Percent: c1.s_curve.stage_3_pct || 40,
-              stage4Label:
-                cashOutflows.stageAllocation.stage4Label || "Finishes",
-              stage4Percent: c1.s_curve.stage_4_pct || 30,
+              ...cashOutflows.stageAllocation,
+              ...(curve.stage_1_pct != null
+                ? { stage1Percent: curve.stage_1_pct }
+                : {}),
+              ...(curve.stage_2_pct != null
+                ? { stage2Percent: curve.stage_2_pct }
+                : {}),
+              ...(curve.stage_3_pct != null
+                ? { stage3Percent: curve.stage_3_pct }
+                : {}),
+              ...(curve.stage_4_pct != null
+                ? { stage4Percent: curve.stage_4_pct }
+                : {}),
             };
           }
           if (c1?.powc_breakdown) {
+            const powc = c1.powc_breakdown;
             patch.powcAllocation = {
-              siteEstablishment: c1.powc_breakdown.site_establishment_pct,
-              overhead: c1.powc_breakdown.overhead_pct,
-              authorityFees: c1.powc_breakdown.authority_fees_pct,
+              ...cashOutflows.powcAllocation,
+              ...(powc.site_establishment_pct != null
+                ? { siteEstablishment: powc.site_establishment_pct }
+                : {}),
+              ...(powc.overhead_pct != null
+                ? { overhead: powc.overhead_pct }
+                : {}),
+              ...(powc.authority_fees_pct != null
+                ? { authorityFees: powc.authority_fees_pct }
+                : {}),
             };
           }
           if (c1?.sc_breakdown) {
+            const sc = c1.sc_breakdown;
             patch.softCostAllocation = {
-              architect: c1.sc_breakdown.architect_pct,
-              projectManagement: c1.sc_breakdown.pm_pct,
-              engineering: c1.sc_breakdown.engineering_pct,
-              geotechnical: c1.sc_breakdown.geotech_pct,
-              otherFees: c1.sc_breakdown.other_pct,
+              ...cashOutflows.softCostAllocation,
+              ...(sc.architect_pct != null
+                ? { architect: sc.architect_pct }
+                : {}),
+              ...(sc.pm_pct != null
+                ? { projectManagement: sc.pm_pct }
+                : {}),
+              ...(sc.engineering_pct != null
+                ? { engineering: sc.engineering_pct }
+                : {}),
+              ...(sc.geotech_pct != null
+                ? { geotechnical: sc.geotech_pct }
+                : {}),
+              ...(sc.other_pct != null ? { otherFees: sc.other_pct } : {}),
             };
           }
           const { aiResearchData, ...aiFields } = patch;
@@ -884,14 +919,19 @@ function CashOutflowsPageContent() {
             fieldSources,
           } as Partial<CashOutflows>);
           const c2 = researchData.c2_sales;
-          if (c2?.avg_sales_price_psf || c2?.deductions) {
+          const hasSaleDeduction =
+            c2?.deductions?.agent_commission_pct != null ||
+            c2?.deductions?.vat_pct != null ||
+            c2?.deductions?.escrow_fees_pct != null ||
+            c2?.deductions?.avg_sales_discount_pct != null;
+          if (c2?.avg_sales_price_psf != null || hasSaleDeduction) {
             const existingInflows =
               useFinModelStore.getState().sale.cashInflows;
             const inflowPatch: Record<string, unknown> = {};
-            if (c2.avg_sales_price_psf) {
+            if (c2.avg_sales_price_psf != null) {
               inflowPatch.salesPrice = c2.avg_sales_price_psf;
             }
-            if (c2.deductions) {
+            if (hasSaleDeduction && c2.deductions) {
               inflowPatch.buyerMix = {
                 ...existingInflows.buyerMix,
                 ...(c2.deductions.agent_commission_pct != null
@@ -1210,37 +1250,27 @@ function CashOutflowsPageContent() {
     projectInfo.salesMarketPositioning,
   ]);
 
-  // Auto-zero basement rate when basement BUA is 0
+  // Parking / basement area follows Step 5, including 0.
+  // The rate itself is never cleared: a 0 area only hides the rate in the input.
   useEffect(() => {
-    const basementBua = isSaleLandedProduct
-      ? 0 // Landed products don't have basements
-      : projectInfo.salesHighRiseBasementBUA || 0;
-
-    if (basementBua === 0 && cashOutflows.basementRate !== 0) {
-      updateCashOutflowsForStream({ basementRate: 0 });
-      console.log("🔧 [Sale] Auto-zeroed basement rate (BUA is 0)");
+    if (isSaleLandedProduct || isSaleWarehouseProduct) return;
+    const parking = projectInfo.salesHighRisePodiumBUA || 0;
+    const basement = projectInfo.salesHighRiseBasementBUA || 0;
+    const updates: Partial<CashOutflows> = {};
+    if ((cashOutflows.parkingBUA || 0) !== parking) updates.parkingBUA = parking;
+    if ((cashOutflows.basementBUA || 0) !== basement) {
+      updates.basementBUA = basement;
+    }
+    if (Object.keys(updates).length > 0) {
+      updateCashOutflowsForStream(updates);
     }
   }, [
     isSaleLandedProduct,
-    projectInfo.salesHighRiseBasementBUA,
-    cashOutflows.basementRate,
-    updateCashOutflowsForStream,
-  ]);
-
-  // Auto-zero parking rate when parking BUA is 0
-  useEffect(() => {
-    const parkingBua = isSaleLandedProduct
-      ? 0 // Landed products don't have parking podiums
-      : projectInfo.salesHighRisePodiumBUA || 0;
-
-    if (parkingBua === 0 && cashOutflows.parkingRate !== 0) {
-      updateCashOutflowsForStream({ parkingRate: 0 });
-      console.log("🔧 [Sale] Auto-zeroed parking rate (BUA is 0)");
-    }
-  }, [
-    isSaleLandedProduct,
+    isSaleWarehouseProduct,
     projectInfo.salesHighRisePodiumBUA,
-    cashOutflows.parkingRate,
+    projectInfo.salesHighRiseBasementBUA,
+    cashOutflows.parkingBUA,
+    cashOutflows.basementBUA,
     updateCashOutflowsForStream,
   ]);
 
@@ -1453,15 +1483,23 @@ function CashOutflowsPageContent() {
 
   const aiDataRaw = cashOutflows.aiResearchData;
   const aiData = useMemo(() => {
-    if (!aiDataRaw) return undefined;
+    const coerced = coerceAiResearchPayload(aiDataRaw);
+    if (!coerced || typeof coerced !== "object") return undefined;
+    const record = coerced as AiResearchData;
     if (
-      aiDataRaw.c1_development &&
-      !(aiDataRaw.c1_development as { construction_rates?: unknown }).construction_rates
+      record.c1_development &&
+      !(record.c1_development as { construction_rates?: unknown }).construction_rates
     ) {
-      return normalizeAiResearchData(aiDataRaw) as unknown as AiResearchData;
+      return normalizeAiResearchData(record) as unknown as AiResearchData;
     }
-    return aiDataRaw;
+    return record;
   }, [aiDataRaw]);
+
+  useEffect(() => {
+    if (typeof aiDataRaw !== "string") return;
+    if (!aiData) return;
+    updateCashOutflowsForStream({ aiResearchData: aiData });
+  }, [aiData, aiDataRaw, updateCashOutflowsForStream]);
   const aiC1 = aiData?.c1_development;
   const aiRates = aiC1?.construction_rates;
 
@@ -1476,6 +1514,25 @@ function CashOutflowsPageContent() {
   const aiScurve = aiC1?.s_curve;
   const aiPowcBreakdown = aiC1?.powc_breakdown;
   const aiScBreakdown = aiC1?.sc_breakdown;
+  const guardrailFlags = aiData?.guardrailFlags;
+  const unmatchedResearchFields = useMemo(
+    () =>
+      unmatchedConstructionRateKeys(
+        aiRates as Record<string, unknown> | undefined,
+        isSaleWarehouseProduct
+          ? SALE_WAREHOUSE_RATE_KEYS
+          : SALE_STANDARD_RATE_KEYS
+      ),
+    [aiRates, isSaleWarehouseProduct]
+  );
+
+  useEffect(() => {
+    if (unmatchedResearchFields.length === 0) return;
+    console.warn(
+      "[Sale C1] Unmatched AI research fields (not mapped to a row):",
+      unmatchedResearchFields.join(", ")
+    );
+  }, [unmatchedResearchFields]);
 
   const mvpBuildingRate = step6Recommendations?.constructionCosts.buildingRate;
   const mvpParkingRate = step6Recommendations?.constructionCosts.parkingRate;
@@ -1506,7 +1563,14 @@ function CashOutflowsPageContent() {
 
   useEffect(() => {
     if (currentStep !== 5 || !step6Recommendations?.constructionCosts) return;
-    if (aiRates?.building_rate_psf) return;
+    if (
+      aiRates?.building_rate_psf != null ||
+      aiRates?.parking_rate_psf != null ||
+      aiRates?.basement_rate_psf != null ||
+      aiRates?.infrastructure_rate_psf != null
+    ) {
+      return;
+    }
 
     const rates = step6Recommendations.constructionCosts;
     const updates: Partial<CashOutflows> = {};
@@ -1579,6 +1643,7 @@ function CashOutflowsPageContent() {
     cashOutflows.basementRate,
     cashOutflows.infrastructureRate,
     projectInfo.buildingSubType,
+    aiRates,
     updateCashOutflowsForStream,
   ]);
 
@@ -1593,27 +1658,28 @@ function CashOutflowsPageContent() {
   const isStep6Manual = isAnyRateManual;
 
   const resetStep6ToBenchmark = () => {
-    const keys = [
-      "buildingRate",
-      "parkingRate",
-      "basementRate",
-      "infrastructureRate",
-    ];
+    const sourceFor = (aiValue: number | undefined): FieldValueSource =>
+      aiValue != null ? "ai" : "default";
     updateCashOutflowsForStream({
       ...(benchBuildingRate != null ? { buildingRate: benchBuildingRate } : {}),
       ...(benchParkingRate != null ? { parkingRate: benchParkingRate } : {}),
       ...(benchBasementRate != null ? { basementRate: benchBasementRate } : {}),
       ...(benchInfraRate != null ? { infrastructureRate: benchInfraRate } : {}),
-      fieldSources: tagFieldSources(
-        fieldSources,
-        keys,
-        aiBuildingRate != null ||
-          aiParkingRate != null ||
-          aiBasementRate != null ||
-          aiInfraRate != null
-          ? "ai"
-          : "default"
-      ),
+      fieldSources: {
+        ...fieldSources,
+        ...(benchBuildingRate != null
+          ? { buildingRate: sourceFor(aiBuildingRate) }
+          : {}),
+        ...(benchParkingRate != null
+          ? { parkingRate: sourceFor(aiParkingRate) }
+          : {}),
+        ...(benchBasementRate != null
+          ? { basementRate: sourceFor(aiBasementRate) }
+          : {}),
+        ...(benchInfraRate != null
+          ? { infrastructureRate: sourceFor(aiInfraRate) }
+          : {}),
+      },
     });
   };
 
@@ -1793,7 +1859,7 @@ function CashOutflowsPageContent() {
 
   useEffect(() => {
     if (currentStep !== 8 || !cityLandRate) return;
-    if (aiLandRate) return;
+    if (aiLandRate != null) return;
 
     if (!cashOutflows.landRate) {
       updateCashOutflowsForStream({ landRate: cityLandRate.ratePerSqft });
@@ -3474,12 +3540,13 @@ function CashOutflowsPageContent() {
                       if (benchBuildingRate != null) {
                         updateFormData("buildingRate", benchBuildingRate);
                       }
-                      resetC1Source("buildingRate", !!aiBuildingRate);
+                      resetC1Source("buildingRate", aiBuildingRate != null);
                     }}
                     source={sourceOf("buildingRate")}
-                    isAiGenerated={!!aiBuildingRate}
+                    isAiGenerated={aiBuildingRate != null}
                     isManualOverride={isBuildingManual}
                     benchmarkValue={benchBuildingRate}
+                    guardrailHint={guardrailFlags?.building_rate_psf}
                   />
                   {fieldError("buildingRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -3546,7 +3613,7 @@ function CashOutflowsPageContent() {
                         : undefined
                     }
                     isAiGenerated={
-                      !!aiParkingRate &&
+                      aiParkingRate != null &&
                       !isSaleLandedProduct &&
                       (projectInfo.salesHighRisePodiumBUA || 0) > 0
                     }
@@ -3554,15 +3621,26 @@ function CashOutflowsPageContent() {
                       isParkingManual &&
                       (projectInfo.salesHighRisePodiumBUA || 0) > 0
                     }
-                    source={sourceOf("parkingRate")}
+                    source={
+                      !isSaleLandedProduct &&
+                      (projectInfo.salesHighRisePodiumBUA || 0) > 0
+                        ? sourceOf("parkingRate")
+                        : undefined
+                    }
                     onManualOverride={() => markC1Override("parkingRate")}
                     onResetOverride={() => {
                       if (benchParkingRate != null) {
                         updateFormData("parkingRate", benchParkingRate);
                       }
-                      resetC1Source("parkingRate", !!aiParkingRate);
+                      resetC1Source("parkingRate", aiParkingRate != null);
                     }}
                     benchmarkValue={benchParkingRate}
+                    guardrailHint={
+                      !isSaleLandedProduct &&
+                      (projectInfo.salesHighRisePodiumBUA || 0) > 0
+                        ? guardrailFlags?.parking_rate_psf
+                        : undefined
+                    }
                   />
                   {fieldError("parkingRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -3613,7 +3691,7 @@ function CashOutflowsPageContent() {
                         : undefined
                     }
                     isAiGenerated={
-                      !!aiBasementRate &&
+                      aiBasementRate != null &&
                       !isSaleLandedProduct &&
                       (projectInfo.salesHighRiseBasementBUA || 0) > 0
                     }
@@ -3621,15 +3699,21 @@ function CashOutflowsPageContent() {
                       isBasementManual &&
                       (projectInfo.salesHighRiseBasementBUA || 0) > 0
                     }
-                    source={sourceOf("basementRate")}
+                    source={
+                      !isSaleLandedProduct &&
+                      (projectInfo.salesHighRiseBasementBUA || 0) > 0
+                        ? sourceOf("basementRate")
+                        : undefined
+                    }
                     onManualOverride={() => markC1Override("basementRate")}
                     onResetOverride={() => {
                       if (benchBasementRate != null) {
                         updateFormData("basementRate", benchBasementRate);
                       }
-                      resetC1Source("basementRate", !!aiBasementRate);
+                      resetC1Source("basementRate", aiBasementRate != null);
                     }}
                     benchmarkValue={benchBasementRate}
+                    guardrailHint={guardrailFlags?.basement_rate_psf}
                   />
                   {fieldError("basementRate") && (
                     <p className="mt-1 text-sm text-red-400">
@@ -3692,12 +3776,9 @@ function CashOutflowsPageContent() {
                   <div className="mb-6 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
                     <p className="text-sm text-slate-400">
                       ℹ️ <span className="font-semibold text-slate-200">Infrastructure Costs</span>{" "}
-                      apply to <span className="font-semibold text-slate-200">Landed Developments</span>{" "}
-                      (roads, drainage, utilities, landscaping). For{" "}
-                      <span className="font-semibold text-slate-200">
-                        Hi-Rise Residential &amp; Strata Office
-                      </span>
-                      , leave Infrastructure Rate as 0.
+                      cover external works (roads, drainage, utilities, landscaping).
+                      Landed projects apply the rate to total land area. Hi-rise
+                      and strata projects keep the researched rate on this row.
                     </p>
                   </div>
 
@@ -3714,7 +3795,7 @@ function CashOutflowsPageContent() {
                           updateFormData("infrastructureRate", v);
                         }
                       }}
-                      isAiGenerated={!!aiInfraRate}
+                      isAiGenerated={aiInfraRate != null}
                       isManualOverride={isInfraManual}
                       source={sourceOf("infrastructureRate")}
                       onManualOverride={() => markC1Override("infrastructureRate")}
@@ -3722,10 +3803,11 @@ function CashOutflowsPageContent() {
                         if (benchInfraRate != null) {
                           updateFormData("infrastructureRate", benchInfraRate);
                         }
-                        resetC1Source("infrastructureRate", !!aiInfraRate);
+                        resetC1Source("infrastructureRate", aiInfraRate != null);
                       }}
                       benchmarkValue={benchInfraRate}
-                      helperText="For landed developments only (Hi-Rise: leave as 0)"
+                      guardrailHint={guardrailFlags?.infrastructure_rate_psf}
+                      helperText="External works, roads, drainage, utilities, and landscaping"
                     />
 
                     <div>
@@ -3889,7 +3971,7 @@ function CashOutflowsPageContent() {
                         updateFormData("softCostPercent", v);
                       }
                     }}
-                    isAiGenerated={!!aiScPct}
+                    isAiGenerated={aiScPct != null}
                     isManualOverride={isSCManual}
                     source={sourceOf("softCostPercent")}
                     onManualOverride={() => markC1Override("softCostPercent")}
@@ -3900,6 +3982,7 @@ function CashOutflowsPageContent() {
                       resetC1Source("softCostPercent", aiScPct != null);
                     }}
                     benchmarkValue={benchScPct}
+                    guardrailHint={guardrailFlags?.sc_percentage}
                     helperText="SC amount = CC incl. contingency × SC% ÷ 100"
                   />
                   {fieldError("softCostPercent") && (
@@ -3919,7 +4002,7 @@ function CashOutflowsPageContent() {
                         updateFormData("powcPercent", v);
                       }
                     }}
-                    isAiGenerated={!!aiPowcPct}
+                    isAiGenerated={aiPowcPct != null}
                     isManualOverride={isPOWCManual}
                     source={sourceOf("powcPercent")}
                     onManualOverride={() => markC1Override("powcPercent")}
@@ -3930,6 +4013,7 @@ function CashOutflowsPageContent() {
                       resetC1Source("powcPercent", aiPowcPct != null);
                     }}
                     benchmarkValue={benchPowcPct}
+                    guardrailHint={guardrailFlags?.powc_percentage}
                     helperText="POWC = Pre-Operating Expenses & Working Capital"
                   />
                   {fieldError("powcPercent") && (
@@ -3950,7 +4034,7 @@ function CashOutflowsPageContent() {
                           updateFormData("ffePercent", v);
                         }
                       }}
-                      isAiGenerated={!!aiFfePct}
+                      isAiGenerated={aiFfePct != null}
                       isManualOverride={isFFEManual}
                       source={sourceOf("ffePercent")}
                       onManualOverride={() => markC1Override("ffePercent")}
@@ -4082,7 +4166,7 @@ function CashOutflowsPageContent() {
                       updateFormData("landRate", v);
                     }
                   }}
-                  isAiGenerated={!!aiLandRate}
+                  isAiGenerated={aiLandRate != null}
                   isManualOverride={isLandRateManual}
                   source={sourceOf("landRate")}
                   onManualOverride={() => markC1Override("landRate")}
@@ -4090,9 +4174,10 @@ function CashOutflowsPageContent() {
                     if (benchLandRate != null) {
                       updateFormData("landRate", benchLandRate);
                     }
-                    resetC1Source("landRate", !!aiLandRate);
+                    resetC1Source("landRate", aiLandRate != null);
                   }}
                   benchmarkValue={benchLandRate}
+                  guardrailHint={guardrailFlags?.land_rate_psf}
                   helperText={
                     cityLandRate && !aiLandRate
                       ? `Recommended for ${projectInfo.city}: ${cityLandRate.ratePerSqft.toLocaleString()} ${projectInfo.currency}/sqft`
@@ -4427,7 +4512,7 @@ function CashOutflowsPageContent() {
                         onChange={(v) =>
                           updateFormData("stage1Percent", Number(v) || 0)
                         }
-                        isAiGenerated={!!aiScurve?.stage_1_pct}
+                        isAiGenerated={aiScurve?.stage_1_pct != null}
                         isManualOverride={isSourceOverride("stage1Percent")}
                         source={sourceOf("stage1Percent")}
                         onManualOverride={() => markC1Override("stage1Percent")}
@@ -4435,7 +4520,7 @@ function CashOutflowsPageContent() {
                           if (benchStage1 != null) {
                             updateFormData("stage1Percent", benchStage1);
                           }
-                          resetC1Source("stage1Percent", !!aiScurve?.stage_1_pct);
+                          resetC1Source("stage1Percent", aiScurve?.stage_1_pct != null);
                         }}
                         benchmarkValue={benchStage1}
                       />
@@ -4462,7 +4547,7 @@ function CashOutflowsPageContent() {
                         onChange={(v) =>
                           updateFormData("stage2Percent", Number(v) || 0)
                         }
-                        isAiGenerated={!!aiScurve?.stage_2_pct}
+                        isAiGenerated={aiScurve?.stage_2_pct != null}
                         isManualOverride={isSourceOverride("stage2Percent")}
                         source={sourceOf("stage2Percent")}
                         onManualOverride={() => markC1Override("stage2Percent")}
@@ -4470,7 +4555,7 @@ function CashOutflowsPageContent() {
                           if (benchStage2 != null) {
                             updateFormData("stage2Percent", benchStage2);
                           }
-                          resetC1Source("stage2Percent", !!aiScurve?.stage_2_pct);
+                          resetC1Source("stage2Percent", aiScurve?.stage_2_pct != null);
                         }}
                         benchmarkValue={benchStage2}
                       />
@@ -4497,7 +4582,7 @@ function CashOutflowsPageContent() {
                         onChange={(v) =>
                           updateFormData("stage3Percent", Number(v) || 0)
                         }
-                        isAiGenerated={!!aiScurve?.stage_3_pct}
+                        isAiGenerated={aiScurve?.stage_3_pct != null}
                         isManualOverride={isSourceOverride("stage3Percent")}
                         source={sourceOf("stage3Percent")}
                         onManualOverride={() => markC1Override("stage3Percent")}
@@ -4505,7 +4590,7 @@ function CashOutflowsPageContent() {
                           if (benchStage3 != null) {
                             updateFormData("stage3Percent", benchStage3);
                           }
-                          resetC1Source("stage3Percent", !!aiScurve?.stage_3_pct);
+                          resetC1Source("stage3Percent", aiScurve?.stage_3_pct != null);
                         }}
                         benchmarkValue={benchStage3}
                       />
@@ -4532,7 +4617,7 @@ function CashOutflowsPageContent() {
                         onChange={(v) =>
                           updateFormData("stage4Percent", Number(v) || 0)
                         }
-                        isAiGenerated={!!aiScurve?.stage_4_pct}
+                        isAiGenerated={aiScurve?.stage_4_pct != null}
                         isManualOverride={isSourceOverride("stage4Percent")}
                         source={sourceOf("stage4Percent")}
                         onManualOverride={() => markC1Override("stage4Percent")}
@@ -4540,7 +4625,7 @@ function CashOutflowsPageContent() {
                           if (benchStage4 != null) {
                             updateFormData("stage4Percent", benchStage4);
                           }
-                          resetC1Source("stage4Percent", !!aiScurve?.stage_4_pct);
+                          resetC1Source("stage4Percent", aiScurve?.stage_4_pct != null);
                         }}
                         benchmarkValue={benchStage4}
                       />
@@ -4582,7 +4667,13 @@ function CashOutflowsPageContent() {
 
           {/* Step 13: Review & Summary (read-only) */}
           {currentStep === 12 && (
-            isSaleWarehouseProduct ? (
+            <>
+            {unmatchedResearchFields.length > 0 ? (
+              <p className="mb-4 text-sm text-amber-400">
+                Unmatched research fields: {unmatchedResearchFields.join(", ")}
+              </p>
+            ) : null}
+            {isSaleWarehouseProduct ? (
               <SaleWarehouseReviewSummaryStep
                 currency={projectInfo.currency}
                 city={projectInfo.city}
@@ -4628,7 +4719,8 @@ function CashOutflowsPageContent() {
               contingencyPercent={cashOutflows.contingencyPercent}
               totalProjectCost={totalDevelopmentCost}
             />
-            )
+            )}
+            </>
           )}
 
         </div>

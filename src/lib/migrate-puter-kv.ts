@@ -14,6 +14,8 @@ import {
 } from "@/lib/secure-puter-kv";
 
 const MIGRATION_SESSION_KEY = "puter_kv_migrated";
+/** Avoid copying an unbounded legacy key set into memory in one pass. */
+const MIGRATION_BATCH_LIMIT = 1000;
 
 export type PuterKvMigrationResult = {
   migrated: number;
@@ -72,10 +74,20 @@ export async function migrateOldPuterKeys(
     );
 
     console.log(
-      `[Migration] Found ${oldKeys.length} old keys to migrate for user ${userId}`
+      `[Migration] Listed ${allKeys.length} raw KV keys; ${oldKeys.length} are legacy for user ${userId}`
     );
 
-    for (const oldKey of oldKeys) {
+    const keysToMigrate =
+      oldKeys.length > MIGRATION_BATCH_LIMIT
+        ? oldKeys.slice(0, MIGRATION_BATCH_LIMIT)
+        : oldKeys;
+    if (oldKeys.length > MIGRATION_BATCH_LIMIT) {
+      console.warn(
+        `[Migration] ${oldKeys.length} legacy keys exceeds ${MIGRATION_BATCH_LIMIT}; migrating ${MIGRATION_BATCH_LIMIT} and skipping the rest`
+      );
+    }
+
+    for (const oldKey of keysToMigrate) {
       try {
         const value = await getRawPuterKvValue(oldKey);
         if (value == null || value === "") continue;

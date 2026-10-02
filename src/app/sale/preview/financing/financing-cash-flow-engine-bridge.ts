@@ -605,8 +605,13 @@ export function buildFinancingEnginePreview(params: {
     commitmentFeePct: commitmentFeeAnnualPercent,
     escrowSetupFee: (financing as { escrowSetupFee?: number }).escrowSetupFee ?? 5000,
     escrowManagementFeePct: (financing as { escrowManagementFeePct?: number }).escrowManagementFeePct ?? 0.0005,
-    /** Annual deposit yield as decimal (e.g. 0.039 ≈ 3.9% p.a.). */
-    escrowDepositRatePct: (financing as { escrowDepositRatePct?: number }).escrowDepositRatePct ?? 0.039,
+    escrowDepositRatePercent: financing.escrowDepositRatePercent,
+    /** Decimal annual yield derived from the stored percent. No jurisdiction fallback here. */
+    escrowDepositRatePct:
+      typeof financing.escrowDepositRatePercent === "number" &&
+      Number.isFinite(financing.escrowDepositRatePercent)
+        ? financing.escrowDepositRatePercent / 100
+        : 0,
     milestoneMonths,
     certificationIntervalMonths: Math.max(
       1,
@@ -652,6 +657,11 @@ export function buildFinancingEnginePreview(params: {
     guaranteeRetentionBasis: financing.escrowConfig?.guaranteeRetentionBasis,
     guaranteeRetentionMonths: financing.escrowConfig?.guaranteeRetentionMonths,
     guaranteeInterestPermitted: financing.escrowConfig?.guaranteeInterestPermitted,
+    proportionateEscrowPercent: financing.escrowConfig?.proportionateEscrowPercent,
+    proportionateCertFrequency: financing.escrowConfig?.proportionateCertFrequency,
+    proportionateSweepEnabled: financing.escrowConfig?.proportionateSweepEnabled,
+    proportionateConstructionInterestPermitted:
+      financing.escrowConfig?.proportionateConstructionInterestPermitted,
     guaranteeSoftOtherFeesShare:
       (Number.isFinite(Number(cashOutflows.softCostAllocation?.otherFees))
         ? Number(cashOutflows.softCostAllocation?.otherFees)
@@ -691,6 +701,11 @@ export function mapEngineRowsToUae(rows: EngineMonthlyRow[]): UaeCashFlowRow[] {
     lenderCashSweep: num(r.lenderCashSweep),
     developerProfitWithdrawal: num(r.developerProfitWithdrawal),
     defectRetentionRelease: num(r.defectRetentionRelease),
+    escrowDeposit: num(r.escrowDeposit),
+    developerFreeCash: num(r.developerFreeCash),
+    proportionateWithdrawal: num(r.proportionateWithdrawal),
+    residualRelease: num(r.residualRelease),
+    proportionateSplitPercent: num(r.proportionateSplitPercent),
     constructionCosts: num(r.constructionCosts),
     softCosts: num(r.softCosts),
     powc: num(r.powc),

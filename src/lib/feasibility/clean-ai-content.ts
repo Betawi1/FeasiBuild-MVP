@@ -40,26 +40,36 @@ export function removeJsonArtifacts(content: string): string {
   return cleaned.trim();
 }
 
-const MAX_CLEAN_CACHE = 800;
-const stripCache = new Map<string, string>();
-const paragraphCache = new Map<string, string>();
-const arrayCleanCache = new Map<string, string[]>();
+const MAX_CLEAN_CACHE = 100;
+const CLEAN_CACHE_TTL_MS = 30 * 60 * 1000;
 
-function cacheGet<T>(cache: Map<string, T>, key: string): T | undefined {
+type CachedClean<T> = { value: T; storedAt: number };
+
+const stripCache = new Map<string, CachedClean<string>>();
+const paragraphCache = new Map<string, CachedClean<string>>();
+const arrayCleanCache = new Map<string, CachedClean<string[]>>();
+
+function cacheGet<T>(cache: Map<string, CachedClean<T>>, key: string): T | undefined {
   const hit = cache.get(key);
-  if (hit === undefined) return undefined;
+  if (!hit) return undefined;
+  if (Date.now() - hit.storedAt > CLEAN_CACHE_TTL_MS) {
+    cache.delete(key);
+    return undefined;
+  }
   // Refresh LRU order
   cache.delete(key);
   cache.set(key, hit);
-  return hit;
+  return hit.value;
 }
 
-function cacheSet<T>(cache: Map<string, T>, key: string, value: T): T {
-  if (cache.size >= MAX_CLEAN_CACHE) {
+function cacheSet<T>(cache: Map<string, CachedClean<T>>, key: string, value: T): T {
+  if (cache.has(key)) cache.delete(key);
+  while (cache.size >= MAX_CLEAN_CACHE) {
     const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
+    if (oldest === undefined) break;
+    cache.delete(oldest);
   }
-  cache.set(key, value);
+  cache.set(key, { value, storedAt: Date.now() });
   return value;
 }
 

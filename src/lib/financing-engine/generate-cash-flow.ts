@@ -3,7 +3,7 @@
  * Generates pre-calculated monthly cash flow data for preview tables.
  *
  * Features:
- * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | project_guarantee_account | none (location defaults only)
+ * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | project_guarantee_account | proportionate_escrow | none (location defaults only)
  * - 1-Month Offsets for Interest, Fees, Withdrawals
  * - Gap-Fill Sequencing: Equity -> RCF -> Backstop Equity
  * - 30/70 Milestone Rule (staged / former UAE-KSA math)
@@ -22,6 +22,10 @@ import {
   resolveClosedLoopToppingOut,
   resolveGuaranteeRetentionBasis,
   resolveGuaranteeRetentionMonths,
+  resolveProportionateCertFrequency,
+  resolveProportionateEscrowPercent,
+  resolveProportionateInterestPermitted,
+  resolveProportionateSweepEnabled,
   isAbuDhabiCity,
   isCommercialSaleAsset,
   isUaeLocation,
@@ -171,7 +175,10 @@ export type FinancingInputs = {
   commitmentFeePct: number; // Annual % on undrawn facility (e.g. 0.5 = 0.5% p.a.); monthly = undrawn × pct/100/12
   escrowSetupFee: number;
   escrowManagementFeePct: number; // Annual %
+  /** Annual escrow/trust yield as a decimal (0.07 = 7%). Legacy tests pass this. */
   escrowDepositRatePct: number;
+  /** Annual escrow/trust yield in percent points (7 = 7% p.a.). Wins over the decimal. */
+  escrowDepositRatePercent?: number;
   
   // Jurisdiction Specifics
   milestoneMonths: number[]; // Months triggering drawdown/certification
@@ -221,15 +228,26 @@ export type FinancingInputs = {
   guaranteeInterestPermitted?: boolean;
   /**
    * Share of each soft-cost month that is the C1 "Other Fees" allocation (0–1).
-   * Excluded from permitted spend. Default 0.10 matches the C1 allocation default.
+   * Excluded from permitted spend for the guarantee account and proportionate escrow.
+   * Default 0.10 matches the C1 allocation default.
    */
   guaranteeSoftOtherFeesShare?: number;
+  /**
+   * Proportionate escrow: share of each buyer payment lodged to the designated account.
+   * India locks this at 70 inside the resolver; a stored value wins everywhere else.
+   */
+  proportionateEscrowPercent?: number;
+  proportionateCertFrequency?: "monthly" | "quarterly";
+  /** India locks this on. Others may turn the construction-lender sweep off. */
+  proportionateSweepEnabled?: boolean;
+  /** Construction-loan interest paid in cash may enter the withdrawal entitlement. */
+  proportionateConstructionInterestPermitted?: boolean;
 
   /** ISO / display country — used for VN/TH flexible horizon. */
   country?: string;
   countryCode?: string;
   city?: string;
-  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | none; legacy uae/malaysia/australia accepted). */
+  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | proportionate_escrow | none; legacy uae/malaysia/australia accepted). */
   escrowWithdrawalMode?: string;
   /** Aliases for wizard / legacy field names. */
   withdrawalMethod?: string;
@@ -259,6 +277,16 @@ export type MonthlyRow = {
   developerProfitWithdrawal: number;
   /** Project guarantee account: defect-retention pool released at Stage 3. */
   defectRetentionRelease: number;
+  /** Proportionate escrow: split% of this month's sales lodged to the designated account. */
+  escrowDeposit: number;
+  /** Proportionate escrow: the unsplit remainder, available to the developer immediately. */
+  developerFreeCash: number;
+  /** Proportionate escrow: certified withdrawal paid to the developer (after any lender sweep). */
+  proportionateWithdrawal: number;
+  /** Proportionate escrow: full remaining balance released at completion + 1 month. */
+  residualRelease: number;
+  /** Percent points used for the deposit row label (0 on other rules). */
+  proportionateSplitPercent: number;
   /**
    * Set only on the Stage-3 month. The retention target at release.
    * Compare with defectRetentionRelease to see whether the hold was fully funded.
@@ -330,6 +358,26 @@ export type MonthlyRow = {
 // --- ENGINE ---
 
 /** Hard router — no silent fallback between sale and operational. */
+/** Percent points actually applied. A stored percent wins; otherwise the legacy decimal is scaled. */
+export function resolveEscrowDepositRatePercent(inputs: {
+  escrowDepositRatePercent?: number;
+  escrowDepositRatePct?: number;
+}): number {
+  const percent = Number(inputs.escrowDepositRatePercent);
+  if (Number.isFinite(percent)) return percent;
+  const decimal = Number(inputs.escrowDepositRatePct);
+  if (Number.isFinite(decimal)) return decimal * 100;
+  return 0;
+}
+
+/** Monthly factor: rate/100/12, applied to the prior month's balance. */
+function escrowDepositMonthlyFactor(inputs: {
+  escrowDepositRatePercent?: number;
+  escrowDepositRatePct?: number;
+}): number {
+  return resolveEscrowDepositRatePercent(inputs) / 100 / 12;
+}
+
 export function generateFinancingCashFlow(inputs: FinancingInputs): MonthlyRow[] {
   try {
     return routeFinancingCashFlow(inputs);
@@ -424,7 +472,7 @@ function selectedSaleEscrowRule(inputs: FinancingInputs) {
 /**
  * Last month index for sale stream (M0 … saleHorizon inclusive).
  * Follows the SELECTED escrow rule for every asset class (not country, not commercial/residential):
- * staged / ten_ninety → CP+12, progress → CP+24, none / unset → CP+6.
+ * staged / ten_ninety → CP+12, progress → CP+24, none / proportionate_escrow / unset → CP+6.
  * closed_loop_escrow → max(actual construction end + 24, last sales month + 1).
  * project_guarantee_account → CP + retention months (default 12, minimum 12).
  * Construction end is the last non-zero C1 S-curve month, never the financing
@@ -548,7 +596,10 @@ function applyMalaysiaHdaLogic(
   if (m === 0 && state.hdaDepositAmount > 0) state.escrowBalance += state.hdaDepositAmount;
   row.escrowInterest = interestEarned;
   if (m === inputs.constructionPeriodMonths + 24 && state.hdaDepositAmount > 0) {
-    row.escrowInterest += state.hdaDepositAmount * inputs.escrowDepositRatePct * (inputs.constructionPeriodMonths / 12);
+    row.escrowInterest +=
+      state.hdaDepositAmount *
+      (resolveEscrowDepositRatePercent(inputs) / 100) *
+      (inputs.constructionPeriodMonths / 12);
   }
   row.escrowAccountFees = feePayable;
   state.totalActualSalesCollected += salesThisMonth;
@@ -900,7 +951,7 @@ function applyProjectGuaranteeAccountLogic(
   if (m === 0) {
     fees = Math.max(0, Number(inputs.escrowSetupFee) || 0);
   } else if (prior > 1e-9 && m <= calendar.stage3Month) {
-    interest = prior * ((Number(inputs.escrowDepositRatePct) || 0) / 12);
+    interest = prior * escrowDepositMonthlyFactor(inputs);
     fees = prior * ((Number(inputs.escrowManagementFeePct) || 0) / 12);
   }
 
@@ -1049,6 +1100,358 @@ function assertProjectGuaranteeLedger(
   }
 }
 
+type ProportionateLedgerState = {
+  escrowBalance: number;
+  rcfBalance: number;
+  proportionateCumDeposits: number;
+  proportionateCumInterest: number;
+  proportionateCumWithdrawals: number;
+  proportionateResidualReleased: number;
+};
+
+function paidConstructionInterestThrough(rows: MonthlyRow[], lastMonth: number): number {
+  if (lastMonth < 0) return 0;
+  let sum = 0;
+  for (let t = 0; t <= lastMonth && t < rows.length; t++) {
+    const paid = Number(rows[t]?.constLoanInterest) || 0;
+    if (paid < 0) sum += -paid;
+  }
+  return sum;
+}
+
+export function isProportionateCertMonth(
+  month: number,
+  frequency: "monthly" | "quarterly",
+  completionMonth: number
+): boolean {
+  if (month < 0 || month > completionMonth) return false;
+  if (frequency === "monthly") return true;
+  return month >= 2 && month % 3 === 2;
+}
+
+/**
+ * Strategy G: Proportionate escrow (designated account).
+ * A fixed share of each buyer payment is lodged; the remainder is developer free
+ * cash in the same month. Certified withdrawals land one month after certification,
+ * capped by construction progress and by deposits plus trust interest. An optional
+ * sweep prepays the construction loan. The account closes at completion + 1 with a
+ * residual release. The escrow never pays C1/C2 costs directly.
+ */
+function applyProportionateEscrowLogic(
+  row: MonthlyRow,
+  state: ProportionateLedgerState,
+  inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  priorRows: MonthlyRow[],
+  calendar: {
+    completionMonth: number;
+    closeMonth: number;
+    split: number;
+    frequency: "monthly" | "quarterly";
+    sweepEnabled: boolean;
+    interestPermitted: boolean;
+    tec: number;
+    progressPct: number[];
+  }
+) {
+  const sales = Math.max(0, salesThisMonth);
+  row.escrowDeposit = 0;
+  row.developerFreeCash = 0;
+  row.proportionateWithdrawal = 0;
+  row.lenderCashSweep = 0;
+  row.residualRelease = 0;
+  row.progressWithdrawal = 0;
+  row.escrowReleases = 0;
+  row.proportionateSplitPercent = Math.round(calendar.split * 1000) / 10;
+
+  if (m > calendar.closeMonth) {
+    row.escrowInterest = 0;
+    row.escrowAccountFees = 0;
+    row.developerFreeCash = sales;
+    row.escrowReleases = sales;
+    state.escrowBalance = 0;
+    row.escrowBalance = 0;
+    return;
+  }
+
+  const prior = state.escrowBalance;
+  let interest = 0;
+  let fees = 0;
+  if (m === 0) {
+    fees = Math.max(0, Number(inputs.escrowSetupFee) || 0);
+  } else if (prior > 1e-9) {
+    if (m <= calendar.closeMonth) {
+      interest = prior * escrowDepositMonthlyFactor(inputs);
+    }
+    if (m <= calendar.completionMonth) {
+      fees = prior * ((Number(inputs.escrowManagementFeePct) || 0) / 12);
+    }
+  }
+
+  const deposit = sales * calendar.split;
+  const freeCash = sales - deposit;
+  const depositsThroughCert = state.proportionateCumDeposits;
+  const interestThroughCert = state.proportionateCumInterest;
+
+  let next = prior + interest + deposit - fees;
+  if (next < -1e-9) {
+    fees = Math.max(0, fees + next);
+    next = 0;
+  } else if (next < 0) {
+    next = 0;
+  }
+
+  state.proportionateCumDeposits += deposit;
+  state.proportionateCumInterest += interest;
+
+  const cert = m - 1;
+  if (
+    m > 0 &&
+    m <= calendar.closeMonth &&
+    isProportionateCertMonth(cert, calendar.frequency, calendar.completionMonth)
+  ) {
+    const progress = calendar.progressPct[Math.min(cert, calendar.progressPct.length - 1)] ?? 0;
+    const s =
+      cert >= calendar.completionMonth
+        ? 1
+        : Math.min(1, Math.max(0, progress / 100));
+    const paidInterest = calendar.interestPermitted
+      ? paidConstructionInterestThrough(priorRows, cert - 1)
+      : 0;
+    const entitlement = calendar.tec * s + paidInterest;
+    const cap = Math.min(entitlement, depositsThroughCert + interestThroughCert);
+    const gross = Math.max(0, cap - state.proportionateCumWithdrawals);
+    const taken = Math.min(gross, Math.max(0, next));
+    const outstanding = Math.max(0, state.rcfBalance);
+    const sweep = calendar.sweepEnabled ? Math.min(taken, outstanding) : 0;
+    const developer = Math.max(0, taken - sweep);
+    next -= taken;
+    state.proportionateCumWithdrawals += taken;
+    row.lenderCashSweep = sweep;
+    row.proportionateWithdrawal = developer;
+  }
+
+  if (m === calendar.closeMonth) {
+    const residual = Math.max(0, next);
+    row.residualRelease = residual;
+    state.proportionateResidualReleased += residual;
+    next = 0;
+  }
+
+  if (next < 0) next = 0;
+  state.escrowBalance = next;
+  row.escrowBalance = next;
+  row.escrowInterest = interest;
+  row.escrowAccountFees = fees;
+  row.escrowDeposit = deposit;
+  row.developerFreeCash = freeCash;
+  row.progressWithdrawal = row.proportionateWithdrawal;
+  row.escrowReleases = freeCash + row.residualRelease;
+}
+
+export function grossCertifiedWithdrawal(row: MonthlyRow): number {
+  return (Number(row.proportionateWithdrawal) || 0) + (Number(row.lenderCashSweep) || 0);
+}
+
+export type ProportionateAssertCalendar = {
+  completionMonth: number;
+  closeMonth: number;
+  interestPermitted: boolean;
+  tec: number;
+  progressPct: number[];
+  frequency: "monthly" | "quarterly";
+};
+
+export function sumProportionateThrough(
+  rows: MonthlyRow[],
+  through: number,
+  pick: (row: MonthlyRow) => number
+): number {
+  let sum = 0;
+  for (const row of rows) {
+    if (row.month <= through) sum += pick(row);
+  }
+  return sum;
+}
+
+function proportionateEntitlementAt(
+  rows: MonthlyRow[],
+  cert: number,
+  calendar: ProportionateAssertCalendar
+): number {
+  const progress =
+    calendar.progressPct[Math.min(cert, calendar.progressPct.length - 1)] ?? 0;
+  const s =
+    cert >= calendar.completionMonth
+      ? 1
+      : Math.min(1, Math.max(0, progress / 100));
+  const paidInterest = calendar.interestPermitted
+    ? paidConstructionInterestThrough(rows, cert - 1)
+    : 0;
+  return calendar.tec * s + paidInterest;
+}
+
+/** Withdrawal cap: deposits plus trust interest through the cert month. Fees are not deducted here. */
+function proportionateTrustCap(rows: MonthlyRow[], month: number): number {
+  return (
+    sumProportionateThrough(rows, month, (row) => row.escrowDeposit) +
+    sumProportionateThrough(rows, month, (row) => row.escrowInterest)
+  );
+}
+
+/** Cash identity: deposits plus trust interest, net of account fees, through `month`. */
+function proportionateNetFunds(rows: MonthlyRow[], month: number): number {
+  return (
+    proportionateTrustCap(rows, month) -
+    sumProportionateThrough(rows, month, (row) => row.escrowAccountFees)
+  );
+}
+
+export function proportionateCapBoundThrough(
+  rows: MonthlyRow[],
+  frequency: "monthly" | "quarterly",
+  throughCert: number,
+  calendar: ProportionateAssertCalendar
+): boolean {
+  const last = Math.min(throughCert, calendar.completionMonth);
+  for (let cert = 0; cert <= last; cert++) {
+    if (!isProportionateCertMonth(cert, frequency, calendar.completionMonth)) continue;
+    const entitlement = proportionateEntitlementAt(rows, cert, calendar);
+    const available = proportionateTrustCap(rows, cert);
+    if (entitlement > available + 1e-6) return true;
+  }
+  return false;
+}
+
+/** Calendar the proportionate ledger and the preview cross-mode audit both use. */
+export function buildProportionateAssertCalendar(
+  inputs: FinancingInputs,
+  totalMonths: number
+): ProportionateAssertCalendar {
+  const completionMonth = resolveActualConstructionEndMonth(
+    { constructionPeriod: inputs.constructionPeriodMonths },
+    inputs.monthlyCosts.construction
+  );
+  const otherFeesShare = Math.min(
+    1,
+    Math.max(0, Number(inputs.guaranteeSoftOtherFeesShare ?? 0.1) || 0)
+  );
+  let tec = Math.max(0, Number(inputs.landCost) || 0);
+  for (let i = 0; i < totalMonths; i++) {
+    tec += Math.max(0, Number(inputs.monthlyCosts.construction[i]) || 0);
+    tec += Math.max(0, Number(inputs.monthlyCosts.powc[i]) || 0);
+    tec +=
+      Math.max(0, Number(inputs.monthlyCosts.soft[i]) || 0) * (1 - otherFeesShare);
+  }
+  return {
+    completionMonth,
+    closeMonth: completionMonth + 1,
+    interestPermitted: resolveProportionateInterestPermitted(
+      inputs.proportionateConstructionInterestPermitted
+    ),
+    tec,
+    progressPct: cumulativeCostProgressPct(
+      inputs.monthlyCosts.construction,
+      completionMonth
+    ),
+    frequency: resolveProportionateCertFrequency(inputs.proportionateCertFrequency),
+  };
+}
+
+/**
+ * Each mode's own ledger. At withdrawal month w = cert + 1, cumulative certified
+ * withdrawal equals min(entitlement, deposits + trust interest through the cert,
+ * deposits + trust interest − fees through the withdrawal month). Balance
+ * reconciles to deposits, trust interest, fees, withdrawals, and the close-month residual.
+ */
+function assertProportionateModeSelfConsistent(
+  rows: MonthlyRow[],
+  calendar: ProportionateAssertCalendar
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  const label = calendar.frequency;
+
+  for (let cert = 0; cert <= calendar.completionMonth; cert++) {
+    if (!isProportionateCertMonth(cert, calendar.frequency, calendar.completionMonth)) {
+      continue;
+    }
+    const payMonth = cert + 1;
+    const cumWD = sumProportionateThrough(rows, payMonth, grossCertifiedWithdrawal);
+    const entitlement = proportionateEntitlementAt(rows, cert, calendar);
+    const trustCap = proportionateTrustCap(rows, cert);
+    const cashCap = proportionateNetFunds(rows, payMonth);
+    const expected = Math.min(entitlement, trustCap, cashCap);
+    if (Math.abs(cumWD - expected) > 1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[proportionate] ${label} cumWD at M${payMonth} is ${cumWD}, expected min(entitlement ${entitlement}, trust cap ${trustCap}, cash ${cashCap}) = ${expected}`
+      );
+    }
+  }
+
+  for (const row of rows) {
+    if (row.month > calendar.closeMonth) continue;
+    const netFunds = proportionateNetFunds(rows, row.month);
+    const cumWD = sumProportionateThrough(rows, row.month, grossCertifiedWithdrawal);
+    const residual = sumProportionateThrough(rows, row.month, (r) => r.residualRelease);
+    const expectedBalance = netFunds - cumWD - residual;
+    if (Math.abs(row.escrowBalance - expectedBalance) > 1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[proportionate] ${label} balance at M${row.month} is ${row.escrowBalance}, expected ${expectedBalance}`
+      );
+    }
+    if (row.escrowBalance < -1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[proportionate] ${label} balance at M${row.month} is negative (${row.escrowBalance})`
+      );
+    }
+  }
+}
+
+function assertProportionateLedger(
+  rows: MonthlyRow[],
+  closeMonth: number,
+  horizonLength: number
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  const series: Array<[string, number[]]> = [
+    ["escrow deposit", rows.map((r) => r.escrowDeposit)],
+    ["developer free cash", rows.map((r) => r.developerFreeCash)],
+    ["proportionate withdrawal", rows.map((r) => r.proportionateWithdrawal)],
+    ["lender cash sweep", rows.map((r) => r.lenderCashSweep)],
+    ["residual release", rows.map((r) => r.residualRelease)],
+  ];
+  for (const [label, values] of series) {
+    if (values.length !== horizonLength) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[proportionate] ${label}: length ${values.length} !== horizon ${horizonLength}`
+      );
+    }
+  }
+  for (const row of rows) {
+    if (row.escrowBalance < -1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[proportionate] escrow balance < 0 at M${row.month}: ${row.escrowBalance}`
+      );
+    }
+    if (row.month > closeMonth) {
+      if (Math.abs(row.escrowBalance) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[proportionate] balance after closure at M${row.month}`);
+      }
+      if (Math.abs(row.escrowInterest) > 1e-4 || Math.abs(row.escrowAccountFees) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[proportionate] accrual after closure at M${row.month}`);
+      }
+    }
+  }
+}
+
 /** Strategy D: Non-Escrow (Universal Fallback) */
 function applyNonEscrowLogic(
   row: MonthlyRow,
@@ -1076,6 +1479,13 @@ function applyNonEscrowLogic(
 }
 
 function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[escrow] deposit rate percent:",
+      resolveEscrowDepositRatePercent(inputs)
+    );
+  }
   if (process.env.NODE_ENV === "development") {
     const pre = inputs.monthlyCosts.powc;
     // eslint-disable-next-line no-console
@@ -1264,6 +1674,12 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     guaranteeCumulativeInflows: 0,
     guaranteeReimbursementCarry: 0,
 
+    /** Proportionate escrow: deposits and trust interest through the prior month, and certified withdrawals. */
+    proportionateCumDeposits: 0,
+    proportionateCumInterest: 0,
+    proportionateCumWithdrawals: 0,
+    proportionateResidualReleased: 0,
+
     /** Australia: cumulative sales during construction (balance paid at settlement). */
     auConstructionSalesCumulative: 0,
     /** Australia: balance on construction-phase sales already paid to developer. */
@@ -1410,6 +1826,41 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       })
     : [];
 
+  const proportionateRule = selectedRule === "proportionate_escrow";
+  const proportionateSplit =
+    resolveProportionateEscrowPercent(inputs.proportionateEscrowPercent, {
+      country: inputs.country,
+      countryCode: inputs.countryCode,
+    }) / 100;
+  const proportionateFrequency = resolveProportionateCertFrequency(
+    inputs.proportionateCertFrequency
+  );
+  if (proportionateRule && process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.log("[proportionate escrow] cert frequency:", proportionateFrequency);
+  }
+  const proportionateSweep = resolveProportionateSweepEnabled(
+    inputs.proportionateSweepEnabled,
+    { country: inputs.country, countryCode: inputs.countryCode }
+  );
+  const proportionateAssert = proportionateRule
+    ? buildProportionateAssertCalendar(inputs, totalMonths)
+    : null;
+  const proportionateCalendar = {
+    completionMonth: proportionateAssert?.completionMonth ?? cp,
+    closeMonth: proportionateAssert?.closeMonth ?? cp + 1,
+    split: proportionateSplit,
+    frequency: proportionateFrequency,
+    sweepEnabled: proportionateSweep,
+    interestPermitted:
+      proportionateAssert?.interestPermitted ??
+      resolveProportionateInterestPermitted(
+        inputs.proportionateConstructionInterestPermitted
+      ),
+    tec: proportionateAssert?.tec ?? 0,
+    progressPct: proportionateAssert?.progressPct ?? [],
+  };
+
   // --- MONTHLY LOOP ---
   for (let m = 0; m <= saleHorizon; m++) {
     const isConstructionPhase = m <= inputs.constructionPeriodMonths;
@@ -1422,6 +1873,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       month: m, phase, progressPct, isMilestone,
       salesProceeds: 0, escrowBalance: 0, escrowInterest: 0, escrowAccountFees: 0, progressWithdrawal: 0, escrowReleases: 0, retentionRelease: 0,
       permittedCostReimbursement: 0, lenderCashSweep: 0, developerProfitWithdrawal: 0, defectRetentionRelease: 0,
+      escrowDeposit: 0, developerFreeCash: 0, proportionateWithdrawal: 0, residualRelease: 0, proportionateSplitPercent: 0,
       lockedInSales: 0, cumuLockedInSales: 0, cumuTrustAccount: 0, depositToTrust: 0, balancePayment: 0, trustAccountInterest: 0, trustAccountFees: 0, trustAccountReleases: 0, actualSalesProceeds: 0,
       constructionCosts: 0, softCosts: 0, powc: 0, ffe: 0, totalOutflowsExclLand: 0, landCost: 0, hda3Deposit: 0, totalOutflowsInclLand: 0, ncf: 0,
       landLoanDrawdown: 0, landLoanInterest: 0, landLoanRepayment: 0, landLoanFees: 0,
@@ -1486,7 +1938,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       if (useAustraliaTrust) {
         interestEarned = state.trustAccountBalance * (inputs.trustAccountDepositRatePct / 12);
       } else {
-        interestEarned = state.escrowBalance * (inputs.escrowDepositRatePct / 12);
+        interestEarned = state.escrowBalance * escrowDepositMonthlyFactor(inputs);
       }
     }
 
@@ -1582,6 +2034,16 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         guaranteePermittedCost,
         guaranteeCalendar
       );
+    } else if (selectedRule === "proportionate_escrow") {
+      applyProportionateEscrowLogic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        monthlyData,
+        proportionateCalendar
+      );
     } else {
       applyNonEscrowLogic(row, state, inputs, salesThisMonth);
     }
@@ -1599,6 +2061,12 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
           row.developerProfitWithdrawal +
           row.defectRetentionRelease +
           row.lenderCashSweep;
+      } else if (selectedRule === "proportionate_escrow") {
+        availableInflows =
+          row.developerFreeCash +
+          row.proportionateWithdrawal +
+          row.lenderCashSweep +
+          row.residualRelease;
       } else {
         availableInflows = row.progressWithdrawal + row.escrowReleases;
       }
@@ -1745,7 +2213,11 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       m === 0 ? arrangementFeeM0 : monthlyCommitmentFee;
 
     // --- Period NCF before gap-fill RCF draw (excludes HDA deposit → escrow) ---
-    if (selectedRule === "project_guarantee_account" && row.lenderCashSweep > 0) {
+    if (
+      (selectedRule === "project_guarantee_account" ||
+        selectedRule === "proportionate_escrow") &&
+      row.lenderCashSweep > 0
+    ) {
       row.constLoanRepayment = -row.lenderCashSweep;
     }
 
@@ -1838,7 +2310,11 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     // Sweep is a prepayment booked in period NCF above. Apply it to the balance
     // after this month's draw so the draw does not refill the swept principal,
     // and so this month's interest (already calculated) stays on the pre-sweep balance.
-    if (selectedRule === "project_guarantee_account" && row.lenderCashSweep > 0) {
+    if (
+      (selectedRule === "project_guarantee_account" ||
+        selectedRule === "proportionate_escrow") &&
+      row.lenderCashSweep > 0
+    ) {
       state.rcfBalance = Math.max(0, state.rcfBalance - row.lenderCashSweep);
     }
 
@@ -1938,9 +2414,25 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       const canWithdrawEquity =
         pastConstruction && isRcfPaid && isPrefPaid && state.landLoanPaid;
 
+      // Proportionate developer cash (free cash and certified withdrawals) is
+      // operational and is not held for the land-loan bullet. The residual
+      // release stays on the existing waterfall until that loan is repaid.
+      const operationalGate =
+        selectedRule === "proportionate_escrow" &&
+        pastConstruction &&
+        isRcfPaid &&
+        isPrefPaid &&
+        !state.landLoanPaid;
       const distributable = canWithdrawEquity
         ? Math.max(0, row.cumulativeNcf - (state.equityDistributedToDate || 0))
-        : 0;
+        : operationalGate
+          ? Math.max(
+              0,
+              row.cumulativeNcf -
+                state.proportionateResidualReleased -
+                (state.equityDistributedToDate || 0)
+            )
+          : 0;
 
       if (distributable > 0) {
         row.irrCashFlow += distributable;
@@ -1984,6 +2476,17 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       guaranteeCalendar.stage3Month,
       totalMonths
     );
+  }
+  if (proportionateRule) {
+    assertProportionateLedger(
+      monthlyData,
+      proportionateCalendar.closeMonth,
+      totalMonths
+    );
+    assertProportionateModeSelfConsistent(monthlyData, {
+      ...proportionateCalendar,
+      frequency: proportionateFrequency,
+    });
   }
 
   return monthlyData;

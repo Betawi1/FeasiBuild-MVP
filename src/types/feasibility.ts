@@ -675,7 +675,7 @@ export interface SalePostFinancingMonthlyRow {
 
 export interface SaleEscrowWithdrawalData {
   currency: string;
-  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | none). */
+  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | proportionate_escrow | none). */
   ruleId: string;
   ruleName: string;
   configTitle: string;
@@ -711,6 +711,13 @@ export interface SaleEscrowWithdrawalData {
     /** Set from the Stage-3 close. Commentary uses these when funded is below target. */
     retentionFundedAtRelease?: number;
     retentionTargetAtRelease?: number;
+  };
+  /** Present when the selected rule is proportionate escrow. */
+  proportionateConfig?: {
+    splitPercent: number;
+    certFrequency: "monthly" | "quarterly";
+    sweepEnabled: boolean;
+    interestPermitted: boolean;
   };
   /** Present when the selected rule is closed-loop escrow. */
   closedLoopConfig?: {

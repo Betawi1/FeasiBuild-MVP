@@ -15,6 +15,8 @@ import {
   isUaeLocation,
   resolveClosedLoopToppingOut,
   resolveGuaranteeRetentionMonths,
+  resolveProportionateCertFrequency,
+  resolveProportionateEscrowPercent,
   resolveSaleProjectEscrowRule,
   GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
   GUARANTEE_DEFAULT_RETENTION_PCT,
@@ -304,6 +306,36 @@ export function generateSaleCommentaryFallback(
           };
           lines.push(
             `Retention account funded to ${money(funded)} of target ${money(target)} at release.`
+          );
+        }
+        return lines;
+      }
+      if (rule === "proportionate_escrow") {
+        const stored = bundle.financing.escrowConfig;
+        const split = resolveProportionateEscrowPercent(stored?.proportionateEscrowPercent, {
+          country: bundle.location.country,
+          countryCode: bundle.projectInfo?.countryCode,
+        });
+        const frequency = resolveProportionateCertFrequency(stored?.proportionateCertFrequency);
+        const locationDefault = defaultEscrowRuleForLocation({
+          country: bundle.location.country,
+          city: bundle.location.city,
+          buildingType: bundle.buildingType,
+          buildingSubType: bundle.buildingSubType,
+        });
+        const lines = [
+          `A fixed statutory split of ${split}% of every buyer payment is locked in a designated account. The remainder is immediate developer free cash.`,
+          frequency === "quarterly"
+            ? "Withdrawals are certified quarterly, in proportion to construction completion, by the project engineer, architect, and chartered accountant, and paid the following month."
+            : "Withdrawals are certified monthly, in proportion to construction completion, by the project engineer, architect, and chartered accountant, and paid the following month.",
+          "Land principal is recoverable only as construction progresses.",
+          "Marketing, brokerage, and land finance costs are served by the free-cash share.",
+          "A five-year structural defect liability is a separate legal obligation. There is no escrow retention for it.",
+          "Late-possession interest is a risk note only. It is not modeled as an escrow cash flow.",
+        ];
+        if (locationDefault === "proportionate_escrow") {
+          lines.push(
+            "Local regime: state regulatory authorities apply MahaRERA-style enforcement intensity to the designated account. This note applies only where that default matches the project location."
           );
         }
         return lines;

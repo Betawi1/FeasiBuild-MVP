@@ -67,30 +67,115 @@ function contentToString(content: unknown): string {
     .join("");
 }
 
+export interface PuterStreamReadOptions {
+  signal?: AbortSignal;
+  /** Registers the closer for the iterator this read actually consumes. */
+  bindCloser?: (close: () => Promise<void>) => void;
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return (
+    !!value &&
+    (typeof value === "object" || typeof value === "function") &&
+    Symbol.asyncIterator in (value as object)
+  );
+}
+
+async function finishAsyncIterator(iterator: AsyncIterator<unknown>): Promise<void> {
+  try {
+    if (typeof iterator.return === "function") {
+      await iterator.return();
+    }
+  } catch {
+    /* stream already closed or cancelled */
+  }
+}
+
+/** Release a Puter stream if the caller never started reading it. */
+export async function closePuterStream(response: unknown): Promise<void> {
+  if (!isAsyncIterable(response)) return;
+  try {
+    await finishAsyncIterator(response[Symbol.asyncIterator]());
+  } catch {
+    /* not a live stream */
+  }
+}
+
+async function readNextChunk(
+  iterator: AsyncIterator<unknown>,
+  signal?: AbortSignal
+): Promise<IteratorResult<unknown> | "aborted"> {
+  if (!signal) return iterator.next();
+  if (signal.aborted) return "aborted";
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve("aborted");
+    signal.addEventListener("abort", onAbort, { once: true });
+    iterator.next().then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(signal.aborted ? "aborted" : result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        if (signal.aborted) resolve("aborted");
+        else reject(error);
+      }
+    );
+  });
+}
+
 /**
  * Canonical Puter text extraction: `response.message.content`.
  * Streaming iterators are concatenated the same way per chunk.
+ * The iterator is always closed — including when the read aborts or throws —
+ * so a retry cannot leave the previous stream appending in the background.
  */
 export async function extractPuterMessageContent(
   response: unknown,
-  onToken?: (piece: string) => void
+  onToken?: (piece: string) => void,
+  streamOptions?: PuterStreamReadOptions
 ): Promise<string> {
-  if (
-    response &&
-    typeof response === "object" &&
-    Symbol.asyncIterator in response
-  ) {
-    let full = "";
-    for await (const chunk of response as AsyncIterable<unknown>) {
-      const piece = extractPuterMessageContentSync(chunk);
+  if (!isAsyncIterable(response)) {
+    return extractPuterMessageContentSync(response);
+  }
+
+  const iterator = response[Symbol.asyncIterator]();
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    await finishAsyncIterator(iterator);
+  };
+  streamOptions?.bindCloser?.(close);
+
+  const signal = streamOptions?.signal;
+  if (signal?.aborted) {
+    await close();
+    return "";
+  }
+
+  let full = "";
+  try {
+    while (!signal?.aborted) {
+      const next = await readNextChunk(iterator, signal);
+      if (next === "aborted" || signal?.aborted) break;
+      if (next.done) break;
+      const piece = extractPuterMessageContentSync(next.value);
       if (!piece) continue;
       full += piece;
       onToken?.(piece);
     }
-    return full;
+  } catch (error) {
+    await close();
+    if (signal?.aborted) return "";
+    throw error;
+  } finally {
+    await close();
   }
 
-  return extractPuterMessageContentSync(response);
+  if (signal?.aborted) return "";
+  return full;
 }
 
 /** Non-async: `response.message.content` (string or text parts). */
@@ -199,16 +284,32 @@ async function generateWithModel(
   const maxTokens = extras.maxTokens ?? 6000;
 
   const callOnce = async (stream: boolean): Promise<string> => {
-    const response = await puter.ai.chat(prompt, {
-      model,
-      stream,
-      temperature,
-      max_tokens: maxTokens,
-      ...(extras.jsonMode
-        ? { response_format: { type: "json_object" as const } }
-        : {}),
-    });
-    return extractPuterMessageContent(response, extras.onToken);
+    const abort = new AbortController();
+    let closeStream: () => Promise<void> = async () => {};
+    try {
+      const response = await puter.ai.chat(prompt, {
+        model,
+        stream,
+        temperature,
+        max_tokens: maxTokens,
+        ...(extras.jsonMode
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
+      });
+      if (abort.signal.aborted) {
+        await closePuterStream(response);
+        return "";
+      }
+      return await extractPuterMessageContent(response, extras.onToken, {
+        signal: abort.signal,
+        bindCloser: (close) => {
+          closeStream = close;
+        },
+      });
+    } finally {
+      abort.abort();
+      await closeStream();
+    }
   };
 
   let text = await callOnce(preferStream);

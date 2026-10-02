@@ -51,6 +51,7 @@ import {
   paybackMonthCrossingFromNegative,
 } from "@/lib/equity-irr";
 import type { MonthlyRow } from "@/lib/financing-engine/generate-cash-flow";
+import { logProportionateCrossModeAudit } from "@/lib/financing-engine/proportionate-cross-mode-audit";
 import type { ProjectMetrics } from "@/store/financingStore";
 import type { ProjectIRR } from "@/store/useFinModelStore";
 
@@ -308,10 +309,16 @@ function FinancingPreviewPageContent({
         ? financing.debtFacilityAmount
         : approvedDebtAmount;
   
+  const rateConfig = (financing as Financing & { config?: FinancingConfig }).config;
+  const rateType = rateConfig?.rateType ?? financing.rateType;
   const effectiveInterestRate =
-    financing.rateType === "floating"
-      ? (financing.baseRatePercent || 0) + (financing.marginPercent || 0)
-      : financing.fixedOrProfitRatePercent || 8;
+    rateType === "floating"
+      ? (rateConfig?.baseRatePercent ?? financing.baseRatePercent ?? 0) +
+        (rateConfig?.marginPercent ?? financing.marginPercent ?? 0)
+      : rateConfig?.fixedOrProfitRatePercent ??
+        rateConfig?.interestRatePct ??
+        financing.fixedOrProfitRatePercent ??
+        8;
     
   const amortizationPeriod = financing.amortizationYears || 7;
   const monthlyInterestRate = effectiveInterestRate / 100 / 12;
@@ -3349,6 +3356,26 @@ function FinancingPreviewPageContent({
     financingEngineEquityInputs,
   ]);
 
+  const financingEngineInputsRef = useRef(financingEnginePreview?.inputs);
+  financingEngineInputsRef.current = financingEnginePreview?.inputs;
+  const proportionateAuditKey = [
+    financing.escrowConfig?.withdrawalMode ?? "",
+    financing.escrowConfig?.proportionateEscrowPercent ?? "",
+    financing.escrowConfig?.proportionateCertFrequency ?? "",
+    financing.escrowConfig?.proportionateSweepEnabled ?? "",
+    financing.escrowConfig?.proportionateConstructionInterestPermitted ?? "",
+    financing.escrowDepositRatePercent ?? "",
+  ].join("|");
+
+  const proportionateAuditReady = Boolean(financingEngineInputsRef.current);
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (typeof window === "undefined") return;
+    const inputs = financingEngineInputsRef.current;
+    if (!inputs) return;
+    logProportionateCrossModeAudit(proportionateAuditKey, inputs);
+  }, [proportionateAuditKey, proportionateAuditReady]);
+
   // --- FINANCIAL METRICS CALCULATION (from financing engine monthly rows) ---
   const financialMetrics = useMemo(() => {
     const enginePreview = financingEnginePreview?.rows;
@@ -3707,6 +3734,7 @@ function FinancingPreviewPageContent({
                   hideEscrowRows={hideEscrow}
                   showFfe={isSaleWarehouseProduct}
                   showGuaranteeLedger={previewRule === "project_guarantee_account"}
+                  showProportionateLedger={previewRule === "proportionate_escrow"}
                 />
               );
             })()}

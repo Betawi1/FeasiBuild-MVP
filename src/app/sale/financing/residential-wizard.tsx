@@ -20,6 +20,7 @@ import AustraliaEscrowConfig from "./escrow-config/AustraliaEscrowConfig";
 import ClosedLoopEscrowConfig from "./escrow-config/ClosedLoopEscrowConfig";
 import MalaysiaEscrowConfig from "./escrow-config/MalaysiaEscrowConfig";
 import ProjectGuaranteeAccountConfig from "./escrow-config/ProjectGuaranteeAccountConfig";
+import ProportionateEscrowConfig from "./escrow-config/ProportionateEscrowConfig";
 import UaeEscrowConfig from "./escrow-config/UaeEscrowConfig";
 import type {
   EscrowConfigUpdateField,
@@ -33,18 +34,26 @@ import {
   GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
   GUARANTEE_DEFAULT_RETENTION_PCT,
   GUARANTEE_DEFAULT_THRESHOLD_PCT,
+  defaultEscrowDepositRatePercent,
   defaultEscrowRuleForLocation,
   isAbuDhabiCity,
   isChinaLocation,
   isCommercialSaleAsset,
+  isIndiaLocation,
   isLandEquitySliderLocked,
   isUaeLocation,
   normalizeEscrowRuleId,
   resolveClosedLoopToppingOut,
   resolveGuaranteeRetentionBasis,
   resolveGuaranteeRetentionMonths,
+  readProportionateEscrowForPersist,
+  resolveProportionateCertFrequency,
+  resolveProportionateEscrowPercent,
+  resolveProportionateInterestPermitted,
+  resolveProportionateSweepEnabled,
   type EscrowRuleId,
   type GuaranteeRetentionBasis,
+  type ProportionateCertFrequency,
 } from "@/lib/financing-engine/escrow-rules";
 
 /** Sample cumulative NCF for Funding Gap chart (matches commercial wizard) */
@@ -324,6 +333,10 @@ type FormData = {
   guaranteeRetentionBasis: GuaranteeRetentionBasis;
   guaranteeRetentionMonths: number;
   guaranteeInterestPermitted: boolean;
+  proportionateEscrowPercent: number;
+  proportionateCertFrequency: ProportionateCertFrequency;
+  proportionateSweepEnabled: boolean;
+  proportionateConstructionInterestPermitted: boolean;
   milestoneThresholdPct: number;
   drawdownMode: DrawdownModeUi;
   interestRateType: "fixed" | "floating";
@@ -365,7 +378,7 @@ function defaultEscrowWithdrawalMode(projectInfo: ProjectInfo): EscrowWithdrawal
   });
 }
 
-function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Partial<FormData> {
+function configToForm(cfg: FinancingConfig): Partial<FormData> {
   const drawdownMode: DrawdownModeUi =
     cfg.drawdownMode === "gap-fill" ? "equity-first" : "ltc-proportional";
   return {
@@ -381,7 +394,6 @@ function configToForm(cfg: FinancingConfig, jurisdiction: JurisdictionId): Parti
         ? (cfg.baseRatePercent || 0) + (cfg.marginPercent || 0)
         : cfg.fixedOrProfitRatePercent || cfg.interestRatePct,
     idcTreatment: cfg.idcTreatment,
-    escrowDepositRate: JURISDICTION_RULES[jurisdiction].depositRate,
   };
 }
 
@@ -636,6 +648,20 @@ function ResidentialFinancingWizardContent() {
         storedEscrow?.guaranteeRetentionMonths
       ),
       guaranteeInterestPermitted: storedEscrow?.guaranteeInterestPermitted !== false,
+      proportionateEscrowPercent: resolveProportionateEscrowPercent(
+        storedEscrow?.proportionateEscrowPercent,
+        projectInfo
+      ),
+      proportionateCertFrequency: resolveProportionateCertFrequency(
+        storedEscrow?.proportionateCertFrequency
+      ),
+      proportionateSweepEnabled: resolveProportionateSweepEnabled(
+        storedEscrow?.proportionateSweepEnabled,
+        projectInfo
+      ),
+      proportionateConstructionInterestPermitted: resolveProportionateInterestPermitted(
+        storedEscrow?.proportionateConstructionInterestPermitted
+      ),
       certificationIntervalMonths:
         storedEscrow?.uaeSa?.certificationInterval ??
         financingConfig?.certificationIntervalMonths ??
@@ -652,7 +678,11 @@ function ResidentialFinancingWizardContent() {
             financingConfig?.interestRatePct ||
             6.0,
       idcTreatment: financingConfig?.idcTreatment ?? "capitalize",
-      escrowDepositRate: rules.depositRate,
+      escrowDepositRate:
+        typeof financing.escrowDepositRatePercent === "number" &&
+        Number.isFinite(financing.escrowDepositRatePercent)
+          ? financing.escrowDepositRatePercent
+          : defaultEscrowDepositRatePercent(projectInfo),
       salesReduceEquity: initialEscrowMode === "progress",
       ...prefFromStore,
     };
@@ -705,6 +735,54 @@ function ResidentialFinancingWizardContent() {
       return next;
     });
 
+    if (
+      field === "interestRateType" ||
+      field === "interestRate" ||
+      field === "idcTreatment" ||
+      field === "escrowDepositRate"
+    ) {
+      const nextType =
+        field === "interestRateType"
+          ? (value as FormData["interestRateType"])
+          : formData.interestRateType;
+      const nextRate =
+        field === "interestRate" ? Number(value) || 0 : formData.interestRate;
+      const nextIdc =
+        field === "idcTreatment"
+          ? (value as FormData["idcTreatment"])
+          : formData.idcTreatment;
+      const nextEscrowRate =
+        field === "escrowDepositRate"
+          ? Number(value) || 0
+          : formData.escrowDepositRate;
+      const floating = nextType === "floating";
+      updateFinancing(
+        {
+          rateType: nextType,
+          fixedOrProfitRatePercent: nextRate,
+          interestRate: nextRate,
+          ...(floating
+            ? {
+                baseRatePercent: 3,
+                marginPercent: Math.max(0, nextRate - 3),
+              }
+            : {}),
+          idcTreatment: nextIdc === "capitalize" ? "capitalized" : nextIdc,
+          escrowDepositRatePercent: nextEscrowRate,
+        },
+        "sale"
+      );
+      updateFinancingConfig({
+        rateType: nextType,
+        interestRatePct: nextRate,
+        fixedOrProfitRatePercent: nextRate,
+        ...(floating
+          ? { baseRatePercent: 3, marginPercent: Math.max(0, nextRate - 3) }
+          : {}),
+        idcTreatment: nextIdc,
+      });
+    }
+
     // Persist escrow rule + editable params so preview/engine recalculate from the store.
     // Rule switches must not write landEquityPercent — the stored split survives every tab.
     if (
@@ -720,7 +798,11 @@ function ResidentialFinancingWizardContent() {
       field === "guaranteeRetentionPercent" ||
       field === "guaranteeRetentionBasis" ||
       field === "guaranteeRetentionMonths" ||
-      field === "guaranteeInterestPermitted"
+      field === "guaranteeInterestPermitted" ||
+      field === "proportionateEscrowPercent" ||
+      field === "proportionateCertFrequency" ||
+      field === "proportionateSweepEnabled" ||
+      field === "proportionateConstructionInterestPermitted"
     ) {
       const nextMode =
         field === "escrowWithdrawalMode"
@@ -805,6 +887,28 @@ function ResidentialFinancingWizardContent() {
               field === "guaranteeInterestPermitted"
                 ? (value as boolean)
                 : formData.guaranteeInterestPermitted,
+            proportionateEscrowPercent: resolveProportionateEscrowPercent(
+              field === "proportionateEscrowPercent"
+                ? (value as number)
+                : formData.proportionateEscrowPercent,
+              projectInfo
+            ),
+            proportionateCertFrequency: resolveProportionateCertFrequency(
+              field === "proportionateCertFrequency"
+                ? (value as ProportionateCertFrequency)
+                : formData.proportionateCertFrequency
+            ),
+            proportionateSweepEnabled: resolveProportionateSweepEnabled(
+              field === "proportionateSweepEnabled"
+                ? (value as boolean)
+                : formData.proportionateSweepEnabled,
+              projectInfo
+            ),
+            proportionateConstructionInterestPermitted: resolveProportionateInterestPermitted(
+              field === "proportionateConstructionInterestPermitted"
+                ? (value as boolean)
+                : formData.proportionateConstructionInterestPermitted
+            ),
           },
         },
         "sale"
@@ -818,7 +922,7 @@ function ResidentialFinancingWizardContent() {
     ) {
       auditSaleFinancingField(field as string, value);
     }
-  }, [updateFinancing, financing.escrowConfig, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled, formData.guaranteeThresholdPercent, formData.guaranteeProfitMilestonePercent, formData.guaranteeRetentionPercent, formData.guaranteeRetentionBasis, formData.guaranteeRetentionMonths, formData.guaranteeInterestPermitted]);
+  }, [updateFinancing, updateFinancingConfig, financing.escrowConfig, projectInfo, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled, formData.guaranteeThresholdPercent, formData.guaranteeProfitMilestonePercent, formData.guaranteeRetentionPercent, formData.guaranteeRetentionBasis, formData.guaranteeRetentionMonths, formData.guaranteeInterestPermitted, formData.proportionateEscrowPercent, formData.proportionateCertFrequency, formData.proportionateSweepEnabled, formData.proportionateConstructionInterestPermitted, formData.interestRateType, formData.interestRate, formData.idcTreatment, formData.escrowDepositRate]);
 
   const updateEscrowField: EscrowConfigUpdateField = useCallback(
     (field, value) => {
@@ -929,7 +1033,7 @@ function ResidentialFinancingWizardContent() {
     if (!financingConfig) return;
     setFormData((prev) => ({
       ...prev,
-      ...configToForm(financingConfig, jurisdiction),
+      ...configToForm(financingConfig),
       landEquityPercent: prev.landEquityPercent,
     }));
     // eslint-disable-next-line react-hooks/exhaust-deps -- hydrate once when store config appears
@@ -1246,7 +1350,30 @@ function ResidentialFinancingWizardContent() {
             formData.guaranteeRetentionMonths
           ),
           guaranteeInterestPermitted: formData.guaranteeInterestPermitted,
+          ...readProportionateEscrowForPersist(financing.escrowConfig, {
+            proportionateCertFrequency: formData.proportionateCertFrequency,
+            proportionateEscrowPercent: formData.proportionateEscrowPercent,
+            proportionateSweepEnabled: formData.proportionateSweepEnabled,
+            proportionateConstructionInterestPermitted:
+              formData.proportionateConstructionInterestPermitted,
+          }),
         },
+        rateType: formData.interestRateType,
+        fixedOrProfitRatePercent: formData.interestRate,
+        interestRate: formData.interestRate,
+        ...(formData.interestRateType === "floating"
+          ? {
+              baseRatePercent: 3,
+              marginPercent: Math.max(0, formData.interestRate - 3),
+            }
+          : {}),
+        idcTreatment:
+          formData.idcTreatment === "capitalize" ? "capitalized" : formData.idcTreatment,
+        escrowDepositRatePercent:
+          typeof financing.escrowDepositRatePercent === "number" &&
+          Number.isFinite(financing.escrowDepositRatePercent)
+            ? financing.escrowDepositRatePercent
+            : formData.escrowDepositRate,
         escrowSetupFee: formData.escrowSetupFee,
         escrowManagementFeePct: formData.escrowManagementFeePercent / 100,
       },
@@ -1261,6 +1388,7 @@ function ResidentialFinancingWizardContent() {
     updateFinancing,
     updateFinancingConfig,
     isCommercialProduct,
+    financing.escrowConfig,
   ]);
 
   const commercialEscrowMigrated = useRef(false);
@@ -1300,6 +1428,13 @@ function ResidentialFinancingWizardContent() {
 
   // Old MALAYSIA → Progress Drawdown Rule. Staged / 10/90 / none stay disabled (UAE_SA / AUSTRALIA / OTHER).
   const salesReduceDisabled = formData.escrowWithdrawalMode !== "progress";
+  const jurisdictionEscrowRate = defaultEscrowDepositRatePercent(projectInfo);
+  const escrowRateInForce =
+    typeof financing.escrowDepositRatePercent === "number" &&
+    Number.isFinite(financing.escrowDepositRatePercent)
+      ? financing.escrowDepositRatePercent
+      : jurisdictionEscrowRate;
+  const escrowRateIsJurisdictionDefault = escrowRateInForce === jurisdictionEscrowRate;
 
   return (
     <div className="min-h-screen bg-slate-950 pb-32 text-slate-100">
@@ -2340,6 +2475,11 @@ function ResidentialFinancingWizardContent() {
                         after handover
                       </li>
                       <li>
+                        • <strong className="text-slate-300">Proportionate Escrow Rule:</strong> a
+                        fixed share of every buyer payment is locked in a designated account;
+                        withdrawals are certified in proportion to construction completion
+                      </li>
+                      <li>
                         • <strong className="text-slate-300">No Escrow Rules:</strong> sales
                         proceeds sweep directly to debt service and equity distribution (standard
                         commercial waterfall)
@@ -2418,6 +2558,19 @@ function ResidentialFinancingWizardContent() {
                 />
               )}
 
+              {formData.escrowWithdrawalMode === "proportionate_escrow" && (
+                <ProportionateEscrowConfig
+                  splitLocked={isIndiaLocation(projectInfo.country, projectInfo.countryCode)}
+                  sweepLocked={isIndiaLocation(projectInfo.country, projectInfo.countryCode)}
+                  onSplitPercent={(value) => updateField("proportionateEscrowPercent", value)}
+                  onCertFrequency={(value) => updateField("proportionateCertFrequency", value)}
+                  onSweepEnabled={(value) => updateField("proportionateSweepEnabled", value)}
+                  onInterestPermitted={(value) =>
+                    updateField("proportionateConstructionInterestPermitted", value)
+                  }
+                />
+              )}
+
               {formData.escrowWithdrawalMode === "closed_loop_escrow" && (
                 <ClosedLoopEscrowConfig
                   chinaOverlay={isChinaLocation(
@@ -2466,6 +2619,20 @@ function ResidentialFinancingWizardContent() {
                       {formData.guaranteeRetentionPercent}% defect retention • reimbursements from{" "}
                       {formData.guaranteeThresholdPercent}% construction progress
                     </>
+                  ) : formData.escrowWithdrawalMode === "proportionate_escrow" ? (
+                    <>
+                      {resolveProportionateEscrowPercent(
+                        financing.escrowConfig?.proportionateEscrowPercent,
+                        projectInfo
+                      )}
+                      % designated-account split •{" "}
+                      {100 -
+                        resolveProportionateEscrowPercent(
+                          financing.escrowConfig?.proportionateEscrowPercent,
+                          projectInfo
+                        )}
+                      % immediate free cash
+                    </>
                   ) : formData.escrowWithdrawalMode === "ten_ninety" ? (
                     <>
                       {formData.auDepositPct}% purchase deposit in trust •{" "}
@@ -2491,7 +2658,11 @@ function ResidentialFinancingWizardContent() {
                       ? "Escrow lump sum at practical completion • contractor retention at CP+24"
                       : formData.escrowWithdrawalMode === "project_guarantee_account"
                         ? `Profit surplus at ${formData.guaranteeProfitMilestonePercent}% and completion +1 month • retention at +${formData.guaranteeRetentionMonths} months`
-                        : formData.escrowWithdrawalMode === "progress"
+                        : formData.escrowWithdrawalMode === "proportionate_escrow"
+                          ? `Certified ${resolveProportionateCertFrequency(
+                              financing.escrowConfig?.proportionateCertFrequency
+                            )} • withdrawal the following month • residual at completion + 1`
+                          : formData.escrowWithdrawalMode === "progress"
                         ? "24 months post completion"
                         : "12 months post completion"}
                 </p>
@@ -2687,12 +2858,22 @@ function ResidentialFinancingWizardContent() {
               </label>
               <label className="block">
                 <span className="text-sm text-slate-400">
-                  Escrow deposit rate % (default by jurisdiction)
+                  Escrow deposit rate %
+                  {escrowRateIsJurisdictionDefault ? " (default by jurisdiction)" : ""}
+                </span>
+                <span
+                  className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${
+                    escrowRateIsJurisdictionDefault
+                      ? "bg-slate-500/20 text-slate-400"
+                      : "bg-amber-500/20 text-amber-400"
+                  }`}
+                >
+                  {escrowRateIsJurisdictionDefault ? "Default" : "Override"}
                 </span>
                 <input
                   type="number"
                   step={0.1}
-                  value={formData.escrowDepositRate}
+                  value={escrowRateInForce}
                   onChange={(e) =>
                     updateField("escrowDepositRate", Number(e.target.value) || 0)
                   }

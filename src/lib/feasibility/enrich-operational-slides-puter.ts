@@ -49,6 +49,12 @@ import {
 } from "@/lib/feasibility/hospitality-market-charts";
 import { mapInEnrichmentOrder } from "@/lib/feasibility/enrichment-pool";
 import { resetEnrichmentDiagnostics } from "@/lib/feasibility/enrichment-ladder";
+import { releaseActivePuterStream } from "@/lib/feasibility/enrichment-chat";
+import {
+  beginEnrichmentMemoryRun,
+  finishEnrichmentMemoryRun,
+  logSlideHeap,
+} from "@/lib/feasibility/enrichment-memory";
 import {
   logStoreEnrichmentDiagnostics,
   publishBaseDeck,
@@ -475,6 +481,9 @@ export async function enrichOperationalSlidesWithPuter(
       assetType: options.assetType,
     });
     throw error;
+  } finally {
+    await releaseActivePuterStream();
+    finishEnrichmentMemoryRun();
   }
 }
 
@@ -484,6 +493,7 @@ function settleChartSlide(
   commentaryQuality: Map<string, CommentaryQuality>,
   combineCommentary: boolean
 ): void {
+  logSlideHeap(slide.id);
   if (!ok) {
     publishEnrichmentSlide(slide, "failed");
     return;
@@ -509,6 +519,16 @@ async function enrichOperationalSlidesWithPuterImpl(
   } = options;
   resetEnrichmentDiagnostics();
   const retrying = Boolean(onlySlideIds?.length);
+  if (!retrying) {
+    useFeasibilityStore.setState({
+      slides: [],
+      report: null,
+      marketResearchCache: null,
+      aiSections: {},
+      aiBannerDismissed: false,
+    });
+  }
+  beginEnrichmentMemoryRun();
   const commentaryQuality = new Map<string, CommentaryQuality>();
   const deferredCharts = new Set<string>();
   const cacheOpts = {
@@ -529,6 +549,7 @@ async function enrichOperationalSlidesWithPuterImpl(
       onDeckReady?.();
     },
     onCommentary: (slide: FeasibilitySlide, quality: CommentaryQuality) => {
+      logSlideHeap(slide.id);
       commentaryQuality.set(slide.id, quality);
       if (deferredCharts.has(slide.id)) {
         useFeasibilityStore.getState().patchSlide(slide.id, slide);

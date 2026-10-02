@@ -9,6 +9,7 @@ export type EscrowRuleId =
   | "progress"
   | "closed_loop_escrow"
   | "project_guarantee_account"
+  | "proportionate_escrow"
   | "none";
 
 export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
@@ -17,6 +18,7 @@ export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
   "staged",
   "closed_loop_escrow",
   "project_guarantee_account",
+  "proportionate_escrow",
   "none",
 ] as const;
 
@@ -26,6 +28,7 @@ export const ESCROW_RULE_DISPLAY_NAME: Record<EscrowRuleId, string> = {
   progress: "Progress Drawdown Rule",
   closed_loop_escrow: "Closed-Loop Escrow Rule",
   project_guarantee_account: "Project Guarantee Account Rule",
+  proportionate_escrow: "Proportionate Escrow Rule",
   none: "No Escrow Rules",
 };
 
@@ -35,6 +38,7 @@ export const ESCROW_RULE_CONFIG_TITLE: Record<EscrowRuleId, string> = {
   progress: "Progress Drawdown Rule Configuration",
   closed_loop_escrow: "Closed-Loop Escrow Rule Configuration",
   project_guarantee_account: "Project Guarantee Account Rule Configuration",
+  proportionate_escrow: "Proportionate Escrow Rule Configuration",
   none: "No Escrow Rules",
 };
 
@@ -49,6 +53,8 @@ export const ESCROW_RULE_HORIZON_OFFSET: Record<EscrowRuleId, number> = {
   closed_loop_escrow: 24,
   /** Default only. The live horizon is CP + guarantee retention months (minimum 12). */
   project_guarantee_account: 12,
+  /** Designated-account split. Horizon is CP+6, same tail as no-escrow. */
+  proportionate_escrow: 6,
   none: 6,
 };
 
@@ -91,6 +97,192 @@ export function resolveGuaranteeRetentionMonths(
   const n = Number(raw);
   if (!Number.isFinite(n)) return GUARANTEE_DEFAULT_RETENTION_MONTHS;
   return Math.max(GUARANTEE_DEFAULT_RETENTION_MONTHS, Math.round(n));
+}
+
+/** Designated-account share of each buyer payment. Locked at this value for India. */
+export const PROPORTIONATE_DEFAULT_SPLIT_PCT = 70;
+
+export type ProportionateCertFrequency = "monthly" | "quarterly";
+
+/**
+ * Local-regime deck note only. Never used as a rule name or wizard label.
+ * Shown only when the project location's default is this rule.
+ */
+export const PROPORTIONATE_LOCAL_REGIME_NOTE =
+  "State regulatory authorities (MahaRERA-style enforcement intensity)";
+
+export function isIndiaLocation(
+  country?: string | null,
+  countryCode?: string | null
+): boolean {
+  if (normCode(countryCode) === "IN") return true;
+  const c = normCountry(country);
+  if (!c || c.includes("indonesia") || c.includes("indiana")) return false;
+  return /\bindia\b/.test(c);
+}
+
+/** India locks the split at 70. Every other location keeps the stored percent (default 70). */
+export function resolveProportionateEscrowPercent(
+  stored: number | null | undefined,
+  location?: { country?: string | null; countryCode?: string | null }
+): number {
+  if (isIndiaLocation(location?.country, location?.countryCode)) {
+    return PROPORTIONATE_DEFAULT_SPLIT_PCT;
+  }
+  const n = Number(stored);
+  if (!Number.isFinite(n)) return PROPORTIONATE_DEFAULT_SPLIT_PCT;
+  return Math.min(100, Math.max(0, n));
+}
+
+export function resolveProportionateCertFrequency(
+  stored: string | null | undefined
+): ProportionateCertFrequency {
+  return stored === "quarterly" ? "quarterly" : "monthly";
+}
+
+/** India locks the construction-lender sweep on. Others default on and may turn it off. */
+export function resolveProportionateSweepEnabled(
+  stored: boolean | null | undefined,
+  location?: { country?: string | null; countryCode?: string | null }
+): boolean {
+  if (isIndiaLocation(location?.country, location?.countryCode)) return true;
+  if (typeof stored === "boolean") return stored;
+  return true;
+}
+
+/**
+ * Jurisdiction deposit yield in percent points (7 = 7% p.a.).
+ * Applied only when a saved project has no `escrowDepositRatePercent`.
+ */
+export function defaultEscrowDepositRatePercent(location?: {
+  country?: string | null;
+  countryCode?: string | null;
+}): number {
+  const code = location?.countryCode?.toUpperCase() ?? "";
+  const country = (location?.country ?? "").toLowerCase();
+  if (code === "AE" || country.includes("uae") || country.includes("emirates")) return 3.9;
+  if (code === "SA" || country.includes("saudi") || country.includes("ksa")) return 4;
+  if (code === "MY" || country.includes("malaysia")) return 3;
+  if (code === "AU" || country.includes("australia")) return 0.5;
+  if (code === "VN" || country.includes("viet")) return 4.5;
+  if (code === "TH" || country.includes("thai")) return 2.5;
+  return 0;
+}
+
+export function resolveProportionateInterestPermitted(
+  stored: boolean | null | undefined
+): boolean {
+  return stored !== false;
+}
+
+export type ProportionateEscrowFields = {
+  proportionateEscrowPercent: number;
+  proportionateCertFrequency: ProportionateCertFrequency;
+  proportionateSweepEnabled: boolean;
+  proportionateConstructionInterestPermitted: boolean;
+};
+
+type ProportionateEscrowStored = {
+  proportionateEscrowPercent?: number | null;
+  proportionateCertFrequency?: string | null;
+  proportionateSweepEnabled?: boolean | null;
+  proportionateConstructionInterestPermitted?: boolean | null;
+};
+
+/**
+ * Project load / save only. A missing key receives its default.
+ * A key that is already set is copied through unchanged.
+ */
+export function fillUndefinedProportionateEscrow<T extends ProportionateEscrowStored>(
+  escrow: T | undefined
+): T & ProportionateEscrowFields {
+  const src = (escrow ?? {}) as T;
+  const frequency = src.proportionateCertFrequency;
+  const percent = Number(src.proportionateEscrowPercent);
+  return {
+    ...src,
+    proportionateCertFrequency:
+      frequency === "quarterly" || frequency === "monthly" ? frequency : "monthly",
+    proportionateEscrowPercent: Number.isFinite(percent)
+      ? Math.min(100, Math.max(0, percent))
+      : PROPORTIONATE_DEFAULT_SPLIT_PCT,
+    proportionateSweepEnabled:
+      typeof src.proportionateSweepEnabled === "boolean"
+        ? src.proportionateSweepEnabled
+        : true,
+    proportionateConstructionInterestPermitted:
+      typeof src.proportionateConstructionInterestPermitted === "boolean"
+        ? src.proportionateConstructionInterestPermitted
+        : true,
+  };
+}
+
+/**
+ * Persist path. A defined store value wins over a form fallback.
+ * Dev-warns when a fallback would have replaced that stored value.
+ */
+export function readProportionateEscrowForPersist(
+  stored: ProportionateEscrowStored | undefined,
+  fallback: ProportionateEscrowFields
+): ProportionateEscrowFields {
+  const frequency =
+    stored?.proportionateCertFrequency === "quarterly" ||
+    stored?.proportionateCertFrequency === "monthly"
+      ? stored.proportionateCertFrequency
+      : undefined;
+  const percent = Number(stored?.proportionateEscrowPercent);
+  const storedPercent = Number.isFinite(percent) ? percent : undefined;
+  const storedSweep =
+    typeof stored?.proportionateSweepEnabled === "boolean"
+      ? stored.proportionateSweepEnabled
+      : undefined;
+  const storedInterest =
+    typeof stored?.proportionateConstructionInterestPermitted === "boolean"
+      ? stored.proportionateConstructionInterestPermitted
+      : undefined;
+
+  if (process.env.NODE_ENV !== "production") {
+    const clashes: Array<[string, unknown, unknown]> = [
+      ["proportionateCertFrequency", frequency, fallback.proportionateCertFrequency],
+      ["proportionateEscrowPercent", storedPercent, fallback.proportionateEscrowPercent],
+      ["proportionateSweepEnabled", storedSweep, fallback.proportionateSweepEnabled],
+      [
+        "proportionateConstructionInterestPermitted",
+        storedInterest,
+        fallback.proportionateConstructionInterestPermitted,
+      ],
+    ];
+    for (const [key, defined, incoming] of clashes) {
+      if (defined !== undefined && defined !== incoming) {
+        console.warn(
+          `[escrow] refused to overwrite stored ${key}=${String(defined)} with ${String(incoming)}`
+        );
+      }
+    }
+  }
+
+  return {
+    proportionateCertFrequency: frequency ?? fallback.proportionateCertFrequency,
+    proportionateEscrowPercent: storedPercent ?? fallback.proportionateEscrowPercent,
+    proportionateSweepEnabled: storedSweep ?? fallback.proportionateSweepEnabled,
+    proportionateConstructionInterestPermitted:
+      storedInterest ?? fallback.proportionateConstructionInterestPermitted,
+  };
+}
+
+/**
+ * Deck note for the designated-account rule. Undefined unless this location's
+ * default is the rule — Others projects never receive it.
+ */
+export function proportionateLocalRegimeNote(opts: {
+  country?: string | null;
+  countryCode?: string | null;
+  city?: string | null;
+  buildingType?: string | null;
+  buildingSubType?: string | null;
+}): string | undefined {
+  if (defaultEscrowRuleForLocation(opts) !== "proportionate_escrow") return undefined;
+  return PROPORTIONATE_LOCAL_REGIME_NOTE;
 }
 
 /** Percent of building works held back from the contractor until CP+24. */
@@ -139,14 +331,14 @@ export function isAbuDhabiCity(city?: string | null): boolean {
 /**
  * Sale feasibility escrow slide.
  * Residential subtypes always render it. Commercial and warehouse decks render it
- * only when the selected rule is the project guarantee account.
+ * when the selected rule is the project guarantee account or proportionate escrow.
  */
 export function shouldRenderSaleEscrowSlide(
   buildingSubType: string | null | undefined,
   rule: EscrowRuleId
 ): boolean {
   if ((buildingSubType ?? "").toLowerCase().includes("residential")) return true;
-  return rule === "project_guarantee_account";
+  return rule === "project_guarantee_account" || rule === "proportionate_escrow";
 }
 
 function normCountry(country?: string | null): string {
@@ -235,12 +427,13 @@ export function isCommercialSaleAsset(opts: {
 
 /**
  * Location + asset class pre-select a default only. Never hard-link a country to a rule
- * in the engine. All six tabs remain selectable everywhere.
+ * in the engine. All seven tabs remain selectable everywhere.
  *
  * Dubai → staged (all asset classes); Abu Dhabi → project guarantee account (all asset classes);
  * Australia → 10/90 (all asset classes);
  * Malaysia → progress (residential) / none (commercial);
  * China → closed-loop (residential landed / high-rise only);
+ * India → proportionate escrow (all sale asset classes);
  * other emirates and all other locations → none.
  */
 export function defaultEscrowRuleForLocation(opts: {
@@ -266,6 +459,7 @@ export function defaultEscrowRuleForLocation(opts: {
   ) {
     return "closed_loop_escrow";
   }
+  if (isIndiaLocation(opts.country, opts.countryCode)) return "proportionate_escrow";
   return "none";
 }
 
@@ -328,6 +522,9 @@ export function normalizeEscrowRuleId(
     v === "guarantee_account"
   ) {
     return "project_guarantee_account";
+  }
+  if (v === "proportionate_escrow" || v === "proportionate") {
+    return "proportionate_escrow";
   }
   if (v === "none") return "none";
   return "none";

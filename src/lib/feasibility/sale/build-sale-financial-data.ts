@@ -24,8 +24,13 @@ import {
   isMalaysiaLocation,
   isUaeLocation,
   resolveClosedLoopToppingOut,
+  proportionateLocalRegimeNote,
   resolveGuaranteeRetentionBasis,
   resolveGuaranteeRetentionMonths,
+  resolveProportionateCertFrequency,
+  resolveProportionateEscrowPercent,
+  resolveProportionateInterestPermitted,
+  resolveProportionateSweepEnabled,
   resolveSaleProjectEscrowRule,
 } from "@/lib/financing-engine/escrow-rules";
 import type {
@@ -494,6 +499,16 @@ export function buildSaleEscrowWithdrawalData(
     locationDefault === "project_guarantee_account"
   ) {
     localRegimeNote = "Abu Dhabi ADREC/DMT";
+  } else if (
+    rule === "proportionate_escrow" &&
+    locationDefault === "proportionate_escrow"
+  ) {
+    localRegimeNote = proportionateLocalRegimeNote({
+      country,
+      city,
+      buildingType: bundle.buildingType,
+      buildingSubType: bundle.buildingSubType,
+    });
   }
 
   const guaranteeFunding =
@@ -578,6 +593,25 @@ export function buildSaleEscrowWithdrawalData(
             interestPermitted: ec?.guaranteeInterestPermitted !== false,
             retentionFundedAtRelease: guaranteeFunding?.funded,
             retentionTargetAtRelease: guaranteeFunding?.target,
+          }
+        : undefined,
+    proportionateConfig:
+      rule === "proportionate_escrow"
+        ? {
+            splitPercent: resolveProportionateEscrowPercent(
+              ec?.proportionateEscrowPercent,
+              { country, countryCode: bundle.projectInfo?.countryCode }
+            ),
+            certFrequency: resolveProportionateCertFrequency(
+              ec?.proportionateCertFrequency
+            ),
+            sweepEnabled: resolveProportionateSweepEnabled(
+              ec?.proportionateSweepEnabled,
+              { country, countryCode: bundle.projectInfo?.countryCode }
+            ),
+            interestPermitted: resolveProportionateInterestPermitted(
+              ec?.proportionateConstructionInterestPermitted
+            ),
           }
         : undefined,
     closedLoopConfig:

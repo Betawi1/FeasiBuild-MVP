@@ -32,6 +32,10 @@ export interface AiInputProps {
   onManualOverride?: () => void;
   /** Fired when the user clicks Reset to benchmark inside this control. */
   onResetOverride?: () => void;
+  /**
+   * Non-mutating review hint (value is unchanged). Rendered in amber under the input.
+   */
+  guardrailHint?: string;
   disabled?: boolean;
   className?: string;
 }
@@ -60,6 +64,7 @@ export const AiInput: FC<AiInputProps> = ({
   benchmarkValue,
   onManualOverride,
   onResetOverride,
+  guardrailHint,
   disabled = false,
   className = "",
 }) => {
@@ -224,6 +229,10 @@ export const AiInput: FC<AiInputProps> = ({
       {resolvedHelperText && (
         <p className="text-xs text-slate-500">{resolvedHelperText}</p>
       )}
+
+      {guardrailHint ? (
+        <p className="text-xs text-amber-400">{guardrailHint}</p>
+      ) : null}
 
       {isOverride && (hasBenchmark || originalValue !== "") && (
         <span

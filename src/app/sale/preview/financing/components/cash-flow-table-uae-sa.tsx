@@ -21,6 +21,11 @@ export type MonthlyRow = {
   lenderCashSweep?: number;
   developerProfitWithdrawal?: number;
   defectRetentionRelease?: number;
+  escrowDeposit?: number;
+  developerFreeCash?: number;
+  proportionateWithdrawal?: number;
+  residualRelease?: number;
+  proportionateSplitPercent?: number;
 
   constructionCosts: number;
   softCosts: number;
@@ -66,6 +71,8 @@ export type CashFlowTableUaeSaProps = {
   showFfe?: boolean;
   /** Project guarantee account ledger rows, in place of generic release rows. */
   showGuaranteeLedger?: boolean;
+  /** Proportionate escrow ledger rows, in place of generic release rows. */
+  showProportionateLedger?: boolean;
 };
 
 export function CashFlowTableUaeSa({
@@ -74,6 +81,7 @@ export function CashFlowTableUaeSa({
   hideEscrowRows = false,
   showFfe = false,
   showGuaranteeLedger = false,
+  showProportionateLedger = false,
 }: CashFlowTableUaeSaProps) {
   if (!data || data.length === 0) {
     return (
@@ -148,6 +156,17 @@ export function CashFlowTableUaeSa({
           <TableRow label="Sales proceeds" data={data} getValue={(r) => r.salesProceeds} formatCurrency={formatCurrency} />
           {!hideEscrowRows && (
             <>
+              {showProportionateLedger && (
+                <TableRow
+                  label={`Escrow deposit (${
+                    data.find((r) => (r.proportionateSplitPercent || 0) > 0)
+                      ?.proportionateSplitPercent ?? 70
+                  }%)`}
+                  data={data}
+                  getValue={(r) => r.escrowDeposit || 0}
+                  formatCurrency={formatCurrency}
+                />
+              )}
               <TableRow
                 label="Escrow account balance"
                 data={data}
@@ -168,7 +187,38 @@ export function CashFlowTableUaeSa({
                 formatCurrency={formatCurrency}
                 isNegative
               />
-              {showGuaranteeLedger ? (
+              {showProportionateLedger ? (
+                <>
+                  <TableRow
+                    label="Developer free cash (remainder)"
+                    data={data}
+                    getValue={(r) => r.developerFreeCash || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Proportionate withdrawal"
+                    data={data}
+                    getValue={(r) => r.proportionateWithdrawal || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Lender cash sweep"
+                    data={data}
+                    getValue={(r) => r.lenderCashSweep || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Residual release at completion"
+                    data={data}
+                    getValue={(r) => r.residualRelease || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                </>
+              ) : showGuaranteeLedger ? (
                 <>
                   <TableRow
                     label="Permitted cost reimbursement"

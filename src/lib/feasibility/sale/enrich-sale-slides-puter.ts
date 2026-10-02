@@ -5,11 +5,18 @@ import type { SaleFeasibilityBundle } from "@/types/feasibility";
 import { getCachedContent, setCachedContent } from "@/lib/cache-service";
 import { aiProvider } from "@/lib/ai-service";
 import { mapInEnrichmentOrder } from "@/lib/feasibility/enrichment-pool";
+import { releaseActivePuterStream } from "@/lib/feasibility/enrichment-chat";
 import {
   asFallbackCommentary,
   isAiFallbackCommentary,
   resetEnrichmentDiagnostics,
 } from "@/lib/feasibility/enrichment-ladder";
+import {
+  beginEnrichmentMemoryRun,
+  finishEnrichmentMemoryRun,
+  logSlideHeap,
+  noteCacheHit,
+} from "@/lib/feasibility/enrichment-memory";
 import {
   logStoreEnrichmentDiagnostics,
   publishBaseDeck,
@@ -246,6 +253,9 @@ export async function enrichSaleSlidesWithPuter(
       buildingSubType: bundle.buildingSubType,
     });
     throw error;
+  } finally {
+    await releaseActivePuterStream();
+    finishEnrichmentMemoryRun();
   }
 }
 
@@ -265,10 +275,20 @@ async function enrichSaleSlidesWithPuterImpl(
     options;
   resetEnrichmentDiagnostics();
   resetDependencyChangeLog();
+  const retrying = Boolean(onlySlideIds?.length);
+  if (!retrying) {
+    useFeasibilityStore.setState({
+      slides: [],
+      report: null,
+      marketResearchCache: null,
+      aiSections: {},
+      aiBannerDismissed: false,
+    });
+  }
+  beginEnrichmentMemoryRun();
   const config = getSaleStreamConfig(bundle.buildingSubType);
   const newHashes = buildSaleBundleHashes(bundle);
   const enriched = [...slides];
-  const retrying = Boolean(onlySlideIds?.length);
   const commentaryQuality = new Map<string, "ok" | "fallback">();
 
   if (retrying) {
@@ -302,6 +322,7 @@ async function enrichSaleSlidesWithPuterImpl(
         !isAiFallbackCommentary(cached.paragraphs)
       ) {
         console.log(`[Layer 2 Cache Hit] ${slideId} — dependencies unchanged`);
+        noteCacheHit();
         paragraphs = cached.paragraphs;
         charts = cached.charts;
       }
@@ -351,6 +372,7 @@ async function enrichSaleSlidesWithPuterImpl(
         chartFailed ? "failed" : commentaryStatus
       );
     }
+    logSlideHeap(slideId);
   }
 
   const marketNeedsRegen =
@@ -390,6 +412,7 @@ async function enrichSaleSlidesWithPuterImpl(
       );
       if (cachedCharts?.length) {
         console.log(`[Layer 2 Chart Cache Hit] ${slideId}`);
+        noteCacheHit();
         charts = cachedCharts.map(withTallChart);
         fromAi = true;
       }
@@ -427,6 +450,7 @@ async function enrichSaleSlidesWithPuterImpl(
       slide,
       fromAi && commentaryStatus === "ok" ? "ok" : "fallback"
     );
+    logSlideHeap(slideId);
   });
 
   const withMarketCharts = enriched;

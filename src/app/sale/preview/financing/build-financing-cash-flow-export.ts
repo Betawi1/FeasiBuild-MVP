@@ -392,15 +392,39 @@ function guaranteeSpecs(showFfe: boolean): ExportRowSpec[] {
   return specs;
 }
 
+function proportionateSpecs(rows: EngineMonthlyRow[], showFfe: boolean): ExportRowSpec[] {
+  const split =
+    rows.find((r) => (r.proportionateSplitPercent || 0) > 0)?.proportionateSplitPercent ?? 70;
+  const specs = uaeSpecs(false, showFfe).filter(
+    (spec) => spec.label !== "Escrow releases" && spec.label !== "Progress withdrawal"
+  );
+  const salesIdx = specs.findIndex((spec) => spec.label === "Sales proceeds");
+  specs.splice(salesIdx + 1, 0, {
+    label: `Escrow deposit (${split}%)`,
+    get: (r) => r.escrowDeposit || 0,
+  });
+  const feeIdx = specs.findIndex((spec) => spec.label === "Escrow account fees");
+  const ledger: ExportRowSpec[] = [
+    { label: "Developer free cash (remainder)", get: (r) => r.developerFreeCash || 0 },
+    { label: "Proportionate withdrawal", get: (r) => r.proportionateWithdrawal || 0 },
+    { label: "Lender cash sweep", get: (r) => r.lenderCashSweep || 0 },
+    { label: "Residual release at completion", get: (r) => r.residualRelease || 0 },
+  ];
+  specs.splice(feeIdx + 1, 0, ...ledger);
+  return specs;
+}
+
 function specsForEscrowRule(
   rule: EscrowRuleId,
   hideEscrowRows: boolean,
   showFfe: boolean,
-  showHdaDeposit: boolean
+  showHdaDeposit: boolean,
+  rows: EngineMonthlyRow[]
 ): ExportRowSpec[] {
   if (rule === "progress") return malaysiaSpecs(hideEscrowRows, showFfe, showHdaDeposit);
   if (rule === "ten_ninety") return australiaSpecs(hideEscrowRows, showFfe);
   if (rule === "project_guarantee_account") return guaranteeSpecs(showFfe);
+  if (rule === "proportionate_escrow") return proportionateSpecs(rows, showFfe);
   return uaeSpecs(hideEscrowRows, showFfe);
 }
 
@@ -462,7 +486,8 @@ export function buildFinancingCashFlowExportRows(
     rule,
     hideEscrowRows,
     showFfe,
-    includeHdaDeposit
+    includeHdaDeposit,
+    dataRows
   )) {
     pushSection(out, spec, dataRows);
   }

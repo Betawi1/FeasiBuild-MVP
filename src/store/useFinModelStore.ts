@@ -31,6 +31,10 @@ import {
   saleC1BuaInputTouched,
 } from "@/lib/feasibility/sale/sale-bua";
 import { alignStaleFinancingConstructionPeriod } from "@/lib/construction-end";
+import {
+  defaultEscrowDepositRatePercent,
+  fillUndefinedProportionateEscrow,
+} from "@/lib/financing-engine/escrow-rules";
 import { buildRecommendationQuery } from "../app/sale/utils/db-mapping";
 import {
   getRecommendations,
@@ -1462,6 +1466,11 @@ export type AiResearchData = {
     land_tdc_target_pct?: { min: number; max: number; recommended: number };
     dc_tdc_target_pct?: { min: number; max: number; recommended: number };
   };
+  /**
+   * Review hints only. A flag must not change the stored rate.
+   * Example: "40% below benchmark - review" or "zero rate - review".
+   */
+  guardrailFlags?: Record<string, string>;
   /** Fingerprint of inputs used when this research was generated */
   _researchKey?: string;
 };
@@ -1783,6 +1792,7 @@ export type FinancingEscrowConfig = {
     | "progress"
     | "closed_loop_escrow"
     | "project_guarantee_account"
+    | "proportionate_escrow"
     | "none"
     | "malaysia"
     | "uae"
@@ -1841,6 +1851,16 @@ export type FinancingEscrowConfig = {
   guaranteeRetentionMonths?: number;
   /** When true, construction-loan interest payments are a permitted escrow use. Default true. */
   guaranteeInterestPermitted?: boolean;
+  /**
+   * Proportionate escrow. India locks the split at 70 and the sweep on.
+   * Other locations keep both editable. There is no land-equity overlay.
+   */
+  proportionateEscrowPercent?: number;
+  /** Initial value is monthly. Quarterly is an explicit store write. */
+  proportionateCertFrequency?: "monthly" | "quarterly";
+  proportionateSweepEnabled?: boolean;
+  /** Construction-loan interest paid in cash may enter the entitlement. Default true. */
+  proportionateConstructionInterestPermitted?: boolean;
 };
 
 export type Financing = {
@@ -1882,6 +1902,11 @@ export type Financing = {
   financingModel?: "commercial" | "residential";
   escrowSetupFee?: number;
   escrowManagementFeePct?: number;
+  /**
+   * Annual yield on escrow/trust balances, in percent points (7 = 7% p.a.).
+   * Missing only on a project that has never stored it; load fills the jurisdiction default.
+   */
+  escrowDepositRatePercent?: number;
   /** Malaysia HDA deposit % of construction costs (percent points). */
   hdaDepositPct?: number;
   hdaDepositEnabled?: boolean;
@@ -2370,6 +2395,51 @@ export const defaultExitAssumptions: ProjectIRRExitAssumptions = {
   sellingCosts: 3.0,
 };
 
+const PROPORTIONATE_ESCROW_KEYS = [
+  "proportionateCertFrequency",
+  "proportionateEscrowPercent",
+  "proportionateSweepEnabled",
+  "proportionateConstructionInterestPermitted",
+] as const;
+
+/** Deep-merge escrow config. A defined proportionate field is never replaced by an omitted or undefined default. */
+function mergeEscrowConfig(
+  prev: FinancingEscrowConfig | undefined,
+  next: FinancingEscrowConfig
+): FinancingEscrowConfig {
+  const merged = {
+    ...prev,
+    ...next,
+    ...(prev?.malaysia || next.malaysia
+      ? { malaysia: { ...prev?.malaysia, ...next.malaysia } }
+      : {}),
+    ...(prev?.uaeSa || next.uaeSa
+      ? { uaeSa: { ...prev?.uaeSa, ...next.uaeSa } }
+      : {}),
+    ...(prev?.australia || next.australia
+      ? { australia: { ...prev?.australia, ...next.australia } }
+      : {}),
+    ...(prev?.closedLoop || next.closedLoop
+      ? { closedLoop: { ...prev?.closedLoop, ...next.closedLoop } }
+      : {}),
+  };
+
+  for (const key of PROPORTIONATE_ESCROW_KEYS) {
+    const prevVal = prev?.[key];
+    const nextHas = Object.prototype.hasOwnProperty.call(next, key);
+    if (prevVal !== undefined && nextHas && next[key] === undefined) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          `[escrow] refused to overwrite stored ${key}=${String(prevVal)} with an empty default`
+        );
+      }
+      (merged as Record<string, unknown>)[key] = prevVal;
+    }
+  }
+
+  return merged as FinancingEscrowConfig;
+}
+
 const DEFAULT_FINANCING_CONFIG: FinancingConfig = {
   loanToCostPercent: 60,
   maxLtvPercent: 60,
@@ -2471,6 +2541,13 @@ const defaultFinancing: Financing = {
   certificationInterval: 3,
   autoCalculateMilestoneMonths: true,
   overrideMilestoneMonths: undefined,
+
+  escrowConfig: {
+    proportionateCertFrequency: "monthly",
+    proportionateEscrowPercent: 70,
+    proportionateSweepEnabled: true,
+    proportionateConstructionInterestPermitted: true,
+  },
 
   // Step 4 drawdown tabs (UI-level)
   drawdownActiveTab: "scurve",
@@ -3726,6 +3803,9 @@ const useFinModelStore = create<FinModelStore>()(
           const financing: Financing = {
             ...prev,
             ...data,
+            ...(data.escrowConfig && {
+              escrowConfig: mergeEscrowConfig(prev.escrowConfig, data.escrowConfig),
+            }),
             ...(data.landFinancing && {
               landFinancing: {
                 ...prev.landFinancing,
@@ -4000,6 +4080,15 @@ const useFinModelStore = create<FinModelStore>()(
               savedFin?.constructionPeriodMonths,
               c1Period
             ),
+            escrowConfig: fillUndefinedProportionateEscrow(savedFin?.escrowConfig),
+            escrowDepositRatePercent:
+              typeof savedFin?.escrowDepositRatePercent === "number" &&
+              Number.isFinite(savedFin.escrowDepositRatePercent)
+                ? savedFin.escrowDepositRatePercent
+                : defaultEscrowDepositRatePercent({
+                    country: savedData.projectInfo?.country,
+                    countryCode: savedData.projectInfo?.countryCode,
+                  }),
           };
           const loaded =
             stream === "sale"

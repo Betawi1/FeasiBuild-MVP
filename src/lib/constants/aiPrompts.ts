@@ -119,6 +119,11 @@ export type AiResearchResult = {
     land_tdc_target_pct?: AiGuardrailRange;
     dc_tdc_target_pct?: AiGuardrailRange;
   };
+  /**
+   * Non-mutating review hints. Never a substitute for a payload number.
+   * Example: building_rate_psf → "40% below benchmark - review".
+   */
+  guardrailFlags?: Record<string, string>;
 };
 
 // Land Use Category Mapping for AI Research
@@ -1573,9 +1578,65 @@ function pickReasoningNotes(
   return Object.keys(notes).length ? notes : undefined;
 }
 
+type ShareSpec = { out: string; keys: string[] };
+
+/**
+ * Copy a percentage breakdown from the payload.
+ * Omitted group → undefined (callers keep the grey benchmark defaults).
+ * Present group → AI numbers only. If every share is present and the sum
+ * is not 100, scale those AI numbers. Never backfill a missing share
+ * from the benchmark split.
+ */
+function readShareBreakdown(
+  raw: Record<string, unknown>,
+  specs: ShareSpec[]
+): Record<string, number> | undefined {
+  if (Object.keys(raw).length === 0) return undefined;
+  const values: Record<string, number> = {};
+  for (const spec of specs) {
+    const value = num(...spec.keys.map((key) => raw[key]));
+    if (value != null) values[spec.out] = value;
+  }
+  if (Object.keys(values).length === 0) return undefined;
+  if (specs.every((spec) => values[spec.out] != null)) {
+    const ordered = specs.map((spec) => values[spec.out]!);
+    const sum = ordered.reduce((total, part) => total + part, 0);
+    if (sum > 0 && Math.abs(sum - 100) > 0.05) {
+      const scaled = ordered.map((part) => (part / sum) * 100);
+      const head = scaled.slice(0, -1).reduce((total, part) => total + part, 0);
+      scaled[scaled.length - 1] = 100 - head;
+      specs.forEach((spec, index) => {
+        values[spec.out] = Math.round(scaled[index]! * 100) / 100;
+      });
+    }
+  }
+  return values;
+}
+
+const POWC_SHARE_SPECS: ShareSpec[] = [
+  {
+    out: "site_establishment_pct",
+    keys: ["site_establishment_pct", "site_est_pct", "siteEstablishment"],
+  },
+  { out: "overhead_pct", keys: ["overhead_pct", "overhead"] },
+  {
+    out: "authority_fees_pct",
+    keys: ["authority_fees_pct", "authority_pct", "authorityFees"],
+  },
+];
+
+const SC_SHARE_SPECS: ShareSpec[] = [
+  { out: "architect_pct", keys: ["architect_pct", "architect"] },
+  { out: "pm_pct", keys: ["pm_pct", "projectManagement"] },
+  { out: "engineering_pct", keys: ["engineering_pct", "engineering"] },
+  { out: "geotech_pct", keys: ["geotech_pct", "geotechnical"] },
+  { out: "other_pct", keys: ["other_pct", "otherFees"] },
+];
+
 /**
  * Normalize flat or partially-nested AI JSON into the store's AiResearchData shape.
  * Accepts both the nested schema and legacy flat keys (buildingRate, softCostsPercent, etc.).
+ * Present numeric fields are copied through. They are not floored to a benchmark.
  */
 export function normalizeAiResearchData(raw: unknown): AiResearchResult {
   const root = asRecord(raw) ?? {};
@@ -1587,12 +1648,24 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
   const powcRaw = asRecord(c1Raw.powc_breakdown) ?? {};
   const scRaw = asRecord(c1Raw.sc_breakdown) ?? {};
 
-  const building =
-    num(ratesRaw.building_rate_psf, ratesRaw.buildingRate, c1Raw.buildingRate, c1Raw.building_rate_psf) ?? 0;
-  const parking =
-    num(ratesRaw.parking_rate_psf, ratesRaw.parkingRate, c1Raw.parkingRate, c1Raw.parking_rate_psf) ?? 0;
-  const basement =
-    num(ratesRaw.basement_rate_psf, ratesRaw.basementRate, c1Raw.basementRate, c1Raw.basement_rate_psf) ?? 0;
+  const building = num(
+    ratesRaw.building_rate_psf,
+    ratesRaw.buildingRate,
+    c1Raw.buildingRate,
+    c1Raw.building_rate_psf
+  );
+  const parking = num(
+    ratesRaw.parking_rate_psf,
+    ratesRaw.parkingRate,
+    c1Raw.parkingRate,
+    c1Raw.parking_rate_psf
+  );
+  const basement = num(
+    ratesRaw.basement_rate_psf,
+    ratesRaw.basementRate,
+    c1Raw.basementRate,
+    c1Raw.basement_rate_psf
+  );
   const infrastructure = num(
     ratesRaw.infrastructure_rate_psf,
     ratesRaw.infrastructureRate,
@@ -1642,8 +1715,8 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
     ratesRaw.professionalFeesPercent
   );
 
-  const scPct = num(softRaw.sc_percentage, softRaw.softCostsPercent, c1Raw.softCostsPercent, c1Raw.sc_percentage) ?? 0;
-  const powcPct = num(softRaw.powc_percentage, softRaw.powcPercent, c1Raw.powcPercent, c1Raw.powc_percentage) ?? 0;
+  const scPct = num(softRaw.sc_percentage, softRaw.softCostsPercent, c1Raw.softCostsPercent, c1Raw.sc_percentage);
+  const powcPct = num(softRaw.powc_percentage, softRaw.powcPercent, c1Raw.powcPercent, c1Raw.powc_percentage);
 
   // ffe_percentage may be { recommended, min_range, max_range } OR a bare number
   const ffeRaw =
@@ -1657,26 +1730,39 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
       softRaw.ffePercent,
       typeof c1Raw.ffe_percentage === "number" ? c1Raw.ffe_percentage : undefined,
       c1Raw.ffePercent
-    ) ?? 0;
-  const ffeMin = num(ffeRaw.min_range, ffeRaw.min) ?? Math.max(0, ffeRec * 0.8);
-  const ffeMax = num(ffeRaw.max_range, ffeRaw.max) ?? ffeRec * 1.2;
+    );
+  const ffeMin =
+    ffeRec != null
+      ? (num(ffeRaw.min_range, ffeRaw.min) ?? Math.max(0, ffeRec * 0.8))
+      : undefined;
+  const ffeMax =
+    ffeRec != null
+      ? (num(ffeRaw.max_range, ffeRaw.max) ?? ffeRec * 1.2)
+      : undefined;
 
   console.log("🔧 FFE Extraction Debug:");
   console.log("- softRaw.ffe_percentage:", softRaw.ffe_percentage);
   console.log("- ffeRaw:", ffeRaw);
   console.log("- ffeRec (recommended):", ffeRec);
 
-  const landRate = num(c1Raw.land_rate_psf, c1Raw.landRate) ?? 0;
-  const months =
-    num(periodRaw.months, periodRaw.constructionPeriodMonths, c1Raw.constructionPeriodMonths, c1Raw.months) ?? 30;
+  const landRate = num(c1Raw.land_rate_psf, c1Raw.landRate);
+  const months = num(
+    periodRaw.months,
+    periodRaw.constructionPeriodMonths,
+    c1Raw.constructionPeriodMonths,
+    c1Raw.months
+  );
   const range =
-    (typeof periodRaw.range === "string" && periodRaw.range) ||
-    `${Math.max(6, months - 6)}-${months + 6}`;
+    months != null
+      ? (typeof periodRaw.range === "string" && periodRaw.range) ||
+        `${Math.max(6, months - 6)}-${months + 6}`
+      : undefined;
 
-  const stage1 = num(sCurveRaw.stage_1_pct, sCurveRaw.stage1Percent, c1Raw.stage1Percent) ?? 10;
-  const stage2 = num(sCurveRaw.stage_2_pct, sCurveRaw.stage2Percent, c1Raw.stage2Percent) ?? 20;
-  const stage3 = num(sCurveRaw.stage_3_pct, sCurveRaw.stage3Percent, c1Raw.stage3Percent) ?? 40;
-  const stage4 = num(sCurveRaw.stage_4_pct, sCurveRaw.stage4Percent, c1Raw.stage4Percent) ?? 30;
+  const stage1 = num(sCurveRaw.stage_1_pct, sCurveRaw.stage1Percent, c1Raw.stage1Percent);
+  const stage2 = num(sCurveRaw.stage_2_pct, sCurveRaw.stage2Percent, c1Raw.stage2Percent);
+  const stage3 = num(sCurveRaw.stage_3_pct, sCurveRaw.stage3Percent, c1Raw.stage3Percent);
+  const stage4 = num(sCurveRaw.stage_4_pct, sCurveRaw.stage4Percent, c1Raw.stage4Percent);
+  const hasScurve = [stage1, stage2, stage3, stage4].some((value) => value != null);
 
   const c1Notes = pickReasoningNotes(c1Raw);
 
@@ -1887,6 +1973,9 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
     }
   }
 
+  const powcBreakdown = readShareBreakdown(powcRaw, POWC_SHARE_SPECS);
+  const scBreakdown = readShareBreakdown(scRaw, SC_SHARE_SPECS);
+
   const hintsRaw = asRecord(root.hints);
   const guardRaw = asRecord(root.guardrails);
   const landGuard = asRecord(guardRaw?.land_tdc_target_pct);
@@ -1897,9 +1986,9 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
     ...(fxRateToUsd != null ? { fx_rate_to_usd: fxRateToUsd } : {}),
     c1_development: {
       construction_rates: {
-        building_rate_psf: building,
-        parking_rate_psf: parking,
-        basement_rate_psf: basement,
+        ...(building !== undefined ? { building_rate_psf: building } : {}),
+        ...(parking !== undefined ? { parking_rate_psf: parking } : {}),
+        ...(basement !== undefined ? { basement_rate_psf: basement } : {}),
         ...(infrastructure !== undefined ? { infrastructure_rate_psf: infrastructure } : {}),
         ...(siteYardRate !== undefined ? { site_yard_rate_psf: siteYardRate } : {}),
         ...(dockDoorCost !== undefined
@@ -1931,53 +2020,48 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
           : {}),
       },
       soft_costs: {
-        sc_percentage: scPct,
-        powc_percentage: powcPct,
-        ffe_percentage: {
-          recommended: ffeRec,
-          min_range: ffeMin,
-          max_range: ffeMax,
-          ...(typeof ffeRaw.justification === "string"
-            ? { justification: ffeRaw.justification }
-            : {}),
-        },
-      },
-      land_rate_psf: landRate,
-      construction_period: {
-        months,
-        range,
-        ...(typeof periodRaw.justification === "string"
-          ? { justification: periodRaw.justification }
+        ...(scPct !== undefined ? { sc_percentage: scPct } : {}),
+        ...(powcPct !== undefined ? { powc_percentage: powcPct } : {}),
+        ...(ffeRec !== undefined
+          ? {
+              ffe_percentage: {
+                recommended: ffeRec,
+                min_range: ffeMin ?? ffeRec,
+                max_range: ffeMax ?? ffeRec,
+                ...(typeof ffeRaw.justification === "string"
+                  ? { justification: ffeRaw.justification }
+                  : {}),
+              },
+            }
           : {}),
       },
-      s_curve: {
-        stage_1_pct: stage1,
-        stage_2_pct: stage2,
-        stage_3_pct: stage3,
-        stage_4_pct: stage4,
-        ...(typeof sCurveRaw.justification === "string"
-          ? { justification: sCurveRaw.justification }
-          : {}),
-      },
-      powc_breakdown: {
-        site_establishment_pct:
-          num(
-            powcRaw.site_establishment_pct,
-            powcRaw.site_est_pct,
-            powcRaw.siteEstablishment
-          ) ?? 40,
-        overhead_pct: num(powcRaw.overhead_pct, powcRaw.overhead) ?? 12,
-        authority_fees_pct:
-          num(powcRaw.authority_fees_pct, powcRaw.authority_pct, powcRaw.authorityFees) ??
-          48,
-      },
-      sc_breakdown: {
-        architect_pct: num(scRaw.architect_pct, scRaw.architect) ?? 30,
-        pm_pct: num(scRaw.pm_pct, scRaw.projectManagement) ?? 20,
-        engineering_pct: num(scRaw.engineering_pct, scRaw.engineering) ?? 30,
-        geotech_pct: num(scRaw.geotech_pct, scRaw.geotechnical) ?? 10,
-        other_pct: num(scRaw.other_pct, scRaw.otherFees) ?? 10,
-      },
+      ...(landRate !== undefined ? { land_rate_psf: landRate } : {}),
+      ...(months !== undefined
+        ? {
+            construction_period: {
+              months,
+              range,
+              ...(typeof periodRaw.justification === "string"
+                ? { justification: periodRaw.justification }
+                : {}),
+            },
+          }
+        : {}),
+      ...(hasScurve
+        ? {
+            s_curve: {
+              ...(stage1 !== undefined ? { stage_1_pct: stage1 } : {}),
+              ...(stage2 !== undefined ? { stage_2_pct: stage2 } : {}),
+              ...(stage3 !== undefined ? { stage_3_pct: stage3 } : {}),
+              ...(stage4 !== undefined ? { stage_4_pct: stage4 } : {}),
+              ...(typeof sCurveRaw.justification === "string"
+                ? { justification: sCurveRaw.justification }
+                : {}),
+            },
+          }
+        : {}),
+      ...(powcBreakdown ? { powc_breakdown: powcBreakdown } : {}),
+      ...(scBreakdown ? { sc_breakdown: scBreakdown } : {}),
       ...(c1Notes ? { reasoning_notes: c1Notes } : {}),
     },
     ...(c2_operational ? { c2_operational } : {}),
@@ -1989,48 +2073,55 @@ export function normalizeAiResearchData(raw: unknown): AiResearchResult {
       ? (() => {
           const c2Raw = asRecord(root.c2_sales)!;
           const deductionsRaw = asRecord(c2Raw.deductions) ?? {};
-          const avgPrice =
-            num(
-              c2Raw.avg_sales_price_psf,
-              c2Raw.averageSellingPricePerSqft,
-              c2Raw.average_selling_price_psf,
-              c2Raw.avgSalesPrice,
-              c2Raw.salesPrice
-            ) ?? 0;
+          const avgPrice = num(
+            c2Raw.avg_sales_price_psf,
+            c2Raw.averageSellingPricePerSqft,
+            c2Raw.average_selling_price_psf,
+            c2Raw.avgSalesPrice,
+            c2Raw.salesPrice
+          );
+          const agentCommission = num(
+            deductionsRaw.agent_commission_pct,
+            deductionsRaw.agentCommissionPct,
+            deductionsRaw.broker_commission_pct,
+            c2Raw.agent_commission_pct
+          );
+          const vatPct = num(
+            deductionsRaw.vat_pct,
+            deductionsRaw.vatPercent,
+            deductionsRaw.vat,
+            c2Raw.vat_pct
+          );
+          const escrowFees = num(
+            deductionsRaw.escrow_fees_pct,
+            deductionsRaw.escrowFeePercent,
+            deductionsRaw.escrow_pct,
+            deductionsRaw.oqood_pct,
+            c2Raw.escrow_fees_pct
+          );
+          const salesDiscount = num(
+            deductionsRaw.avg_sales_discount_pct,
+            deductionsRaw.avgSalesDiscountPct,
+            deductionsRaw.sales_discount_pct,
+            c2Raw.avg_sales_discount_pct
+          );
           const salesNotes = pickReasoningNotes(c2Raw);
           return {
             c2_sales: {
-              avg_sales_price_psf: avgPrice,
+              ...(avgPrice !== undefined
+                ? { avg_sales_price_psf: avgPrice }
+                : {}),
               deductions: {
-                agent_commission_pct:
-                  num(
-                    deductionsRaw.agent_commission_pct,
-                    deductionsRaw.agentCommissionPct,
-                    deductionsRaw.broker_commission_pct,
-                    c2Raw.agent_commission_pct
-                  ) ?? 0,
-                vat_pct:
-                  num(
-                    deductionsRaw.vat_pct,
-                    deductionsRaw.vatPercent,
-                    deductionsRaw.vat,
-                    c2Raw.vat_pct
-                  ) ?? 0,
-                escrow_fees_pct:
-                  num(
-                    deductionsRaw.escrow_fees_pct,
-                    deductionsRaw.escrowFeePercent,
-                    deductionsRaw.escrow_pct,
-                    deductionsRaw.oqood_pct,
-                    c2Raw.escrow_fees_pct
-                  ) ?? 0,
-                avg_sales_discount_pct:
-                  num(
-                    deductionsRaw.avg_sales_discount_pct,
-                    deductionsRaw.avgSalesDiscountPct,
-                    deductionsRaw.sales_discount_pct,
-                    c2Raw.avg_sales_discount_pct
-                  ) ?? 0,
+                ...(agentCommission !== undefined
+                  ? { agent_commission_pct: agentCommission }
+                  : {}),
+                ...(vatPct !== undefined ? { vat_pct: vatPct } : {}),
+                ...(escrowFees !== undefined
+                  ? { escrow_fees_pct: escrowFees }
+                  : {}),
+                ...(salesDiscount !== undefined
+                  ? { avg_sales_discount_pct: salesDiscount }
+                  : {}),
               },
               ...(salesNotes ? { reasoning_notes: salesNotes } : {}),
             },
