@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 
 export default function FounderPage() {
@@ -24,68 +23,46 @@ export default function FounderPage() {
 
       {/* Hero Section */}
       <div className="max-w-6xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 items-start">
-          {/* Profile Image Placeholder */}
-          <div className="lg:col-span-1">
-            <div className="aspect-square rounded-2xl bg-gradient-to-br from-emerald-500 to-blue-600 p-1">
-              <div className="w-full h-full rounded-2xl bg-slate-900 flex items-center justify-center">
-                <div className="text-center p-8">
-                  <div className="relative w-48 h-48 mx-auto mb-6 rounded-full border-4 border-slate-700 overflow-hidden shadow-2xl">
-                    <Image
-                      src="/images/rashdan-profile.jpg"
-                      alt="Mohd Rashdan Bin Ibrahim"
-                      fill
-                      className="object-cover"
-                      priority
-                    />
-                  </div>
-                </div>
-              </div>
+        <h1 className="text-4xl font-bold text-white mb-2">Mohd Rashdan Bin Ibrahim</h1>
+        <p className="text-xl text-emerald-400 mb-6">Founder & CEO, FeasiBuild</p>
+
+        <div className="space-y-4 mb-8 text-lg leading-relaxed">
+          <p className="text-slate-300">
+            With over <strong className="text-white">30 years</strong> of experience structuring billions in real estate 
+            transactions across the Middle East and Southeast Asia, I built FeasiBuild to solve a problem I faced 
+            throughout my career: <strong className="text-white">feasibility studies took too long, cost too much, 
+            and created barriers between great ideas and bankable projects.</strong>
+          </p>
+          <p className="text-slate-300">
+            From structuring a <strong className="text-emerald-400">USD 100 million Shari'ah-compliant construction 
+            finance fund in Saudi Arabia</strong> to securing <strong className="text-emerald-400">AED 150 million 
+            in financing for Dubai developments</strong>, I've navigated the complexities of institutional real 
+            estate finance across Dubai, Abu Dhabi, Saudi Arabia, Kuwait, Oman, Malaysia, and beyond.
+          </p>
+          <p className="text-slate-300">
+            FeasiBuild combines this deep institutional expertise with cutting-edge AI to make professional-grade 
+            feasibility studies accessible to developers, investors, and consultants worldwide—delivering in 
+            minutes what used to take weeks.
+          </p>
+        </div>
+
+        {/* Key Achievements */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {[
+            { val: '30+', label: 'Years Experience' },
+            { val: '$2B+', label: 'Deals Structured' },
+            { val: '7+', label: 'Countries' },
+            { val: '50+', label: 'Major Projects' }
+          ].map((stat, i) => (
+            <div key={i} className="bg-slate-900 rounded-lg p-4 border border-slate-800 text-center">
+              <div className="text-2xl font-bold text-emerald-400 mb-1">{stat.val}</div>
+              <div className="text-xs text-slate-400 uppercase tracking-wide">{stat.label}</div>
             </div>
-          </div>
+          ))}
+        </div>
 
-          {/* Bio Content */}
-          <div className="lg:col-span-2">
-            <h1 className="text-4xl font-bold text-white mb-2">Mohd Rashdan Bin Ibrahim</h1>
-            <p className="text-xl text-emerald-400 mb-6">Founder & CEO, FeasiBuild</p>
-
-            <div className="space-y-4 mb-8 text-lg leading-relaxed">
-              <p className="text-slate-300">
-                With over <strong className="text-white">30 years</strong> of experience structuring billions in real estate 
-                transactions across the Middle East and Southeast Asia, I built FeasiBuild to solve a problem I faced 
-                throughout my career: <strong className="text-white">feasibility studies took too long, cost too much, 
-                and created barriers between great ideas and bankable projects.</strong>
-              </p>
-              <p className="text-slate-300">
-                From structuring a <strong className="text-emerald-400">USD 100 million Shari'ah-compliant construction 
-                finance fund in Saudi Arabia</strong> to securing <strong className="text-emerald-400">AED 150 million 
-                in financing for Dubai developments</strong>, I've navigated the complexities of institutional real 
-                estate finance across Dubai, Abu Dhabi, Saudi Arabia, Kuwait, Oman, Malaysia, and beyond.
-              </p>
-              <p className="text-slate-300">
-                FeasiBuild combines this deep institutional expertise with cutting-edge AI to make professional-grade 
-                feasibility studies accessible to developers, investors, and consultants worldwide—delivering in 
-                minutes what used to take weeks.
-              </p>
-            </div>
-
-            {/* Key Achievements */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              {[
-                { val: '30+', label: 'Years Experience' },
-                { val: '$2B+', label: 'Deals Structured' },
-                { val: '7+', label: 'Countries' },
-                { val: '50+', label: 'Major Projects' }
-              ].map((stat, i) => (
-                <div key={i} className="bg-slate-900 rounded-lg p-4 border border-slate-800 text-center">
-                  <div className="text-2xl font-bold text-emerald-400 mb-1">{stat.val}</div>
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">{stat.label}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* CTAs */}
-            <div className="flex flex-wrap items-center gap-4">
+        {/* CTAs */}
+        <div className="flex flex-wrap items-center gap-4">
               <a 
                 href="https://www.linkedin.com/in/morib" 
                 target="_blank" 
@@ -101,8 +78,6 @@ export default function FounderPage() {
                 Try FeasiBuild
               </Link>
             </div>
-          </div>
-        </div>
 
         {/* Notable Transactions */}
         <div className="mt-20">
