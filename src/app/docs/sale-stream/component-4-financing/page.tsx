@@ -18,7 +18,7 @@ export default function SaleComponent4Docs() {
           sales collections cover costs.
         </div>
         <p className="mt-4 text-sm text-slate-400 leading-relaxed">
-          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Abu Dhabi → Project Guarantee Account (all asset classes); Dubai → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial); China residential landed or high-rise → Closed-Loop; India → Proportionate Escrow (all sale asset classes). All seven rules remain selectable everywhere.
+          <strong className="text-white">Note:</strong> Commercial assets follow the same 8-step wizard and escrow mechanics as residential. Defaults: Abu Dhabi → Project Guarantee Account (all asset classes); Dubai → Staged Escrow (all asset classes); Australia → 10/90 (all asset classes); Malaysia → Progress Drawdown (residential) / No Escrow (commercial); China residential landed or high-rise → Closed-Loop; India → Proportionate Escrow (all sale asset classes); Saudi Arabia → Milestone & Retention (all sale asset classes). All eight rules remain selectable everywhere.
         </p>
       </div>
 
@@ -163,7 +163,7 @@ export default function SaleComponent4Docs() {
                 <strong className="text-white">KSA</strong>, the other emirates (<strong className="text-white">Abu Dhabi, Ras Al Khaimah, Sharjah, Ajman, Fujairah</strong>), and <strong className="text-white">all other countries</strong> are unlocked, range <strong className="text-white">30%</strong> to <strong className="text-white">100%</strong>.
               </p>
               <p className="text-sm text-slate-400 mt-2">
-                Selecting or switching the escrow withdrawal rule never changes the stored land equity percentage.
+                Selecting or switching the escrow withdrawal rule never changes the stored land equity percentage. While Milestone &amp; Retention is selected in Saudi Arabia, the control displays 100% and suspends the land term loan; leaving the rule restores the stored split.
               </p>
             </div>
 
@@ -258,7 +258,7 @@ export default function SaleComponent4Docs() {
         <div className="mb-10 border-l-2 border-emerald-500/30 pl-6">
           <h3 className="text-xl font-semibold text-emerald-400 mb-2">Step 5: Escrow Withdrawal Configuration</h3>
           <p className="text-slate-300 leading-relaxed mb-3">
-            Seven tabs, in order: <strong className="text-white">10/90 Rule</strong>, <strong className="text-white">Progress Drawdown Rule</strong>, <strong className="text-white">Staged Escrow Rule</strong>, <strong className="text-white">Closed-Loop Escrow Rule</strong>, <strong className="text-white">Project Guarantee Account Rule</strong>, <strong className="text-white">Proportionate Escrow Rule</strong>, and <strong className="text-white">No Escrow Rules</strong>. All seven remain selectable everywhere.
+            Eight tabs, in order: <strong className="text-white">10/90 Rule</strong>, <strong className="text-white">Progress Drawdown Rule</strong>, <strong className="text-white">Staged Escrow Rule</strong>, <strong className="text-white">Closed-Loop Escrow Rule</strong>, <strong className="text-white">Project Guarantee Account Rule</strong>, <strong className="text-white">Proportionate Escrow Rule</strong>, <strong className="text-white">Milestone & Retention Escrow Rule</strong>, and <strong className="text-white">No Escrow Rules</strong>. All eight remain selectable everywhere.
           </p>
           <p className="text-sm text-slate-400 leading-relaxed mb-4">
             These are withdrawal mechanisms, not country labels; the project&apos;s location only pre-selects a default.
@@ -273,7 +273,8 @@ export default function SaleComponent4Docs() {
               <li><strong className="text-white">Progress Drawdown Rule:</strong> Malaysia residential.</li>
               <li><strong className="text-white">Closed-Loop Escrow Rule:</strong> China residential landed or high-rise.</li>
               <li><strong className="text-white">Proportionate Escrow Rule:</strong> India — every city, all sale asset classes. The split is locked at 70% and the lender sweep is locked on for that location only.</li>
-              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, other UAE emirates, and every other location (KSA, Thailand, China commercial, …). All seven options remain selectable everywhere.</li>
+              <li><strong className="text-white">Milestone & Retention Escrow Rule:</strong> Saudi Arabia — all sale asset classes. The completion floor is locked at 20% and the lender sweep is locked on for that location only.</li>
+              <li><strong className="text-white">No Escrow Rules:</strong> Malaysia commercial, other UAE emirates, and every other location (Thailand, China commercial, …). All eight options remain selectable everywhere.</li>
             </ul>
           </div>
 
@@ -356,10 +357,27 @@ export default function SaleComponent4Docs() {
               </ul>
             </div>
 
+            <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-4">
+              <h4 className="text-orange-300 font-medium mb-1">Milestone & Retention Escrow Rule</h4>
+              <p className="text-xs text-slate-500 mb-2">Milestone & Retention Escrow Rule Configuration</p>
+              <p className="text-sm text-slate-400 mb-2">
+                Completion-floor and defect-liability regime. Default for Saudi Arabia across every sale asset class, including commercial and warehouse. Selectable anywhere else. The mechanism is not a country label.
+              </p>
+              <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
+                <li><strong>Inflows:</strong> 100% of sales proceeds enter the escrow account. There is no free-cash split.</li>
+                <li><strong>The 20% floor:</strong> until the project reaches 100% physical completion, the escrow balance must not fall below 20% of cumulative buyer collections (default; locked at 20% in Saudi Arabia, editable elsewhere). Withdrawals are capped to maintain this floor and land one month after the certified cost.</li>
+                <li><strong>Permitted uses:</strong> construction including contingency, all POWC buckets, soft costs excluding Other Fees, and construction-loan interest when it is paid in cash. When the land-and-financing toggle is on (default), the land cost row and financing repayment rows join the certified entitlement. Marketing and brokerage stay excluded.</li>
+                <li><strong>The 5% DLP hold:</strong> at completion, 5% of total construction cost (default) is retained for the defect-liability period (default 12 months, minimum 12), or replaced by a bank guarantee that retains no cash. The completion floor lifts, and the accumulated surplus becomes available, still capped by remaining entitlement. The construction lender is swept first when the sweep is on. Land loans are never swept.</li>
+                <li><strong>Release:</strong> at completion plus the DLP months the cash hold is paid to the developer and the account closes. A bank guarantee releases zero cash. No interest or fees accrue after closure.</li>
+                <li><strong>Horizon:</strong> max(CP, actual completion) + DLP months (default CP+12).</li>
+                <li><strong>Saudi Arabia overlay:</strong> while this rule is selected, land is 100% equity and the Step 3 land term loan is suspended. The stored land equity percent and loan inputs are not overwritten, so switching rules restores them. Other locations keep the land loan.</li>
+              </ul>
+            </div>
+
             <div className="rounded-lg border border-slate-700 bg-slate-900 p-4">
               <h4 className="text-white font-medium mb-2">No Escrow Rules</h4>
               <p className="text-sm text-slate-400 mb-3">
-                Default for Malaysia commercial and every location that does not map to one of the mechanisms above (including KSA and UAE emirates other than Dubai and Abu Dhabi). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply. Horizon is CP+6.
+                Default for Malaysia commercial and every location that does not map to one of the mechanisms above (including Thailand and UAE emirates other than Dubai and Abu Dhabi). Sales proceeds sweep directly to debt service and equity distribution; no escrow or trust accounts apply. Horizon is CP+6.
               </p>
               <p className="text-sm text-slate-400">
                 Optional toggle: <strong className="text-white">Sales reduce equity need (optional)</strong>.
@@ -369,7 +387,7 @@ export default function SaleComponent4Docs() {
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4">
             <h4 className="text-white font-medium mb-2">Escrow Account Fees</h4>
             <p className="text-sm text-slate-400 mb-2">
-              Shown on every escrow rule except No Escrow Rules, including the Project Guarantee Account Rule and the Proportionate Escrow Rule. Hidden when No Escrow Rules is selected.
+              Shown on every escrow rule except No Escrow Rules, including the Project Guarantee Account Rule, the Proportionate Escrow Rule, and the Milestone & Retention Escrow Rule. Hidden when No Escrow Rules is selected.
             </p>
             <p className="text-sm text-slate-400 mb-2">
               <strong className="text-white">Setup fee (flat amount)</strong> — one-time setup fee, e.g. 5,000.

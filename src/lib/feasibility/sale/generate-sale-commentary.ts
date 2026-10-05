@@ -17,7 +17,12 @@ import {
   resolveGuaranteeRetentionMonths,
   resolveProportionateCertFrequency,
   resolveProportionateEscrowPercent,
+  resolveMilestoneCompletionRetentionPercent,
+  resolveMilestoneDlpForm,
+  resolveMilestoneDlpRetentionMonths,
+  resolveMilestoneDlpRetentionPercent,
   resolveSaleProjectEscrowRule,
+  isSaudiLocation,
   GUARANTEE_DEFAULT_PROFIT_MILESTONE_PCT,
   GUARANTEE_DEFAULT_RETENTION_PCT,
   GUARANTEE_DEFAULT_THRESHOLD_PCT,
@@ -307,6 +312,31 @@ export function generateSaleCommentaryFallback(
           lines.push(
             `Retention account funded to ${money(funded)} of target ${money(target)} at release.`
           );
+        }
+        return lines;
+      }
+      if (rule === "milestone_retention") {
+        const stored = bundle.financing.escrowConfig;
+        const location = {
+          country: bundle.location.country,
+          countryCode: bundle.projectInfo?.countryCode,
+        };
+        const floor = resolveMilestoneCompletionRetentionPercent(
+          stored?.milestoneCompletionRetentionPercent,
+          location
+        );
+        const dlp = resolveMilestoneDlpRetentionPercent(stored?.milestoneDlpRetentionPercent);
+        const dlpMonths = resolveMilestoneDlpRetentionMonths(stored?.milestoneDlpRetentionMonths);
+        const form = resolveMilestoneDlpForm(stored?.milestoneDlpForm);
+        const lines = [
+          `${floor}% of cumulative collections is locked until completion. Withdrawals are capped so the escrow balance does not fall below that floor.`,
+          form === "bank_guarantee"
+            ? `${dlp}% of construction cost is secured by a bank guarantee for ${dlpMonths} months post-completion. No cash is retained for it.`
+            : `${dlp}% of construction cost is retained for ${dlpMonths} months post-completion.`,
+          "Permitted uses include construction, site preliminaries, consultants, land value payments, and financing repayments. Marketing and brokerage are excluded.",
+        ];
+        if (isSaudiLocation(location.country, location.countryCode)) {
+          lines.push("The land deed stays restricted until completion.");
         }
         return lines;
       }

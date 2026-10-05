@@ -33,6 +33,7 @@ import {
 import { alignStaleFinancingConstructionPeriod } from "@/lib/construction-end";
 import {
   defaultEscrowDepositRatePercent,
+  fillUndefinedMilestoneEscrow,
   fillUndefinedProportionateEscrow,
 } from "@/lib/financing-engine/escrow-rules";
 import { buildRecommendationQuery } from "../app/sale/utils/db-mapping";
@@ -1793,6 +1794,7 @@ export type FinancingEscrowConfig = {
     | "closed_loop_escrow"
     | "project_guarantee_account"
     | "proportionate_escrow"
+    | "milestone_retention"
     | "none"
     | "malaysia"
     | "uae"
@@ -1861,6 +1863,22 @@ export type FinancingEscrowConfig = {
   proportionateSweepEnabled?: boolean;
   /** Construction-loan interest paid in cash may enter the entitlement. Default true. */
   proportionateConstructionInterestPermitted?: boolean;
+  /**
+   * Milestone & retention. Saudi Arabia locks the completion floor at 20 and the
+   * construction-lender sweep on. Other locations keep both editable.
+   * The stored withdrawal mode still wins over the location default.
+   */
+  milestoneCompletionRetentionPercent?: number;
+  /** Percent of total construction cost. Default 5. */
+  milestoneDlpRetentionPercent?: number;
+  /** Minimum 12. Horizon and the cash release sit at completion + this many months. */
+  milestoneDlpRetentionMonths?: number;
+  milestoneDlpForm?: "cash" | "bank_guarantee";
+  /** Land cost and financing repayments join the certified entitlement. Default true. */
+  milestonePermitLandAndFinancing?: boolean;
+  milestoneSweepEnabled?: boolean;
+  /** Initial value is monthly. Quarterly is an explicit store write. */
+  milestoneCertFrequency?: "monthly" | "quarterly";
 };
 
 export type Financing = {
@@ -2402,7 +2420,17 @@ const PROPORTIONATE_ESCROW_KEYS = [
   "proportionateConstructionInterestPermitted",
 ] as const;
 
-/** Deep-merge escrow config. A defined proportionate field is never replaced by an omitted or undefined default. */
+const MILESTONE_ESCROW_KEYS = [
+  "milestoneCertFrequency",
+  "milestoneCompletionRetentionPercent",
+  "milestoneDlpRetentionPercent",
+  "milestoneDlpRetentionMonths",
+  "milestoneDlpForm",
+  "milestonePermitLandAndFinancing",
+  "milestoneSweepEnabled",
+] as const;
+
+/** Deep-merge escrow config. A defined proportionate or milestone field is never replaced by an omitted or undefined default. */
 function mergeEscrowConfig(
   prev: FinancingEscrowConfig | undefined,
   next: FinancingEscrowConfig
@@ -2424,7 +2452,7 @@ function mergeEscrowConfig(
       : {}),
   };
 
-  for (const key of PROPORTIONATE_ESCROW_KEYS) {
+  for (const key of [...PROPORTIONATE_ESCROW_KEYS, ...MILESTONE_ESCROW_KEYS]) {
     const prevVal = prev?.[key];
     const nextHas = Object.prototype.hasOwnProperty.call(next, key);
     if (prevVal !== undefined && nextHas && next[key] === undefined) {
@@ -2547,6 +2575,7 @@ const defaultFinancing: Financing = {
     proportionateEscrowPercent: 70,
     proportionateSweepEnabled: true,
     proportionateConstructionInterestPermitted: true,
+    milestoneCertFrequency: "monthly",
   },
 
   // Step 4 drawdown tabs (UI-level)
@@ -4080,7 +4109,9 @@ const useFinModelStore = create<FinModelStore>()(
               savedFin?.constructionPeriodMonths,
               c1Period
             ),
-            escrowConfig: fillUndefinedProportionateEscrow(savedFin?.escrowConfig),
+            escrowConfig: fillUndefinedMilestoneEscrow(
+              fillUndefinedProportionateEscrow(savedFin?.escrowConfig)
+            ),
             escrowDepositRatePercent:
               typeof savedFin?.escrowDepositRatePercent === "number" &&
               Number.isFinite(savedFin.escrowDepositRatePercent)

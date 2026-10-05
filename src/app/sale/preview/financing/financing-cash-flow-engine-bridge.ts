@@ -447,6 +447,7 @@ export function buildFinancingEnginePreview(params: {
     guaranteeRetentionPercent: financing.escrowConfig?.guaranteeRetentionPercent,
     guaranteeRetentionMonths: financing.escrowConfig?.guaranteeRetentionMonths,
     guaranteeInterestPermitted: financing.escrowConfig?.guaranteeInterestPermitted,
+    milestoneDlpRetentionMonths: financing.escrowConfig?.milestoneDlpRetentionMonths,
     landCost: 0,
     landEquityPercent: 100,
     landEquityValue: 0,
@@ -662,6 +663,15 @@ export function buildFinancingEnginePreview(params: {
     proportionateSweepEnabled: financing.escrowConfig?.proportionateSweepEnabled,
     proportionateConstructionInterestPermitted:
       financing.escrowConfig?.proportionateConstructionInterestPermitted,
+    milestoneCompletionRetentionPercent:
+      financing.escrowConfig?.milestoneCompletionRetentionPercent,
+    milestoneDlpRetentionPercent: financing.escrowConfig?.milestoneDlpRetentionPercent,
+    milestoneDlpRetentionMonths: financing.escrowConfig?.milestoneDlpRetentionMonths,
+    milestoneDlpForm: financing.escrowConfig?.milestoneDlpForm,
+    milestonePermitLandAndFinancing:
+      financing.escrowConfig?.milestonePermitLandAndFinancing,
+    milestoneSweepEnabled: financing.escrowConfig?.milestoneSweepEnabled,
+    milestoneCertFrequency: financing.escrowConfig?.milestoneCertFrequency,
     guaranteeSoftOtherFeesShare:
       (Number.isFinite(Number(cashOutflows.softCostAllocation?.otherFees))
         ? Number(cashOutflows.softCostAllocation?.otherFees)
@@ -706,6 +716,10 @@ export function mapEngineRowsToUae(rows: EngineMonthlyRow[]): UaeCashFlowRow[] {
     proportionateWithdrawal: num(r.proportionateWithdrawal),
     residualRelease: num(r.residualRelease),
     proportionateSplitPercent: num(r.proportionateSplitPercent),
+    certifiedMilestoneWithdrawal: num(r.certifiedMilestoneWithdrawal),
+    milestoneDeveloperWithdrawal: num(r.milestoneDeveloperWithdrawal),
+    dlpRetentionRelease: num(r.dlpRetentionRelease),
+    dlpBankGuaranteeMemo: num(r.dlpBankGuaranteeMemo),
     constructionCosts: num(r.constructionCosts),
     softCosts: num(r.softCosts),
     powc: num(r.powc),

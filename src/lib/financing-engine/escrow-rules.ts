@@ -10,6 +10,7 @@ export type EscrowRuleId =
   | "closed_loop_escrow"
   | "project_guarantee_account"
   | "proportionate_escrow"
+  | "milestone_retention"
   | "none";
 
 export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
@@ -19,6 +20,7 @@ export const ESCROW_RULE_IDS: readonly EscrowRuleId[] = [
   "closed_loop_escrow",
   "project_guarantee_account",
   "proportionate_escrow",
+  "milestone_retention",
   "none",
 ] as const;
 
@@ -29,6 +31,7 @@ export const ESCROW_RULE_DISPLAY_NAME: Record<EscrowRuleId, string> = {
   closed_loop_escrow: "Closed-Loop Escrow Rule",
   project_guarantee_account: "Project Guarantee Account Rule",
   proportionate_escrow: "Proportionate Escrow Rule",
+  milestone_retention: "Milestone & Retention Escrow Rule",
   none: "No Escrow Rules",
 };
 
@@ -39,6 +42,7 @@ export const ESCROW_RULE_CONFIG_TITLE: Record<EscrowRuleId, string> = {
   closed_loop_escrow: "Closed-Loop Escrow Rule Configuration",
   project_guarantee_account: "Project Guarantee Account Rule Configuration",
   proportionate_escrow: "Proportionate Escrow Rule Configuration",
+  milestone_retention: "Milestone & Retention Escrow Rule Configuration",
   none: "No Escrow Rules",
 };
 
@@ -55,6 +59,11 @@ export const ESCROW_RULE_HORIZON_OFFSET: Record<EscrowRuleId, number> = {
   project_guarantee_account: 12,
   /** Designated-account split. Horizon is CP+6, same tail as no-escrow. */
   proportionate_escrow: 6,
+  /**
+   * Default only. The live horizon is CP + DLP retention months (minimum 12),
+   * and never shorter than actual completion + those months.
+   */
+  milestone_retention: 12,
   none: 6,
 };
 
@@ -138,6 +147,221 @@ export function resolveProportionateCertFrequency(
   stored: string | null | undefined
 ): ProportionateCertFrequency {
   return stored === "quarterly" ? "quarterly" : "monthly";
+}
+
+/** Milestone & retention defaults. The completion floor is locked at 20 for Saudi Arabia. */
+export const MILESTONE_DEFAULT_COMPLETION_RETENTION_PCT = 20;
+export const MILESTONE_DEFAULT_DLP_RETENTION_PCT = 5;
+export const MILESTONE_DEFAULT_DLP_MONTHS = 12;
+
+export type MilestoneDlpForm = "cash" | "bank_guarantee";
+
+export function isSaudiLocation(
+  country?: string | null,
+  countryCode?: string | null
+): boolean {
+  if (normCode(countryCode) === "SA") return true;
+  const c = normCountry(country);
+  if (!c) return false;
+  return c.includes("saudi") || /\bksa\b/.test(c);
+}
+
+/**
+ * Share of cumulative buyer collections that must stay in the account until
+ * physical completion. Saudi Arabia locks this at 20. A stored percent wins elsewhere.
+ */
+export function resolveMilestoneCompletionRetentionPercent(
+  stored: number | null | undefined,
+  location?: { country?: string | null; countryCode?: string | null }
+): number {
+  if (isSaudiLocation(location?.country, location?.countryCode)) {
+    return MILESTONE_DEFAULT_COMPLETION_RETENTION_PCT;
+  }
+  const n = Number(stored);
+  if (!Number.isFinite(n)) return MILESTONE_DEFAULT_COMPLETION_RETENTION_PCT;
+  return Math.min(100, Math.max(0, n));
+}
+
+/** Percent of total construction cost held after completion. Default 5. */
+export function resolveMilestoneDlpRetentionPercent(
+  stored: number | null | undefined
+): number {
+  const n = Number(stored);
+  if (!Number.isFinite(n)) return MILESTONE_DEFAULT_DLP_RETENTION_PCT;
+  return Math.min(100, Math.max(0, n));
+}
+
+/** Defect-liability tail. UI and engine share a floor of 12 months. */
+export function resolveMilestoneDlpRetentionMonths(
+  raw: number | null | undefined
+): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return MILESTONE_DEFAULT_DLP_MONTHS;
+  return Math.max(MILESTONE_DEFAULT_DLP_MONTHS, Math.round(n));
+}
+
+export function resolveMilestoneDlpForm(
+  stored: string | null | undefined
+): MilestoneDlpForm {
+  return stored === "bank_guarantee" ? "bank_guarantee" : "cash";
+}
+
+/** Art. 29-style non-construction uses. Default on. An explicit false wins. */
+export function resolveMilestonePermitLandAndFinancing(
+  stored: boolean | null | undefined
+): boolean {
+  return stored !== false;
+}
+
+export type MilestoneCertFrequency = "monthly" | "quarterly";
+
+/** Monthly unless the project has stored quarterly. */
+export function resolveMilestoneCertFrequency(
+  stored: string | null | undefined
+): MilestoneCertFrequency {
+  return stored === "quarterly" ? "quarterly" : "monthly";
+}
+
+/**
+ * Cert month for milestone retention. Monthly is every month from 0.
+ * Quarterly is 2, 5, 8, 11, … The withdrawal is paid the following month.
+ * Certification does not stop at completion; the account closes on its own calendar.
+ */
+export function isMilestoneCertMonth(
+  month: number,
+  frequency: MilestoneCertFrequency
+): boolean {
+  if (month < 0) return false;
+  if (frequency === "monthly") return true;
+  return month >= 2 && month % 3 === 2;
+}
+
+export type MilestoneEscrowFields = {
+  milestoneCompletionRetentionPercent: number;
+  milestoneDlpRetentionPercent: number;
+  milestoneDlpRetentionMonths: number;
+  milestoneDlpForm: MilestoneDlpForm;
+  milestonePermitLandAndFinancing: boolean;
+  milestoneSweepEnabled: boolean;
+  milestoneCertFrequency: MilestoneCertFrequency;
+};
+
+type MilestoneEscrowStored = {
+  milestoneCompletionRetentionPercent?: number | null;
+  milestoneDlpRetentionPercent?: number | null;
+  milestoneDlpRetentionMonths?: number | null;
+  milestoneDlpForm?: string | null;
+  milestonePermitLandAndFinancing?: boolean | null;
+  milestoneSweepEnabled?: boolean | null;
+  milestoneCertFrequency?: string | null;
+};
+
+/**
+ * Project load / save only. A missing key receives its default.
+ * A key that is already set is copied through unchanged.
+ */
+export function fillUndefinedMilestoneEscrow<T extends MilestoneEscrowStored>(
+  escrow: T | undefined
+): T & MilestoneEscrowFields {
+  const src = (escrow ?? {}) as T;
+  const completion = Number(src.milestoneCompletionRetentionPercent);
+  const dlpPercent = Number(src.milestoneDlpRetentionPercent);
+  const frequency = src.milestoneCertFrequency;
+  const form = src.milestoneDlpForm;
+  return {
+    ...src,
+    milestoneCertFrequency:
+      frequency === "quarterly" || frequency === "monthly" ? frequency : "monthly",
+    milestoneCompletionRetentionPercent: Number.isFinite(completion)
+      ? Math.min(100, Math.max(0, completion))
+      : MILESTONE_DEFAULT_COMPLETION_RETENTION_PCT,
+    milestoneDlpRetentionPercent: Number.isFinite(dlpPercent)
+      ? Math.min(100, Math.max(0, dlpPercent))
+      : MILESTONE_DEFAULT_DLP_RETENTION_PCT,
+    milestoneDlpRetentionMonths: resolveMilestoneDlpRetentionMonths(
+      src.milestoneDlpRetentionMonths
+    ),
+    milestoneDlpForm: form === "bank_guarantee" || form === "cash" ? form : "cash",
+    milestonePermitLandAndFinancing:
+      typeof src.milestonePermitLandAndFinancing === "boolean"
+        ? src.milestonePermitLandAndFinancing
+        : true,
+    milestoneSweepEnabled:
+      typeof src.milestoneSweepEnabled === "boolean" ? src.milestoneSweepEnabled : true,
+  };
+}
+
+/**
+ * Persist path. A defined store value wins over a form fallback.
+ * Dev-warns when a fallback would have replaced that stored value.
+ */
+export function readMilestoneEscrowForPersist(
+  stored: MilestoneEscrowStored | undefined,
+  fallback: MilestoneEscrowFields
+): MilestoneEscrowFields {
+  const frequency =
+    stored?.milestoneCertFrequency === "quarterly" ||
+    stored?.milestoneCertFrequency === "monthly"
+      ? stored.milestoneCertFrequency
+      : undefined;
+  const completion = Number(stored?.milestoneCompletionRetentionPercent);
+  const storedCompletion = Number.isFinite(completion) ? completion : undefined;
+  const dlpPercent = Number(stored?.milestoneDlpRetentionPercent);
+  const storedDlpPercent = Number.isFinite(dlpPercent) ? dlpPercent : undefined;
+  const dlpMonths = Number(stored?.milestoneDlpRetentionMonths);
+  const storedDlpMonths = Number.isFinite(dlpMonths) ? dlpMonths : undefined;
+  const form =
+    stored?.milestoneDlpForm === "bank_guarantee" || stored?.milestoneDlpForm === "cash"
+      ? stored.milestoneDlpForm
+      : undefined;
+  const permit =
+    typeof stored?.milestonePermitLandAndFinancing === "boolean"
+      ? stored.milestonePermitLandAndFinancing
+      : undefined;
+  const sweep =
+    typeof stored?.milestoneSweepEnabled === "boolean"
+      ? stored.milestoneSweepEnabled
+      : undefined;
+
+  if (process.env.NODE_ENV !== "production") {
+    const clashes: Array<[string, unknown, unknown]> = [
+      ["milestoneCertFrequency", frequency, fallback.milestoneCertFrequency],
+      ["milestoneCompletionRetentionPercent", storedCompletion, fallback.milestoneCompletionRetentionPercent],
+      ["milestoneDlpRetentionPercent", storedDlpPercent, fallback.milestoneDlpRetentionPercent],
+      ["milestoneDlpRetentionMonths", storedDlpMonths, fallback.milestoneDlpRetentionMonths],
+      ["milestoneDlpForm", form, fallback.milestoneDlpForm],
+      ["milestonePermitLandAndFinancing", permit, fallback.milestonePermitLandAndFinancing],
+      ["milestoneSweepEnabled", sweep, fallback.milestoneSweepEnabled],
+    ];
+    for (const [key, defined, incoming] of clashes) {
+      if (defined !== undefined && defined !== incoming) {
+        console.warn(
+          `[escrow] refused to overwrite stored ${key}=${String(defined)} with ${String(incoming)}`
+        );
+      }
+    }
+  }
+
+  return {
+    milestoneCertFrequency: frequency ?? fallback.milestoneCertFrequency,
+    milestoneCompletionRetentionPercent:
+      storedCompletion ?? fallback.milestoneCompletionRetentionPercent,
+    milestoneDlpRetentionPercent: storedDlpPercent ?? fallback.milestoneDlpRetentionPercent,
+    milestoneDlpRetentionMonths: storedDlpMonths ?? fallback.milestoneDlpRetentionMonths,
+    milestoneDlpForm: form ?? fallback.milestoneDlpForm,
+    milestonePermitLandAndFinancing: permit ?? fallback.milestonePermitLandAndFinancing,
+    milestoneSweepEnabled: sweep ?? fallback.milestoneSweepEnabled,
+  };
+}
+
+/** Saudi Arabia locks the construction-lender sweep on. Others default on and may turn it off. */
+export function resolveMilestoneSweepEnabled(
+  stored: boolean | null | undefined,
+  location?: { country?: string | null; countryCode?: string | null }
+): boolean {
+  if (isSaudiLocation(location?.country, location?.countryCode)) return true;
+  if (typeof stored === "boolean") return stored;
+  return true;
 }
 
 /** India locks the construction-lender sweep on. Others default on and may turn it off. */
@@ -331,14 +555,19 @@ export function isAbuDhabiCity(city?: string | null): boolean {
 /**
  * Sale feasibility escrow slide.
  * Residential subtypes always render it. Commercial and warehouse decks render it
- * when the selected rule is the project guarantee account or proportionate escrow.
+ * when the selected rule is the project guarantee account, proportionate escrow,
+ * or milestone retention.
  */
 export function shouldRenderSaleEscrowSlide(
   buildingSubType: string | null | undefined,
   rule: EscrowRuleId
 ): boolean {
   if ((buildingSubType ?? "").toLowerCase().includes("residential")) return true;
-  return rule === "project_guarantee_account" || rule === "proportionate_escrow";
+  return (
+    rule === "project_guarantee_account" ||
+    rule === "proportionate_escrow" ||
+    rule === "milestone_retention"
+  );
 }
 
 function normCountry(country?: string | null): string {
@@ -427,13 +656,14 @@ export function isCommercialSaleAsset(opts: {
 
 /**
  * Location + asset class pre-select a default only. Never hard-link a country to a rule
- * in the engine. All seven tabs remain selectable everywhere.
+ * in the engine. All eight tabs remain selectable everywhere.
  *
  * Dubai → staged (all asset classes); Abu Dhabi → project guarantee account (all asset classes);
  * Australia → 10/90 (all asset classes);
  * Malaysia → progress (residential) / none (commercial);
  * China → closed-loop (residential landed / high-rise only);
  * India → proportionate escrow (all sale asset classes);
+ * Saudi Arabia → milestone retention (all sale asset classes);
  * other emirates and all other locations → none.
  */
 export function defaultEscrowRuleForLocation(opts: {
@@ -460,6 +690,7 @@ export function defaultEscrowRuleForLocation(opts: {
     return "closed_loop_escrow";
   }
   if (isIndiaLocation(opts.country, opts.countryCode)) return "proportionate_escrow";
+  if (isSaudiLocation(opts.country, opts.countryCode)) return "milestone_retention";
   return "none";
 }
 
@@ -525,6 +756,9 @@ export function normalizeEscrowRuleId(
   }
   if (v === "proportionate_escrow" || v === "proportionate") {
     return "proportionate_escrow";
+  }
+  if (v === "milestone_retention" || v === "milestone") {
+    return "milestone_retention";
   }
   if (v === "none") return "none";
   return "none";

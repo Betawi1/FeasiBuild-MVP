@@ -19,6 +19,7 @@ import type { PreferenceShares, ProjectInfo } from "@/store/useFinModelStore";
 import AustraliaEscrowConfig from "./escrow-config/AustraliaEscrowConfig";
 import ClosedLoopEscrowConfig from "./escrow-config/ClosedLoopEscrowConfig";
 import MalaysiaEscrowConfig from "./escrow-config/MalaysiaEscrowConfig";
+import MilestoneRetentionEscrowConfig from "./escrow-config/MilestoneRetentionEscrowConfig";
 import ProjectGuaranteeAccountConfig from "./escrow-config/ProjectGuaranteeAccountConfig";
 import ProportionateEscrowConfig from "./escrow-config/ProportionateEscrowConfig";
 import UaeEscrowConfig from "./escrow-config/UaeEscrowConfig";
@@ -41,11 +42,20 @@ import {
   isCommercialSaleAsset,
   isIndiaLocation,
   isLandEquitySliderLocked,
+  isSaudiLocation,
   isUaeLocation,
   normalizeEscrowRuleId,
   resolveClosedLoopToppingOut,
   resolveGuaranteeRetentionBasis,
   resolveGuaranteeRetentionMonths,
+  readMilestoneEscrowForPersist,
+  resolveMilestoneCertFrequency,
+  resolveMilestoneCompletionRetentionPercent,
+  resolveMilestoneDlpForm,
+  resolveMilestoneDlpRetentionMonths,
+  resolveMilestoneDlpRetentionPercent,
+  resolveMilestonePermitLandAndFinancing,
+  resolveMilestoneSweepEnabled,
   readProportionateEscrowForPersist,
   resolveProportionateCertFrequency,
   resolveProportionateEscrowPercent,
@@ -53,6 +63,7 @@ import {
   resolveProportionateSweepEnabled,
   type EscrowRuleId,
   type GuaranteeRetentionBasis,
+  type MilestoneDlpForm,
   type ProportionateCertFrequency,
 } from "@/lib/financing-engine/escrow-rules";
 
@@ -120,7 +131,7 @@ export const JURISDICTION_RULES: Record<
     depositRate: 4.0,
     badge: "KSA",
     covenantLtcMax: 75,
-    defaultEscrowRule: "none",
+    defaultEscrowRule: "milestone_retention",
   },
   Malaysia: {
     landEquityMin: 3,
@@ -337,6 +348,12 @@ type FormData = {
   proportionateCertFrequency: ProportionateCertFrequency;
   proportionateSweepEnabled: boolean;
   proportionateConstructionInterestPermitted: boolean;
+  milestoneCompletionRetentionPercent: number;
+  milestoneDlpRetentionPercent: number;
+  milestoneDlpRetentionMonths: number;
+  milestoneDlpForm: MilestoneDlpForm;
+  milestonePermitLandAndFinancing: boolean;
+  milestoneSweepEnabled: boolean;
   milestoneThresholdPct: number;
   drawdownMode: DrawdownModeUi;
   interestRateType: "fixed" | "floating";
@@ -662,6 +679,24 @@ function ResidentialFinancingWizardContent() {
       proportionateConstructionInterestPermitted: resolveProportionateInterestPermitted(
         storedEscrow?.proportionateConstructionInterestPermitted
       ),
+      milestoneCompletionRetentionPercent: resolveMilestoneCompletionRetentionPercent(
+        storedEscrow?.milestoneCompletionRetentionPercent,
+        projectInfo
+      ),
+      milestoneDlpRetentionPercent: resolveMilestoneDlpRetentionPercent(
+        storedEscrow?.milestoneDlpRetentionPercent
+      ),
+      milestoneDlpRetentionMonths: resolveMilestoneDlpRetentionMonths(
+        storedEscrow?.milestoneDlpRetentionMonths
+      ),
+      milestoneDlpForm: resolveMilestoneDlpForm(storedEscrow?.milestoneDlpForm),
+      milestonePermitLandAndFinancing: resolveMilestonePermitLandAndFinancing(
+        storedEscrow?.milestonePermitLandAndFinancing
+      ),
+      milestoneSweepEnabled: resolveMilestoneSweepEnabled(
+        storedEscrow?.milestoneSweepEnabled,
+        projectInfo
+      ),
       certificationIntervalMonths:
         storedEscrow?.uaeSa?.certificationInterval ??
         financingConfig?.certificationIntervalMonths ??
@@ -730,6 +765,17 @@ function ResidentialFinancingWizardContent() {
       if (field === "guaranteeRetentionMonths") {
         next.guaranteeRetentionMonths = resolveGuaranteeRetentionMonths(
           next.guaranteeRetentionMonths
+        );
+      }
+      if (field === "milestoneDlpRetentionMonths") {
+        next.milestoneDlpRetentionMonths = resolveMilestoneDlpRetentionMonths(
+          next.milestoneDlpRetentionMonths
+        );
+      }
+      if (field === "milestoneCompletionRetentionPercent") {
+        next.milestoneCompletionRetentionPercent = resolveMilestoneCompletionRetentionPercent(
+          next.milestoneCompletionRetentionPercent,
+          projectInfo
         );
       }
       return next;
@@ -802,7 +848,13 @@ function ResidentialFinancingWizardContent() {
       field === "proportionateEscrowPercent" ||
       field === "proportionateCertFrequency" ||
       field === "proportionateSweepEnabled" ||
-      field === "proportionateConstructionInterestPermitted"
+      field === "proportionateConstructionInterestPermitted" ||
+      field === "milestoneCompletionRetentionPercent" ||
+      field === "milestoneDlpRetentionPercent" ||
+      field === "milestoneDlpRetentionMonths" ||
+      field === "milestoneDlpForm" ||
+      field === "milestonePermitLandAndFinancing" ||
+      field === "milestoneSweepEnabled"
     ) {
       const nextMode =
         field === "escrowWithdrawalMode"
@@ -909,6 +961,45 @@ function ResidentialFinancingWizardContent() {
                 ? (value as boolean)
                 : formData.proportionateConstructionInterestPermitted
             ),
+            milestoneCompletionRetentionPercent: resolveMilestoneCompletionRetentionPercent(
+              field === "milestoneCompletionRetentionPercent"
+                ? (value as number)
+                : formData.milestoneCompletionRetentionPercent,
+              projectInfo
+            ),
+            milestoneDlpRetentionPercent: resolveMilestoneDlpRetentionPercent(
+              field === "milestoneDlpRetentionPercent"
+                ? (value as number)
+                : formData.milestoneDlpRetentionPercent
+            ),
+            milestoneDlpRetentionMonths: resolveMilestoneDlpRetentionMonths(
+              field === "milestoneDlpRetentionMonths"
+                ? (value as number)
+                : formData.milestoneDlpRetentionMonths
+            ),
+            milestoneDlpForm: resolveMilestoneDlpForm(
+              field === "milestoneDlpForm"
+                ? (value as MilestoneDlpForm)
+                : formData.milestoneDlpForm
+            ),
+            milestonePermitLandAndFinancing: resolveMilestonePermitLandAndFinancing(
+              field === "milestonePermitLandAndFinancing"
+                ? (value as boolean)
+                : formData.milestonePermitLandAndFinancing
+            ),
+            milestoneSweepEnabled: resolveMilestoneSweepEnabled(
+              field === "milestoneSweepEnabled"
+                ? (value as boolean)
+                : formData.milestoneSweepEnabled,
+              projectInfo
+            ),
+            ...(() => {
+              const live =
+                useFinModelStore.getState().sale.financing.escrowConfig?.milestoneCertFrequency;
+              return live === "monthly" || live === "quarterly"
+                ? { milestoneCertFrequency: live }
+                : {};
+            })(),
           },
         },
         "sale"
@@ -922,7 +1013,7 @@ function ResidentialFinancingWizardContent() {
     ) {
       auditSaleFinancingField(field as string, value);
     }
-  }, [updateFinancing, updateFinancingConfig, financing.escrowConfig, projectInfo, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled, formData.guaranteeThresholdPercent, formData.guaranteeProfitMilestonePercent, formData.guaranteeRetentionPercent, formData.guaranteeRetentionBasis, formData.guaranteeRetentionMonths, formData.guaranteeInterestPermitted, formData.proportionateEscrowPercent, formData.proportionateCertFrequency, formData.proportionateSweepEnabled, formData.proportionateConstructionInterestPermitted, formData.interestRateType, formData.interestRate, formData.idcTreatment, formData.escrowDepositRate]);
+  }, [updateFinancing, updateFinancingConfig, financing.escrowConfig, projectInfo, formData.escrowWithdrawalMode, formData.certificationIntervalMonths, formData.retentionPercent, formData.auDepositPct, formData.auBalancePct, formData.toppingOutPct, formData.toppingOutEnabled, formData.guaranteeThresholdPercent, formData.guaranteeProfitMilestonePercent, formData.guaranteeRetentionPercent, formData.guaranteeRetentionBasis, formData.guaranteeRetentionMonths, formData.guaranteeInterestPermitted, formData.proportionateEscrowPercent, formData.proportionateCertFrequency, formData.proportionateSweepEnabled, formData.proportionateConstructionInterestPermitted, formData.milestoneCompletionRetentionPercent, formData.milestoneDlpRetentionPercent, formData.milestoneDlpRetentionMonths, formData.milestoneDlpForm, formData.milestonePermitLandAndFinancing, formData.milestoneSweepEnabled, formData.interestRateType, formData.interestRate, formData.idcTreatment, formData.escrowDepositRate]);
 
   const updateEscrowField: EscrowConfigUpdateField = useCallback(
     (field, value) => {
@@ -1124,9 +1215,14 @@ function ResidentialFinancingWizardContent() {
     formData.escrowWithdrawalMode === "project_guarantee_account" &&
     isUaeLocation(projectInfo.country, projectInfo.countryCode) &&
     isAbuDhabiCity(projectInfo.city);
+  const milestoneLandLock =
+    formData.escrowWithdrawalMode === "milestone_retention" &&
+    isSaudiLocation(projectInfo.country, projectInfo.countryCode);
   // Display / engine overlay only. The stored percent is left alone so leaving the rule restores it.
   const modeledLandEquityPercent =
-    closedLoopLandLock || guaranteeLandLock ? 100 : formData.landEquityPercent;
+    closedLoopLandLock || guaranteeLandLock || milestoneLandLock
+      ? 100
+      : formData.landEquityPercent;
 
   const landEquityCounted =
     modeledLandEquityPercent === 100 ? landCost * LAND_EQUITY_HAIRCUT : 0;
@@ -1151,7 +1247,7 @@ function ResidentialFinancingWizardContent() {
     : 0;
   // Dubai locks by location. Closed-loop locks only as a China overlay, and only while that rule is selected.
   const isLandEquityLocked =
-    landEquityLockedByLocation || closedLoopLandLock || guaranteeLandLock;
+    landEquityLockedByLocation || closedLoopLandLock || guaranteeLandLock || milestoneLandLock;
 
   const landLoanAmount = Math.max(0, landCost * (1 - modeledLandEquityPercent / 100));
   const australiaLandLoanCap = landCost * 0.65;
@@ -1357,6 +1453,30 @@ function ResidentialFinancingWizardContent() {
             proportionateConstructionInterestPermitted:
               formData.proportionateConstructionInterestPermitted,
           }),
+          ...readMilestoneEscrowForPersist(
+            useFinModelStore.getState().sale.financing.escrowConfig,
+            {
+              milestoneCertFrequency: resolveMilestoneCertFrequency(
+                useFinModelStore.getState().sale.financing.escrowConfig?.milestoneCertFrequency
+              ),
+              milestoneCompletionRetentionPercent: resolveMilestoneCompletionRetentionPercent(
+                formData.milestoneCompletionRetentionPercent,
+                projectInfo
+              ),
+              milestoneDlpRetentionPercent: resolveMilestoneDlpRetentionPercent(
+                formData.milestoneDlpRetentionPercent
+              ),
+              milestoneDlpRetentionMonths: resolveMilestoneDlpRetentionMonths(
+                formData.milestoneDlpRetentionMonths
+              ),
+              milestoneDlpForm: formData.milestoneDlpForm,
+              milestonePermitLandAndFinancing: formData.milestonePermitLandAndFinancing,
+              milestoneSweepEnabled: resolveMilestoneSweepEnabled(
+                formData.milestoneSweepEnabled,
+                projectInfo
+              ),
+            }
+          ),
         },
         rateType: formData.interestRateType,
         fixedOrProfitRatePercent: formData.interestRate,
@@ -1389,6 +1509,7 @@ function ResidentialFinancingWizardContent() {
     updateFinancingConfig,
     isCommercialProduct,
     financing.escrowConfig,
+    projectInfo,
   ]);
 
   const commercialEscrowMigrated = useRef(false);
@@ -1972,6 +2093,12 @@ function ResidentialFinancingWizardContent() {
                     suspended.
                   </p>
                 )}
+                {milestoneLandLock && (
+                  <p className="mt-2 text-xs text-amber-400">
+                    Land is 100% equity while this rule is selected; the Step 3 land term loan is
+                    suspended.
+                  </p>
+                )}
               </div>
 
               {modeledLandEquityPercent < 100 && !isLandEquityLocked && (
@@ -2447,7 +2574,7 @@ function ResidentialFinancingWizardContent() {
                       Select Your Escrow Withdrawal Method
                     </h4>
                     <p className="mt-1 text-sm text-slate-300">
-                      For projects without a default rule (e.g. Thailand, KSA, China commercial, or UAE
+                      For projects without a default rule (e.g. Thailand, China commercial, or UAE
                       emirates other than Dubai and Abu Dhabi), you can choose any of the following approaches
                     </p>
                     <ul className="mt-2 space-y-1 text-sm text-slate-400">
@@ -2478,6 +2605,11 @@ function ResidentialFinancingWizardContent() {
                         • <strong className="text-slate-300">Proportionate Escrow Rule:</strong> a
                         fixed share of every buyer payment is locked in a designated account;
                         withdrawals are certified in proportion to construction completion
+                      </li>
+                      <li>
+                        • <strong className="text-slate-300">Milestone & Retention Escrow Rule:</strong>{" "}
+                        20% of cumulative collections stays in escrow until completion, then 5% of
+                        construction cost is held for 12 months (or replaced by a bank guarantee)
                       </li>
                       <li>
                         • <strong className="text-slate-300">No Escrow Rules:</strong> sales
@@ -2558,6 +2690,27 @@ function ResidentialFinancingWizardContent() {
                 />
               )}
 
+              {formData.escrowWithdrawalMode === "milestone_retention" && (
+                <MilestoneRetentionEscrowConfig
+                  constructionCost={cashOutflows.constructionCost || 0}
+                  formatAmount={formatCurrency}
+                  onCompletionRetentionPercent={(value) =>
+                    updateField("milestoneCompletionRetentionPercent", value)
+                  }
+                  onDlpRetentionPercent={(value) =>
+                    updateField("milestoneDlpRetentionPercent", value)
+                  }
+                  onDlpRetentionMonths={(value) =>
+                    updateField("milestoneDlpRetentionMonths", value)
+                  }
+                  onDlpForm={(value) => updateField("milestoneDlpForm", value)}
+                  onPermitLandAndFinancing={(value) =>
+                    updateField("milestonePermitLandAndFinancing", value)
+                  }
+                  onSweepEnabled={(value) => updateField("milestoneSweepEnabled", value)}
+                />
+              )}
+
               {formData.escrowWithdrawalMode === "proportionate_escrow" && (
                 <ProportionateEscrowConfig
                   splitLocked={isIndiaLocation(projectInfo.country, projectInfo.countryCode)}
@@ -2619,6 +2772,19 @@ function ResidentialFinancingWizardContent() {
                       {formData.guaranteeRetentionPercent}% defect retention • reimbursements from{" "}
                       {formData.guaranteeThresholdPercent}% construction progress
                     </>
+                  ) : formData.escrowWithdrawalMode === "milestone_retention" ? (
+                    <>
+                      {resolveMilestoneCompletionRetentionPercent(
+                        formData.milestoneCompletionRetentionPercent,
+                        projectInfo
+                      )}
+                      % of collections locked until completion •{" "}
+                      {formData.milestoneDlpRetentionPercent}% of construction cost for{" "}
+                      {formData.milestoneDlpRetentionMonths} months
+                      {formData.milestoneDlpForm === "bank_guarantee"
+                        ? " (bank guarantee)"
+                        : ""}
+                    </>
                   ) : formData.escrowWithdrawalMode === "proportionate_escrow" ? (
                     <>
                       {resolveProportionateEscrowPercent(
@@ -2658,7 +2824,9 @@ function ResidentialFinancingWizardContent() {
                       ? "Escrow lump sum at practical completion • contractor retention at CP+24"
                       : formData.escrowWithdrawalMode === "project_guarantee_account"
                         ? `Profit surplus at ${formData.guaranteeProfitMilestonePercent}% and completion +1 month • retention at +${formData.guaranteeRetentionMonths} months`
-                        : formData.escrowWithdrawalMode === "proportionate_escrow"
+                        : formData.escrowWithdrawalMode === "milestone_retention"
+                          ? `Certified the month after cost • DLP release at completion + ${formData.milestoneDlpRetentionMonths} months`
+                          : formData.escrowWithdrawalMode === "proportionate_escrow"
                           ? `Certified ${resolveProportionateCertFrequency(
                               financing.escrowConfig?.proportionateCertFrequency
                             )} • withdrawal the following month • residual at completion + 1`

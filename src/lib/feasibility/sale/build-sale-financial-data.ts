@@ -31,7 +31,14 @@ import {
   resolveProportionateEscrowPercent,
   resolveProportionateInterestPermitted,
   resolveProportionateSweepEnabled,
+  resolveMilestoneCompletionRetentionPercent,
+  resolveMilestoneDlpForm,
+  resolveMilestoneDlpRetentionMonths,
+  resolveMilestoneDlpRetentionPercent,
+  resolveMilestonePermitLandAndFinancing,
+  resolveMilestoneSweepEnabled,
   resolveSaleProjectEscrowRule,
+  isSaudiLocation,
 } from "@/lib/financing-engine/escrow-rules";
 import type {
   SaleDevelopmentCostsData,
@@ -593,6 +600,32 @@ export function buildSaleEscrowWithdrawalData(
             interestPermitted: ec?.guaranteeInterestPermitted !== false,
             retentionFundedAtRelease: guaranteeFunding?.funded,
             retentionTargetAtRelease: guaranteeFunding?.target,
+          }
+        : undefined,
+    milestoneConfig:
+      rule === "milestone_retention"
+        ? {
+            completionRetentionPercent: resolveMilestoneCompletionRetentionPercent(
+              ec?.milestoneCompletionRetentionPercent,
+              { country, countryCode: bundle.projectInfo?.countryCode }
+            ),
+            dlpRetentionPercent: resolveMilestoneDlpRetentionPercent(
+              ec?.milestoneDlpRetentionPercent
+            ),
+            dlpRetentionMonths: resolveMilestoneDlpRetentionMonths(
+              ec?.milestoneDlpRetentionMonths
+            ),
+            dlpForm: resolveMilestoneDlpForm(ec?.milestoneDlpForm),
+            permitLandAndFinancing: resolveMilestonePermitLandAndFinancing(
+              ec?.milestonePermitLandAndFinancing
+            ),
+            sweepEnabled: resolveMilestoneSweepEnabled(ec?.milestoneSweepEnabled, {
+              country,
+              countryCode: bundle.projectInfo?.countryCode,
+            }),
+            ksaOverlay:
+              locationDefault === "milestone_retention" &&
+              isSaudiLocation(country, bundle.projectInfo?.countryCode),
           }
         : undefined,
     proportionateConfig:

@@ -3,7 +3,7 @@
  * Generates pre-calculated monthly cash flow data for preview tables.
  *
  * Features:
- * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | project_guarantee_account | proportionate_escrow | none (location defaults only)
+ * - Sale escrow rules: staged | progress | ten_ninety | closed_loop_escrow | project_guarantee_account | proportionate_escrow | milestone_retention | none (location defaults only)
  * - 1-Month Offsets for Interest, Fees, Withdrawals
  * - Gap-Fill Sequencing: Equity -> RCF -> Backstop Equity
  * - 30/70 Milestone Rule (staged / former UAE-KSA math)
@@ -22,12 +22,21 @@ import {
   resolveClosedLoopToppingOut,
   resolveGuaranteeRetentionBasis,
   resolveGuaranteeRetentionMonths,
+  isMilestoneCertMonth,
+  resolveMilestoneCertFrequency,
+  resolveMilestoneCompletionRetentionPercent,
+  resolveMilestoneDlpForm,
+  resolveMilestoneDlpRetentionMonths,
+  resolveMilestoneDlpRetentionPercent,
+  resolveMilestonePermitLandAndFinancing,
+  resolveMilestoneSweepEnabled,
   resolveProportionateCertFrequency,
   resolveProportionateEscrowPercent,
   resolveProportionateInterestPermitted,
   resolveProportionateSweepEnabled,
   isAbuDhabiCity,
   isCommercialSaleAsset,
+  isSaudiLocation,
   isUaeLocation,
   resolveEscrowRule,
   resolveSaleProjectEscrowRule,
@@ -243,11 +252,29 @@ export type FinancingInputs = {
   /** Construction-loan interest paid in cash may enter the withdrawal entitlement. */
   proportionateConstructionInterestPermitted?: boolean;
 
+  /**
+   * Milestone retention: percent of cumulative collections that stays in escrow
+   * until physical completion. Saudi Arabia locks this at 20 inside the resolver.
+   */
+  milestoneCompletionRetentionPercent?: number;
+  /** Percent of total construction cost retained after completion. Default 5. */
+  milestoneDlpRetentionPercent?: number;
+  /** Months after completion before the DLP cash hold is released. Minimum 12. */
+  milestoneDlpRetentionMonths?: number;
+  /** cash retains the DLP percent. bank_guarantee records a memo and holds no cash. */
+  milestoneDlpForm?: "cash" | "bank_guarantee";
+  /** When not false, land cost and financing repayments join the certified entitlement. */
+  milestonePermitLandAndFinancing?: boolean;
+  /** Saudi Arabia locks this on. Others may turn the construction-lender sweep off. */
+  milestoneSweepEnabled?: boolean;
+  /** Monthly withdraws every month. Quarterly certifies months 2, 5, 8, … and pays the next month. */
+  milestoneCertFrequency?: "monthly" | "quarterly";
+
   /** ISO / display country — used for VN/TH flexible horizon. */
   country?: string;
   countryCode?: string;
   city?: string;
-  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | proportionate_escrow | none; legacy uae/malaysia/australia accepted). */
+  /** Step 5 escrow rule (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | proportionate_escrow | milestone_retention | none; legacy uae/malaysia/australia accepted). */
   escrowWithdrawalMode?: string;
   /** Aliases for wizard / legacy field names. */
   withdrawalMethod?: string;
@@ -285,6 +312,17 @@ export type MonthlyRow = {
   proportionateWithdrawal: number;
   /** Proportionate escrow: full remaining balance released at completion + 1 month. */
   residualRelease: number;
+  /** Milestone retention: developer share of a pre-completion certified withdrawal. */
+  certifiedMilestoneWithdrawal: number;
+  /** Milestone retention: developer share once the completion floor has lifted. */
+  milestoneDeveloperWithdrawal: number;
+  /** Milestone retention: cash DLP hold released at completion + DLP months. */
+  dlpRetentionRelease: number;
+  /**
+   * Set on the completion month when the DLP is a bank guarantee.
+   * Notional construction-cost hold that is not retained as cash.
+   */
+  dlpBankGuaranteeMemo: number;
   /** Percent points used for the deposit row label (0 on other rules). */
   proportionateSplitPercent: number;
   /**
@@ -475,6 +513,7 @@ function selectedSaleEscrowRule(inputs: FinancingInputs) {
  * staged / ten_ninety → CP+12, progress → CP+24, none / proportionate_escrow / unset → CP+6.
  * closed_loop_escrow → max(actual construction end + 24, last sales month + 1).
  * project_guarantee_account → CP + retention months (default 12, minimum 12).
+ * milestone_retention → max(CP, actual completion) + DLP months (default 12, minimum 12).
  * Construction end is the last non-zero C1 S-curve month, never the financing
  * factory default. When topping-out is on, the last sales month is read from a
  * shifted copy; the caller's array is unchanged.
@@ -505,6 +544,14 @@ export function resolveSaleHorizonLastMonth(inputs: FinancingInputs): number {
   const rule = selectedSaleEscrowRule(inputs);
   if (rule === "project_guarantee_account") {
     return constructionMonths + resolveGuaranteeRetentionMonths(inputs.guaranteeRetentionMonths);
+  }
+  if (rule === "milestone_retention") {
+    const dlpMonths = resolveMilestoneDlpRetentionMonths(inputs.milestoneDlpRetentionMonths);
+    const completionMonth = resolveActualConstructionEndMonth(
+      { constructionPeriod: constructionMonths },
+      inputs.monthlyCosts?.construction
+    );
+    return Math.max(constructionMonths, completionMonth) + dlpMonths;
   }
   if (rule !== "closed_loop_escrow") {
     return constructionMonths + ESCROW_RULE_HORIZON_OFFSET[rule];
@@ -1452,6 +1499,218 @@ function assertProportionateLedger(
   }
 }
 
+type MilestoneLedgerState = {
+  escrowBalance: number;
+  rcfBalance: number;
+  milestoneCumWithdrawals: number;
+};
+
+/**
+ * Certified entitlement through `cert` (withdrawn the following month).
+ * Construction, contingency, all POWC buckets, and soft costs excluding Other Fees
+ * sit on `permitted`. Cash construction-loan interest is added from prior rows.
+ * Land cost is already inside `permitted[0]` when that use is permitted.
+ * Financing repayments (land loan interest and principal) join only when permitted.
+ * Construction-loan principal is not added: the sweep already moves that cash.
+ */
+function milestoneCertifiedEntitlement(
+  priorRows: MonthlyRow[],
+  cert: number,
+  permitted: number[],
+  permitFinancing: boolean
+): number {
+  if (cert < 0) return 0;
+  let sum = 0;
+  const last = Math.min(cert, Math.max(permitted.length, priorRows.length) - 1);
+  for (let t = 0; t <= last; t++) {
+    sum += Math.max(0, Number(permitted[t]) || 0);
+    const prior = priorRows[t];
+    if (!prior) continue;
+    sum += Math.max(0, -(Number(prior.constLoanInterest) || 0));
+    if (permitFinancing) {
+      sum += Math.max(0, -(Number(prior.landLoanInterest) || 0));
+      sum += Math.max(0, -(Number(prior.landLoanRepayment) || 0));
+    }
+  }
+  return sum;
+}
+
+/**
+ * Strategy H: Milestone & retention escrow.
+ * Every buyer dirham enters the account. Certified costs withdraw one month later,
+ * and until completion the balance cannot fall below a percent of cumulative
+ * collections. At completion that floor lifts and a percent of construction cost
+ * is held for the defect-liability tail (or replaced by a bank guarantee). The
+ * construction lender is swept before the developer. The hold is released at
+ * completion plus the DLP months and the account closes.
+ */
+function applyMilestoneRetentionLogic(
+  row: MonthlyRow,
+  state: MilestoneLedgerState,
+  inputs: FinancingInputs,
+  m: number,
+  salesThisMonth: number,
+  priorRows: MonthlyRow[],
+  permitted: number[],
+  calendar: {
+    completionMonth: number;
+    closeMonth: number;
+    floorRate: number;
+    dlpRate: number;
+    dlpForm: "cash" | "bank_guarantee";
+    permitFinancing: boolean;
+    sweepEnabled: boolean;
+    constructionCostTotal: number;
+    frequency: "monthly" | "quarterly";
+  }
+) {
+  const sales = Math.max(0, salesThisMonth);
+  row.certifiedMilestoneWithdrawal = 0;
+  row.milestoneDeveloperWithdrawal = 0;
+  row.lenderCashSweep = 0;
+  row.dlpRetentionRelease = 0;
+  row.dlpBankGuaranteeMemo = 0;
+  row.progressWithdrawal = 0;
+  row.escrowReleases = 0;
+  row.escrowDeposit = 0;
+
+  if (m > calendar.closeMonth) {
+    row.escrowInterest = 0;
+    row.escrowAccountFees = 0;
+    row.milestoneDeveloperWithdrawal = sales;
+    row.escrowReleases = sales;
+    state.escrowBalance = 0;
+    row.escrowBalance = 0;
+    return;
+  }
+
+  const prior = state.escrowBalance;
+  let interest = 0;
+  let fees = 0;
+  if (m === 0) {
+    fees = Math.max(0, Number(inputs.escrowSetupFee) || 0);
+  } else if (prior > 1e-9 && m <= calendar.closeMonth) {
+    interest = prior * escrowDepositMonthlyFactor(inputs);
+    fees = prior * ((Number(inputs.escrowManagementFeePct) || 0) / 12);
+  }
+
+  let next = prior + interest - fees;
+  if (next < -1e-9) {
+    fees = Math.max(0, fees + next);
+    next = 0;
+  } else if (next < 0) {
+    next = 0;
+  }
+  next += sales;
+
+  if (m === calendar.completionMonth && calendar.dlpForm === "bank_guarantee") {
+    row.dlpBankGuaranteeMemo = Math.max(
+      0,
+      calendar.constructionCostTotal * calendar.dlpRate
+    );
+  }
+
+  const dlpHold =
+    m >= calendar.completionMonth && calendar.dlpForm === "cash"
+      ? Math.max(0, calendar.constructionCostTotal * calendar.dlpRate)
+      : 0;
+
+  const withdrawalMonth = m > 0 && isMilestoneCertMonth(m - 1, calendar.frequency);
+  if (withdrawalMonth) {
+    let cumCollections = sales;
+    for (const priorRow of priorRows) cumCollections += Math.max(0, priorRow.salesProceeds || 0);
+    const entitlement = milestoneCertifiedEntitlement(
+      priorRows,
+      m - 1,
+      permitted,
+      calendar.permitFinancing
+    );
+    const remainingEntitlement = Math.max(0, entitlement - state.milestoneCumWithdrawals);
+    const floor =
+      m < calendar.completionMonth
+        ? Math.max(0, calendar.floorRate * cumCollections)
+        : dlpHold;
+    const headroom = Math.max(0, next - floor);
+    const taken = Math.min(headroom, remainingEntitlement, Math.max(0, next));
+    const outstanding = Math.max(0, state.rcfBalance);
+    const sweep = calendar.sweepEnabled ? Math.min(taken, outstanding) : 0;
+    const developer = Math.max(0, taken - sweep);
+    next -= taken;
+    state.milestoneCumWithdrawals += taken;
+    row.lenderCashSweep = sweep;
+    if (m < calendar.completionMonth) {
+      row.certifiedMilestoneWithdrawal = developer;
+    } else {
+      row.milestoneDeveloperWithdrawal = developer;
+    }
+  }
+
+  if (m === calendar.closeMonth) {
+    const release = calendar.dlpForm === "cash" ? Math.min(Math.max(0, next), dlpHold) : 0;
+    row.dlpRetentionRelease = release;
+    next -= release;
+    if (next > 1e-9) {
+      row.milestoneDeveloperWithdrawal += next;
+      next = 0;
+    }
+    next = 0;
+  }
+
+  if (next < 0) next = 0;
+  state.escrowBalance = next;
+  row.escrowBalance = next;
+  row.escrowInterest = interest;
+  row.escrowAccountFees = fees;
+  row.escrowDeposit = sales;
+  row.progressWithdrawal = row.certifiedMilestoneWithdrawal;
+  row.escrowReleases = row.milestoneDeveloperWithdrawal + row.dlpRetentionRelease;
+}
+
+function assertMilestoneRetentionLedger(
+  rows: MonthlyRow[],
+  closeMonth: number,
+  horizonLength: number
+): void {
+  if (process.env.NODE_ENV !== "development") return;
+  const series: Array<[string, number[]]> = [
+    ["certified milestone withdrawal", rows.map((r) => r.certifiedMilestoneWithdrawal)],
+    ["lender cash sweep", rows.map((r) => r.lenderCashSweep)],
+    ["developer withdrawal", rows.map((r) => r.milestoneDeveloperWithdrawal)],
+    ["DLP retention release", rows.map((r) => r.dlpRetentionRelease)],
+  ];
+  for (const [label, values] of series) {
+    if (values.length !== horizonLength) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[milestone] ${label}: length ${values.length} !== horizon ${horizonLength}`
+      );
+    }
+    const total = values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+    if (!Number.isFinite(total)) {
+      // eslint-disable-next-line no-console
+      console.error(`[milestone] ${label}: total is not finite`);
+    }
+  }
+  for (const row of rows) {
+    if (row.escrowBalance < -1e-6) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[milestone] escrow balance < 0 at M${row.month}: ${row.escrowBalance}`
+      );
+    }
+    if (row.month > closeMonth) {
+      if (Math.abs(row.escrowBalance) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[milestone] balance after closure at M${row.month}`);
+      }
+      if (Math.abs(row.escrowInterest) > 1e-4 || Math.abs(row.escrowAccountFees) > 1e-4) {
+        // eslint-disable-next-line no-console
+        console.error(`[milestone] accrual after closure at M${row.month}`);
+      }
+    }
+  }
+}
+
 /** Strategy D: Non-Escrow (Universal Fallback) */
 function applyNonEscrowLogic(
   row: MonthlyRow,
@@ -1508,6 +1767,9 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     guaranteeRule &&
     isUaeLocation(inputs.country, inputs.countryCode) &&
     isAbuDhabiCity(inputs.city);
+  const milestoneRule = selectedRule === "milestone_retention";
+  const milestoneSaudi =
+    milestoneRule && isSaudiLocation(inputs.country, inputs.countryCode);
   const isCommercial = inputs.financingModel === "commercial";
   const isSaleStream =
     inputs.stream === "sale" ||
@@ -1566,9 +1828,10 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     };
   }
 
-  // Abu Dhabi completion-account overlay: land is 100% equity while this rule is
-  // selected. The caller's stored land split is not mutated. No loan-to-cost cap.
-  if (guaranteeAbuDhabi) {
+  // Abu Dhabi completion-account overlay, and the Saudi milestone-retention overlay:
+  // land is 100% equity while that rule is selected. The caller's stored land
+  // split is not mutated. No loan-to-cost cap.
+  if (guaranteeAbuDhabi || milestoneSaudi) {
     const land = Number(inputs.landCost) || 0;
     const userPct = inputs.landEquityPercent ?? 100;
     const landEquityHaircut = 0.7;
@@ -1679,6 +1942,9 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     proportionateCumInterest: 0,
     proportionateCumWithdrawals: 0,
     proportionateResidualReleased: 0,
+
+    /** Milestone retention: certified withdrawals already taken from the account. */
+    milestoneCumWithdrawals: 0,
 
     /** Australia: cumulative sales during construction (balance paid at settlement). */
     auConstructionSalesCumulative: 0,
@@ -1861,6 +2127,80 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     progressPct: proportionateAssert?.progressPct ?? [],
   };
 
+  const milestoneLocation = {
+    country: inputs.country,
+    countryCode: inputs.countryCode,
+  };
+  const milestoneFloorRate =
+    resolveMilestoneCompletionRetentionPercent(
+      inputs.milestoneCompletionRetentionPercent,
+      milestoneLocation
+    ) / 100;
+  const milestoneDlpRate =
+    resolveMilestoneDlpRetentionPercent(inputs.milestoneDlpRetentionPercent) / 100;
+  const milestoneDlpMonths = resolveMilestoneDlpRetentionMonths(
+    inputs.milestoneDlpRetentionMonths
+  );
+  const milestoneDlpForm = resolveMilestoneDlpForm(inputs.milestoneDlpForm);
+  const milestonePermitFinancing = resolveMilestonePermitLandAndFinancing(
+    inputs.milestonePermitLandAndFinancing
+  );
+  const milestoneSweep = resolveMilestoneSweepEnabled(
+    inputs.milestoneSweepEnabled,
+    milestoneLocation
+  );
+  const milestoneFrequency = resolveMilestoneCertFrequency(inputs.milestoneCertFrequency);
+  if (milestoneRule && process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.log("[milestone retention] cert frequency:", milestoneFrequency);
+  }
+  const milestoneOtherFeesShare = Math.min(
+    1,
+    Math.max(0, Number(inputs.guaranteeSoftOtherFeesShare ?? 0.1) || 0)
+  );
+  const milestoneCompletionMonth = milestoneRule
+    ? resolveActualConstructionEndMonth(
+        { constructionPeriod: inputs.constructionPeriodMonths },
+        inputs.monthlyCosts.construction
+      )
+    : cp;
+  const milestoneCloseMonth = milestoneCompletionMonth + milestoneDlpMonths;
+  const milestoneConstructionCostTotal = (() => {
+    const fromSeries = inputs.monthlyCosts.construction.reduce(
+      (sum, value) => sum + Math.max(0, Number(value) || 0),
+      0
+    );
+    if (fromSeries > 1e-9) return fromSeries;
+    return Math.max(0, Number(inputs.totalConstructionCosts) || 0);
+  })();
+  const milestonePermitted = milestoneRule
+    ? inputs.monthlyCosts.construction.map((cc, idx) => {
+        const soft = Number(inputs.monthlyCosts.soft[idx]) || 0;
+        const powc = Number(inputs.monthlyCosts.powc[idx]) || 0;
+        const land =
+          idx === 0 && milestonePermitFinancing
+            ? Math.max(0, Number(inputs.landCost) || 0)
+            : 0;
+        return (
+          (Number(cc) || 0) +
+          powc +
+          soft * (1 - milestoneOtherFeesShare) +
+          land
+        );
+      })
+    : [];
+  const milestoneCalendar = {
+    completionMonth: milestoneCompletionMonth,
+    closeMonth: milestoneCloseMonth,
+    floorRate: milestoneFloorRate,
+    dlpRate: milestoneDlpRate,
+    dlpForm: milestoneDlpForm,
+    permitFinancing: milestonePermitFinancing,
+    sweepEnabled: milestoneSweep,
+    constructionCostTotal: milestoneConstructionCostTotal,
+    frequency: milestoneFrequency,
+  };
+
   // --- MONTHLY LOOP ---
   for (let m = 0; m <= saleHorizon; m++) {
     const isConstructionPhase = m <= inputs.constructionPeriodMonths;
@@ -1874,6 +2214,7 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       salesProceeds: 0, escrowBalance: 0, escrowInterest: 0, escrowAccountFees: 0, progressWithdrawal: 0, escrowReleases: 0, retentionRelease: 0,
       permittedCostReimbursement: 0, lenderCashSweep: 0, developerProfitWithdrawal: 0, defectRetentionRelease: 0,
       escrowDeposit: 0, developerFreeCash: 0, proportionateWithdrawal: 0, residualRelease: 0, proportionateSplitPercent: 0,
+      certifiedMilestoneWithdrawal: 0, milestoneDeveloperWithdrawal: 0, dlpRetentionRelease: 0, dlpBankGuaranteeMemo: 0,
       lockedInSales: 0, cumuLockedInSales: 0, cumuTrustAccount: 0, depositToTrust: 0, balancePayment: 0, trustAccountInterest: 0, trustAccountFees: 0, trustAccountReleases: 0, actualSalesProceeds: 0,
       constructionCosts: 0, softCosts: 0, powc: 0, ffe: 0, totalOutflowsExclLand: 0, landCost: 0, hda3Deposit: 0, totalOutflowsInclLand: 0, ncf: 0,
       landLoanDrawdown: 0, landLoanInterest: 0, landLoanRepayment: 0, landLoanFees: 0,
@@ -2044,6 +2385,17 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
         monthlyData,
         proportionateCalendar
       );
+    } else if (selectedRule === "milestone_retention") {
+      applyMilestoneRetentionLogic(
+        row,
+        state,
+        inputs,
+        m,
+        salesThisMonth,
+        monthlyData,
+        milestonePermitted,
+        milestoneCalendar
+      );
     } else {
       applyNonEscrowLogic(row, state, inputs, salesThisMonth);
     }
@@ -2067,6 +2419,12 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
           row.proportionateWithdrawal +
           row.lenderCashSweep +
           row.residualRelease;
+      } else if (selectedRule === "milestone_retention") {
+        availableInflows =
+          row.certifiedMilestoneWithdrawal +
+          row.milestoneDeveloperWithdrawal +
+          row.lenderCashSweep +
+          row.dlpRetentionRelease;
       } else {
         availableInflows = row.progressWithdrawal + row.escrowReleases;
       }
@@ -2215,7 +2573,8 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     // --- Period NCF before gap-fill RCF draw (excludes HDA deposit → escrow) ---
     if (
       (selectedRule === "project_guarantee_account" ||
-        selectedRule === "proportionate_escrow") &&
+        selectedRule === "proportionate_escrow" ||
+        selectedRule === "milestone_retention") &&
       row.lenderCashSweep > 0
     ) {
       row.constLoanRepayment = -row.lenderCashSweep;
@@ -2312,7 +2671,8 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
     // and so this month's interest (already calculated) stays on the pre-sweep balance.
     if (
       (selectedRule === "project_guarantee_account" ||
-        selectedRule === "proportionate_escrow") &&
+        selectedRule === "proportionate_escrow" ||
+        selectedRule === "milestone_retention") &&
       row.lenderCashSweep > 0
     ) {
       state.rcfBalance = Math.max(0, state.rcfBalance - row.lenderCashSweep);
@@ -2487,6 +2847,13 @@ function runFinancingEngineCore(inputs: FinancingInputs): MonthlyRow[] {
       ...proportionateCalendar,
       frequency: proportionateFrequency,
     });
+  }
+  if (milestoneRule) {
+    assertMilestoneRetentionLedger(
+      monthlyData,
+      milestoneCalendar.closeMonth,
+      totalMonths
+    );
   }
 
   return monthlyData;

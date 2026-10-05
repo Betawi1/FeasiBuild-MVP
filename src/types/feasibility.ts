@@ -675,7 +675,7 @@ export interface SalePostFinancingMonthlyRow {
 
 export interface SaleEscrowWithdrawalData {
   currency: string;
-  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | proportionate_escrow | none). */
+  /** Selected withdrawal rule id (ten_ninety | staged | progress | closed_loop_escrow | project_guarantee_account | proportionate_escrow | milestone_retention | none). */
   ruleId: string;
   ruleName: string;
   configTitle: string;
@@ -718,6 +718,17 @@ export interface SaleEscrowWithdrawalData {
     certFrequency: "monthly" | "quarterly";
     sweepEnabled: boolean;
     interestPermitted: boolean;
+  };
+  /** Present when the selected rule is milestone retention. */
+  milestoneConfig?: {
+    completionRetentionPercent: number;
+    dlpRetentionPercent: number;
+    dlpRetentionMonths: number;
+    dlpForm: "cash" | "bank_guarantee";
+    permitLandAndFinancing: boolean;
+    sweepEnabled: boolean;
+    /** True only while this location's default is the rule (Saudi Arabia). */
+    ksaOverlay: boolean;
   };
   /** Present when the selected rule is closed-loop escrow. */
   closedLoopConfig?: {

@@ -26,6 +26,10 @@ export type MonthlyRow = {
   proportionateWithdrawal?: number;
   residualRelease?: number;
   proportionateSplitPercent?: number;
+  certifiedMilestoneWithdrawal?: number;
+  milestoneDeveloperWithdrawal?: number;
+  dlpRetentionRelease?: number;
+  dlpBankGuaranteeMemo?: number;
 
   constructionCosts: number;
   softCosts: number;
@@ -73,6 +77,8 @@ export type CashFlowTableUaeSaProps = {
   showGuaranteeLedger?: boolean;
   /** Proportionate escrow ledger rows, in place of generic release rows. */
   showProportionateLedger?: boolean;
+  /** Milestone retention ledger rows, in place of generic release rows. */
+  showMilestoneLedger?: boolean;
 };
 
 export function CashFlowTableUaeSa({
@@ -82,6 +88,7 @@ export function CashFlowTableUaeSa({
   showFfe = false,
   showGuaranteeLedger = false,
   showProportionateLedger = false,
+  showMilestoneLedger = false,
 }: CashFlowTableUaeSaProps) {
   if (!data || data.length === 0) {
     return (
@@ -187,7 +194,46 @@ export function CashFlowTableUaeSa({
                 formatCurrency={formatCurrency}
                 isNegative
               />
-              {showProportionateLedger ? (
+              {showMilestoneLedger ? (
+                <>
+                  <TableRow
+                    label="Certified milestone withdrawal"
+                    data={data}
+                    getValue={(r) => r.certifiedMilestoneWithdrawal || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Lender cash sweep"
+                    data={data}
+                    getValue={(r) => r.lenderCashSweep || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="Developer withdrawal"
+                    data={data}
+                    getValue={(r) => r.milestoneDeveloperWithdrawal || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  <TableRow
+                    label="DLP retention release"
+                    data={data}
+                    getValue={(r) => r.dlpRetentionRelease || 0}
+                    formatCurrency={formatCurrency}
+                    isHighlight
+                  />
+                  {data.some((r) => (r.dlpBankGuaranteeMemo || 0) > 0) && (
+                    <TableRow
+                      label="DLP secured by bank guarantee (no cash retained)"
+                      data={data}
+                      getValue={(r) => r.dlpBankGuaranteeMemo || 0}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+                </>
+              ) : showProportionateLedger ? (
                 <>
                   <TableRow
                     label="Developer free cash (remainder)"

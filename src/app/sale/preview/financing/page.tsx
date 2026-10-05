@@ -3735,6 +3735,7 @@ function FinancingPreviewPageContent({
                   showFfe={isSaleWarehouseProduct}
                   showGuaranteeLedger={previewRule === "project_guarantee_account"}
                   showProportionateLedger={previewRule === "proportionate_escrow"}
+                  showMilestoneLedger={previewRule === "milestone_retention"}
                 />
               );
             })()}

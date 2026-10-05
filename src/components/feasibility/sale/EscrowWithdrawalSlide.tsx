@@ -30,6 +30,7 @@ function resolveSlideRule(data: SaleEscrowWithdrawalData): EscrowRuleId {
   if (j === "australia" || j.includes("10/90") || j.includes("ten_ninety")) return "ten_ninety";
   if (j.includes("closed") && j.includes("loop")) return "closed_loop_escrow";
   if (j.includes("proportionate")) return "proportionate_escrow";
+  if (j.includes("milestone")) return "milestone_retention";
   if (j.includes("guarantee")) return "project_guarantee_account";
   if (j.includes("no escrow") || j === "none") return "none";
   return normalizeEscrowRuleId(data.jurisdiction);
@@ -443,6 +444,67 @@ export default function EscrowWithdrawalSlide({
                   <td className="border border-slate-300 p-2 font-medium">Defect liability</td>
                   <td className="border border-slate-300 p-2">
                     Five-year structural obligation. No escrow retention.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {rule === "milestone_retention" && (
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 mb-2">{title}</h3>
+            <ul className="mb-3 list-disc pl-4 text-xs text-slate-700 space-y-1">
+              <li>
+                {data.milestoneConfig?.completionRetentionPercent ?? 20}% of cumulative collections
+                is locked until completion. Withdrawals are capped to maintain this floor.
+              </li>
+              <li>
+                {data.milestoneConfig?.dlpForm === "bank_guarantee"
+                  ? `${data.milestoneConfig?.dlpRetentionPercent ?? 5}% of construction cost is secured by a bank guarantee for ${data.milestoneConfig?.dlpRetentionMonths ?? 12} months post-completion. No cash is retained.`
+                  : `${data.milestoneConfig?.dlpRetentionPercent ?? 5}% of construction cost is retained for ${data.milestoneConfig?.dlpRetentionMonths ?? 12} months post-completion.`}
+              </li>
+              <li>
+                Permitted uses include construction, site preliminaries, consultants, land value
+                payments, and financing repayments. Marketing and brokerage are excluded.
+              </li>
+              {data.milestoneConfig?.ksaOverlay && (
+                <li>The land deed stays restricted until completion.</li>
+              )}
+            </ul>
+            <table className="feasibility-table w-full text-xs border border-slate-300">
+              <tbody>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Completion floor</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.milestoneConfig?.completionRetentionPercent ?? 20}% of cumulative
+                    collections until physical completion
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">DLP hold</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.milestoneConfig?.dlpRetentionPercent ?? 5}% of construction cost for{" "}
+                    {data.milestoneConfig?.dlpRetentionMonths ?? 12} months
+                    {data.milestoneConfig?.dlpForm === "bank_guarantee"
+                      ? " (bank guarantee, no cash retained)"
+                      : ""}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Lender cash sweep</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.milestoneConfig?.sweepEnabled === false
+                      ? "Off. Land loans are never swept."
+                      : "Construction lender is swept first. Land loans are never swept."}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="border border-slate-300 p-2 font-medium">Land and financing</td>
+                  <td className="border border-slate-300 p-2">
+                    {data.milestoneConfig?.permitLandAndFinancing === false
+                      ? "Excluded from the certified entitlement"
+                      : "Land value payments and financing repayments are permitted"}
                   </td>
                 </tr>
               </tbody>

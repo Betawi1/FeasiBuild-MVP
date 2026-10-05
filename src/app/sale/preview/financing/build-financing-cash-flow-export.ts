@@ -414,6 +414,34 @@ function proportionateSpecs(rows: EngineMonthlyRow[], showFfe: boolean): ExportR
   return specs;
 }
 
+function milestoneSpecs(rows: EngineMonthlyRow[], showFfe: boolean): ExportRowSpec[] {
+  const specs = uaeSpecs(false, showFfe).filter(
+    (spec) => spec.label !== "Escrow releases" && spec.label !== "Progress withdrawal"
+  );
+  const feeIdx = specs.findIndex((spec) => spec.label === "Escrow account fees");
+  const ledger: ExportRowSpec[] = [
+    {
+      label: "Certified milestone withdrawal",
+      get: (r) => r.certifiedMilestoneWithdrawal || 0,
+    },
+    { label: "Lender cash sweep", get: (r) => r.lenderCashSweep || 0 },
+    {
+      label: "Developer withdrawal",
+      get: (r) => r.milestoneDeveloperWithdrawal || 0,
+    },
+    { label: "DLP retention release", get: (r) => r.dlpRetentionRelease || 0 },
+  ];
+  if (rows.some((r) => (r.dlpBankGuaranteeMemo || 0) > 0)) {
+    ledger.push({
+      label: "DLP secured by bank guarantee (no cash retained)",
+      get: (r) => r.dlpBankGuaranteeMemo || 0,
+      totalMode: "none",
+    });
+  }
+  specs.splice(feeIdx + 1, 0, ...ledger);
+  return specs;
+}
+
 function specsForEscrowRule(
   rule: EscrowRuleId,
   hideEscrowRows: boolean,
@@ -425,6 +453,7 @@ function specsForEscrowRule(
   if (rule === "ten_ninety") return australiaSpecs(hideEscrowRows, showFfe);
   if (rule === "project_guarantee_account") return guaranteeSpecs(showFfe);
   if (rule === "proportionate_escrow") return proportionateSpecs(rows, showFfe);
+  if (rule === "milestone_retention") return milestoneSpecs(rows, showFfe);
   return uaeSpecs(hideEscrowRows, showFfe);
 }
 
