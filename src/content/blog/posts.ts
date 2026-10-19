@@ -55,6 +55,346 @@ function assets(slug: string) {
 }
 
 export const posts: BlogPost[] = [
+{
+  slug: "why-i-charge-dollar99-for-lifetime-access",
+  title: "Why I Charge $99 for Lifetime Access — Instead of $500/Month",
+  excerpt: "Two traps own this industry: the consultant ransom and the SaaS subscription. Here's the pricing philosophy behind paying once, owning the engine, and never being billed for silence.",
+  category: "Features",
+  persona: "All",
+  jurisdictions: [],
+  tags: ["Pricing Philosophy", "Lifetime Access", "Report Credits", "No Subscription", "Ownership"],
+  keywords: ["feasibility study software pricing", "lifetime access vs subscription", "real estate feasibility study cost", "saas subscription trap", "own your software"],
+  date: "2026-10-19",
+  readTime: "2 min read",
+  author: "Rashdan",
+  poster: "/blog/why-i-charge-dollar99-for-lifetime-access/poster.png",
+  deckPdf: "/blog/why-i-charge-dollar99-for-lifetime-access/deck.pdf",
+  slides: [],
+  body: [
+    { type: "p", text: "Every pricing decision is a philosophy decision. After 30 years in real estate finance, here is mine — and the two traps it refuses to repeat." },
+    { type: "h2", text: "Trap #1: The Consultant Ransom" },
+    { type: "p", text: "After 30 years in real estate finance, I've watched consultants turn a single decision into a recurring revenue stream for themselves — not for you." },
+    { type: "ul", items: [
+      "$15,000 study fee — pay upfront for a feasibility model; one deliverable, one price tag",
+      "Pay again to change — want to adjust the unit mix? That's another invoice; every revision costs extra",
+      "You own nothing — the model lives with them; you're always one change request away from another bill"
+    ]},
+    { type: "h2", text: "Trap #2: The SaaS Subscription Trap" },
+    { type: "p", text: "SaaS companies charge you every month just to keep your account open — even if you only run one feasibility model per year." },
+    { type: "ul", items: [
+      "$500/month × 12 = $6,000/year — just to keep the door unlocked; no usage required",
+      "Dormant months still bill — skip a quarter? You still paid $1,500 for nothing"
+    ]},
+    { type: "h2", text: "The FeasiBuild Model: Pay Once. Own the Engine." },
+    { type: "p", text: "No expiration. No renewal reminders. No account suspension for inactivity." },
+    { type: "ul", items: [
+      "$99 one-time fee — lifetime access to the full AI feasibility engine; no monthly charge, no credit card on file",
+      "0 monthly subscriptions — if you don't use the tool for 3 months, you pay nothing",
+      "30+ years in the industry — built by someone who's been on both sides of the table, and chose to fix it"
+    ]},
+    { type: "quote", text: "We don't bill you for silence." },
+    { type: "h2", text: "You Only Pay When You Build" },
+    { type: "p", text: "Report credits — pay per export. Need a clean PDF for a lender or investor? Buy credits only when you're ready to export." },
+    { type: "ul", items: [
+      "Single report — $49 for one professional PDF export",
+      "50-pack — bulk discount for frequent users",
+      "Unlimited pack — running models weekly? $2,400/year covers unlimited exports for a full 12 months; no per-report fees, set it and forget it"
+    ]},
+    { type: "h2", text: "Zero Rent-Seeking. By Design." },
+    { type: "p", text: "Most tools are designed to make you dependent. FeasiBuild is designed to set you free." },
+    { type: "ul", items: [
+      "No hostage pricing — your models, your data, your access; nothing held back behind a renewal wall",
+      "Inactivity costs nothing — take 3 months off, take a year; when you come back, your access is still there",
+      "Aligned incentives — we only make money when you're actively building; that's the point"
+    ]},
+    { type: "h2", text: "Stop Paying Rent on Your Own Tools" },
+    { type: "p", text: "Try it free. Upgrade when you're ready. No pressure, no countdown timers." },
+    { type: "ul", items: [
+      "Explorer tier — free; explore the platform at zero cost before committing a dollar",
+      "Lifetime access — from $99 one-time; own the engine forever, no subscription required"
+    ]},
+    { type: "p", text: "Try the free Explorer tier at feasibuild.app — and keep whatever you build, forever." }
+  ],
+},
+
+  {
+  slug: "seven-escrow-regimes-one-cashflow-engine",
+  title: "Seven Escrow Regimes. One Cashflow Engine.",
+  excerpt: "How FeasiBuild models off-plan buyer-payment rules natively — from Dubai's Law No. 8 to India's RERA 70/30. One engine. Every jurisdiction.",
+  category: "Jurisdiction",
+  persona: "All",
+  jurisdictions: ["AU", "CN", "IN", "MY", "SA", "AE"],
+  tags: ["Escrow", "Off-Plan", "RERA", "HDA", "Payment Structures", "Project Finance"],
+  keywords: ["escrow rules real estate", "off-plan payment structures", "dubai law 8 escrow", "rera 70/30", "hda progress drawdown", "10/90 rule"],
+  date: "2026-10-19",
+  readTime: "3 min read",
+  author: "Rashdan",
+  poster: "/blog/seven-escrow-regimes-one-cashflow-engine/poster.png",
+  deckPdf: "/blog/seven-escrow-regimes-one-cashflow-engine/deck.pdf",
+  slides: [],
+  body: [
+    { type: "p", text: "Seven escrow regimes. Six countries. One cashflow engine. Most proformas treat off-plan buyer payments as a single inflow line — but every jurisdiction runs its own legal machine. Here is how each one works, and how FeasiBuild models it natively." },
+    { type: "h2", text: "Australia — 10/90 Rule" },
+    { type: "p", text: "10% deposit at contract, 90% at completion. No project escrow — the deposit is held under state conveyancing trust rules, and the developer carries interest on equity until settlement." },
+    { type: "ul", items: [
+      "Governing law: Conveyancing Act 1919 (NSW) · Property Law Act 1974 (Qld) · Sale of Land Act 1962 (Vic)",
+      "Retention: none — no escrow account exists",
+      "In FeasiBuild: 10/90 timing + interest carry; splits editable (20/80, 30/70)"
+    ]},
+    { type: "h2", text: "China — Closed-Loop Escrow Rule" },
+    { type: "p", text: "Pre-sale proceeds enter government-supervised bank accounts; withdrawals are ring-fenced to construction of that project and released node by node." },
+    { type: "ul", items: [
+      "Governing law: Urban Real Estate Administration Law (PRC) · MOHURD Measures · municipal pre-sale funds supervision measures",
+      "Retention: 3% of building works retained from the main contractor for 24 months post-completion",
+      "In FeasiBuild: node-gated releases; zero free cash before certification"
+    ]},
+    { type: "h2", text: "India — Proportionate Escrow Rule" },
+    { type: "p", text: "70% of every buyer payment is locked in the designated account; 30% is immediate free cash. Withdrawals equal certified completion % × permitted cost, and the lender sweep is locked ON." },
+    { type: "ul", items: [
+      "Governing law: RERA 2016 s.4(2)(l)(D) & s.4(3) · State RERAs (MahaRERA, TS RERA…)",
+      "Retention: none — the five-year structural defect liability is a separate legal obligation",
+      "In FeasiBuild: 70% split and sweep locked for India; editable elsewhere"
+    ]},
+    { type: "h2", text: "Malaysia — Progress Drawdown Rule" },
+    { type: "p", text: "Payments enter the statutorily controlled Housing Development Account; withdrawals only per certified Schedule of Progress stages." },
+    { type: "ul", items: [
+      "Governing law: Housing Development (Control and Licensing) Act 1966 (Act 118) + Regulations 1989 · KPKT",
+      "Retention: 5% of GDV — 2.5% released after 8 months, remaining 2.5% after 24 months",
+      "In FeasiBuild: stage-based drawdown curve, native"
+    ]},
+    { type: "h2", text: "Saudi Arabia — Milestone & Retention Escrow Rule" },
+    { type: "p", text: "Payments enter supervised escrow; certified milestone releases apply with a 20% completion floor (locked), and the lender sweep is locked ON." },
+    { type: "ul", items: [
+      "Governing law: Off-Plan Sale & Lease Law + Implementing Regulations (Wafi programme) · REGA",
+      "Retention: 20% completion floor (locked) + 5% held for 12 months after completion",
+      "In FeasiBuild: floor and sweep locked for KSA"
+    ]},
+    { type: "h2", text: "UAE · Abu Dhabi — Project Guarantee Account Rule" },
+    { type: "p", text: "Buyer payments enter a project guarantee account; developer access only against certified project progress." },
+    { type: "ul", items: [
+      "Governing law: Abu Dhabi Law No. 3 of 2015 · DMT — Real Estate Regulatory Committee",
+      "Retention: 5% held for 12 months after project completion",
+      "In FeasiBuild: native preset in the cashflow engine"
+    ]},
+    { type: "h2", text: "UAE · Dubai — Staged Escrow Rule" },
+    { type: "p", text: "Payments are locked in project escrow, released at certified construction milestones, with retention held to handover." },
+    { type: "ul", items: [
+      "Governing law: Law No. 8 of 2007 · Dubai Land Department (DLD) / RERA",
+      "Retention: 5% of GDV held for 12 months after completion",
+      "In FeasiBuild: milestone releases + retention, automatic"
+    ]},
+    { type: "h2", text: "Everywhere Else" },
+    { type: "p", text: "Market not on the list? Pin-drop any country: choose the No-Escrow Rule, or adopt and edit any of the seven regimes — split %, certification cadence, sweep, retention, horizon. The mechanism is not a country label." },
+    { type: "p", text: "Run your first study free on the Explorer tier — and watch your jurisdiction's rules drive the cashflow. feasibuild.app" }
+  ],
+},
+{
+  slug: "your-job-is-to-break-it",
+  title: "The Base Case Always Works. Your Job Is to Break It.",
+  excerpt: "Every developer submits a perfect model. Every credit officer's job is to find where it fails — before the bank commits capital. A 22% IRR, 1.3x DSCR submission, shocked in one click.",
+  category: "Case Study",
+  persona: "Auditor",
+  jurisdictions: [],
+  tags: ["Downside Shock", "DSCR", "Stress Testing", "Credit Risk", "Zero-Knowledge"],
+  keywords: ["downside scenario real estate", "dscr covenant breach", "credit officer feasibility", "construction loan stress test", "zero knowledge financial modeling"],
+  date: "2026-10-19",
+  readTime: "2 min read",
+  author: "Rashdan",
+  poster: "/blog/your-job-is-to-break-it/poster.png",
+  deckPdf: "/blog/your-job-is-to-break-it/deck.pdf",
+  slides: [],
+  body: [
+    { type: "p", text: "Every developer submits a perfect model. Every credit officer's job is to find where it fails — before the bank commits capital." },
+    { type: "h2", text: "The Developer's Submission: 22% IRR. 1.3x DSCR. Looks Perfect." },
+    { type: "p", text: "Developers submit their best-case scenario — and it always looks clean. The numbers are internally consistent. The returns are attractive. The risk ratios appear conservative." },
+    { type: "ul", items: [
+      "22% IRR — compelling on paper",
+      "1.3x DSCR — comfortably above the 1.2x covenant",
+      "70% LTC — within standard underwriting limits"
+    ]},
+    { type: "h2", text: "The Reality: In 30 Years, No Project Has Gone Exactly to Plan" },
+    { type: "p", text: "The Base Case assumes perfect execution. Reality doesn't cooperate. These are the three stressors that break deals — and they happen more often than developers admit:" },
+    { type: "ul", items: [
+      "Hard costs +10% — material and labor overruns are routine, not exceptional; contingency buffers get consumed fast",
+      "Rates +150 bps — a mid-construction rate hike reshapes debt service obligations and compresses margins",
+      "Sales delayed 3 months — absorption slows, carrying costs accumulate, and cashflow timing breaks the model"
+    ]},
+    { type: "h2", text: "One Click. Instant Downside Shock." },
+    { type: "p", text: "FeasiBuild doesn't require manual scenario modeling. With a single click, the platform shocks the developer's Base Case against a predefined downside scenario — and recalculates every metric instantly. Import base. Apply shock. No spreadsheet manipulation. No manual recalculation. The model breaks itself — in seconds, not hours." },
+    { type: "h2", text: "The Result: DSCR Drops to 0.9x. The Loan Is Underwater." },
+    { type: "p", text: "Under the downside scenario, DSCR falls below the 1.2x covenant floor — triggering a technical default before construction even completes." },
+    { type: "ul", items: [
+      "Debt service obligations exceed available cashflow",
+      "Equity cushion is insufficient to absorb cost overruns",
+      "The deal requires restructuring — or should not be funded"
+    ]},
+    { type: "quote", text: "A Base Case DSCR of 1.3x provides only 0.1x buffer above covenant. This is not a margin of safety — it's a margin of error." },
+    { type: "h2", text: "Your Data Never Leaves Your Infrastructure" },
+    { type: "p", text: "BYO-infrastructure — zero-knowledge security. FeasiBuild is built for institutions that cannot compromise on data sovereignty. Sensitive financial models and deal data reside exclusively in your private cloud — never on our servers." },
+    { type: "ul", items: [
+      "Zero-knowledge architecture — we process calculations without ever accessing your raw financial data",
+      "Bank-grade compliance — designed to meet institutional security and regulatory requirements",
+      "Private cloud deployment — deploy on your infrastructure; full data ownership, always"
+    ]},
+    { type: "p", text: "Break your own model before a credit officer breaks it for you — first scenario free on the Explorer tier. feasibuild.app" }
+  ],
+},
+{
+  slug: "i-ran-a-stress-test-on-a-200-unit-residential-deal",
+  title: "I Ran a Stress Test on a 200-Unit Residential Deal — Here's What Happened",
+  excerpt: "An 18% base IRR on a 200-unit Malaysian residential project. Two 5% assumption shifts — price down, costs up — and the margin was gone. What the tornado chart saw coming.",
+  category: "Case Study",
+  persona: "Closer",
+  jurisdictions: ["MY"],
+  tags: ["Stress Testing", "Sensitivity Analysis", "Tornado Chart", "IRR", "Risk"],
+  keywords: ["real estate stress test", "irr sensitivity analysis", "tornado chart real estate", "feasibility downside case", "residential development malaysia"],
+  date: "2026-10-19",
+  readTime: "2 min read",
+  author: "Rashdan",
+  poster: "/blog/i-ran-a-stress-test-on-a-200-unit-residential-deal/poster.png",
+  deckPdf: "/blog/i-ran-a-stress-test-on-a-200-unit-residential-deal/deck.pdf",
+  slides: [],
+  body: [
+    { type: "p", text: "What looked like a home run on paper turned into something very different when the numbers were pushed. This is what happened — and why it matters for every developer running feasibility on a new project." },
+    { type: "h2", text: "The Base Case: 18% IRR. Looks Like a Home Run." },
+    { type: "p", text: "A 200-unit residential project in Malaysia. On paper, the assumptions were aggressive but believable — strong sales velocity, fat margins, clean returns." },
+    { type: "ul", items: [
+      "200 units — residential development",
+      "18% base IRR — projected return on equity",
+      "5% price drop — the stress scenario trigger"
+    ]},
+    { type: "h2", text: "The Question Nobody Asks: What If the Market Softens Right at Launch?" },
+    { type: "p", text: "Most feasibility models stop at the base case. The real risk hides in the assumptions that feel safe — until they're not. Two variables were stress-tested simultaneously:" },
+    { type: "ul", items: [
+      "Selling price −5% — market softens just as the sales gallery opens",
+      "Construction costs +5% — material and labor inflation hits mid-build"
+    ]},
+    { type: "h2", text: "The Tornado Chart: Mapping the Exact Risk Vectors" },
+    { type: "p", text: "A tornado chart ranks risk factors by impact — showing which assumptions move the needle most. In this case, selling price sensitivity dominated, with construction cost inflation compounding the damage: price −5% alone dragged IRR to 13%; costs +5% alone to 15% — against the 18% base case as the reference line." },
+    { type: "quote", text: "This is the difference between a back-of-the-napkin model and an institutional-grade feasibility study. You don't just calculate the upside — you map the landmines." },
+    { type: "h2", text: "The Shock: IRR Collapsed from 18% to 4.2%" },
+    { type: "p", text: "The profit margin vanished. The developer was essentially working for free — generating just enough to cover the bank's interest." },
+    { type: "ul", items: [
+      "Base case: 18% IRR — strong returns, attractive to equity partners",
+      "Stress case: 4.2% IRR — margin evaporated, project barely covers debt service",
+      "The gap: 13.8 points — wiped out by two 5% assumption shifts"
+    ]},
+    { type: "h2", text: "It Doesn't Just Break the Math — It Writes the Advisory" },
+    { type: "p", text: "FeasiBuild didn't output a broken spreadsheet. The AI generated a 2-page scenario analysis & IRR sensitivity — explaining exactly the factors why the project was vulnerable and what to do about it." },
+    { type: "ul", items: [
+      "Diagnosed the vulnerability — identified price sensitivity as the primary risk driver",
+      "Recommended a fix — build a 10% contingency into the equity stack",
+      "Institutional-grade output — ready to share with lenders, partners, and stakeholders"
+    ]},
+    { type: "p", text: "Run your own stress test before the market runs it for you — first scenario free on the Explorer tier. feasibuild.app" }
+  ],
+},
+{
+  slug: "why-standard-template-fail-in-australia",
+  title: "Why Standard Templates Fail in Australia",
+  excerpt: "Most feasibility models assume standard progress payments. In Australia, off-the-plan sales run on 10/90 — and that difference can quietly destroy your project's cashflow.",
+  category: "Jurisdiction",
+  persona: "All",
+  jurisdictions: ["AU"],
+  tags: ["10/90", "Off-the-Plan", "Interest Reserve", "Construction Loan", "Excel Templates"],
+  keywords: ["10/90 rule australia", "off the plan settlement cashflow", "australian development feasibility", "interest reserve construction loan", "excel template australia"],
+  date: "2026-10-19",
+  readTime: "2 min read",
+  author: "Rashdan",
+  poster: "/blog/why-standard-template-fail-in-australia/poster.png",
+  deckPdf: "/blog/why-standard-template-fail-in-australia/deck.pdf",
+  slides: [],
+  body: [
+    { type: "p", text: "Most feasibility models are built for standard progress payment structures. In Australia, off-the-plan sales work differently — and that difference can quietly destroy your project's cashflow." },
+    { type: "h2", text: "The 10/90 Rule: How Settlement Actually Works" },
+    { type: "p", text: "In Australia, off-the-plan buyers pay just 10% at contract. The remaining 90% isn't due until practical completion — often 2 to 3 years later." },
+    { type: "ul", items: [
+      "10% — Day 1: buyer deposit on exchange of contracts",
+      "90% — Completion: balance due at practical completion (2–3 years later)"
+    ]},
+    { type: "h2", text: "The Trap: Front-Loaded Equity & Heavy Interest Carry" },
+    { type: "ul", items: [
+      "Equity is front-loaded — without the 90% settlement, developer equity must cover far more of the construction cost upfront; standard templates underestimate this dramatically",
+      "Interest accrual is heavier — construction loan interest compounds over the full build period with no offsetting settlement receipts; the carry is much larger than generic models predict",
+      "Loan sizing is off — if your model doesn't account for delayed receipts, your construction loan will be undersized from the outset"
+    ]},
+    { type: "h2", text: "A 3-Month Delay Can Blow Up Your Interest Reserve" },
+    { type: "p", text: "In a 10/90 structure, the 10% deposit is kept in escrow and you don't receive both the 10% deposit and the 90% settlement capital until completion. A delay doesn't just push your timeline — it extends your interest-bearing period with zero offsetting income." },
+    { type: "quote", text: "A 3-month delay doesn't just cost time. It compounds interest on the full loan balance, with no settlement receipts to offset it. Your interest reserve can be exhausted before completion." },
+    { type: "p", text: "On-time completion: interest reserve intact, 90% received at practical completion, project viable. Three months late: interest reserve blown, no 90% receipt, cashflow crisis at Month 18." },
+    { type: "h2", text: "How Generic Excel Templates Get It Wrong" },
+    { type: "p", text: "Standard feasibility templates assume standard progress payment cashflows — staged receipts throughout construction. They do not model the 10/90 structure natively." },
+    { type: "ul", items: [
+      "Assume staged settlement receipts — templates treat buyer payments as evenly distributed, not deferred to completion",
+      "Understate the construction loan — without the correct cashflow timing, loan sizing is optimistic and equity gaps appear mid-build",
+      "Miss the interest reserve risk — delays are treated as minor, not as events that can exhaust your entire interest reserve"
+    ]},
+    { type: "h2", text: "FeasiBuild: Native 10/90 Cashflow Waterfalls" },
+    { type: "p", text: "FeasiBuild is built for the Australian market. The 10/90 structure isn't a workaround — it's the default." },
+    { type: "ul", items: [
+      "Automatic 90% deferral — the cashflow waterfall delays the 90% receipt to practical completion, no manual adjustments required",
+      "Correct interest carry — construction loan interest is calculated on the true outstanding balance, reflecting the delayed settlement reality",
+      "Proper loan sizing — your construction loan is sized to the actual equity gap, not an optimistic template assumption"
+    ]},
+    { type: "p", text: "Run your first Australian scenario free on the Explorer tier — and see what your template has been hiding. feasibuild.app" }
+  ],
+},
+  {
+  slug: "which-actually-makes-more-money",
+  title: "Ambient Warehouse vs. Cold Storage: Which Actually Makes More Money?",
+  excerpt: "A live scenario test on a designated Dubai industrial plot — same land, same building code, same financing. Only the product format changed. The math decided.",
+  category: "Case Study",
+  persona: "Closer",
+  jurisdictions: ["UAE"],
+  tags: ["Logistics", "Cold Storage", "Highest & Best Use", "Scenario Testing", "Industrial"],
+  keywords: ["ambient warehouse vs cold storage", "cold storage investment returns", "highest and best use dubai", "industrial feasibility study", "construction loan drawdown modeling"],
+  date: "2026-10-19",
+  readTime: "2 min read",
+  author: "Rashdan",
+  poster: "/blog/which-actually-makes-more-money/poster.png",
+  deckPdf: "/blog/which-actually-makes-more-money/deck.pdf",
+  slides: [],
+  body: [
+    { type: "p", text: "In the UAE, the master developer dictates your land use. Your job as a developer is to figure out how to maximize the yield within the permitted use and the plot's building code." },
+    { type: "p", text: "This week, I ran a live scenario test on a designated Dubai industrial plot using FeasiBuild to see which product format actually penciled out best:" },
+    { type: "ul", items: [
+      "Scenario A: Grade-A Ambient Logistics Warehouse",
+      "Scenario B: Chilled / Cold Storage Facility"
+    ]},
+    { type: "p", text: "I kept the land cost, plot size, and financing terms identical. Only the product format changed." },
+    { type: "h2", text: "Scenario A: Grade-A Ambient Logistics Warehouse" },
+    { type: "ul", items: [
+      "Lower capex — standard MEP fit-out, no refrigeration infrastructure; construction costs stay lean from day one",
+      "Faster build timeline — simpler systems mean shorter construction periods and earlier lease-up",
+      "Lower peak equity — less capital tied up during construction; the loan drawdown curve stays manageable"
+    ]},
+    { type: "h2", text: "Scenario B: Chilled / Cold Storage Facility" },
+    { type: "ul", items: [
+      "Massive rental yield — cold storage commands premium rents; the yield advantage over ambient is significant",
+      "Brutal MEP costs — refrigeration plant, insulated panels and specialized fit-outs hammer the capex budget",
+      "Higher peak equity — heavier construction loan drawdowns spike the interest reserve; cashflow pressure is real"
+    ]},
+    { type: "h2", text: "The Results in 30 Minutes" },
+    { type: "p", text: "Cold storage wins massively on rental yield… but the ambient warehouse crushed it on Development IRR and required far less peak equity. Refrigeration capex and MEP fit-outs are brutal on the cashflow." },
+    { type: "h2", text: "The Kicker: Automated Loan Drawdown Modeling" },
+    { type: "p", text: "FeasiBuild didn't just compare static returns — it automatically adjusted construction loan drawdowns and milestone-based cashflows for the heavier MEP costs in the cold storage scenario, surfacing exactly when the interest reserve would peak." },
+    { type: "p", text: "The result: a precise view of when and how much equity each scenario demands — not just what the IRR looks like on paper." },
+    { type: "h2", text: "Highest & Best Use, Master-Planned Edition" },
+    { type: "quote", text: "You don't guess the format. You let the math prove it." },
+    { type: "p", text: "In master-planned markets, highest and best use analysis isn't about rezoning — it's about stress-testing every permitted product format against real construction costs, financing structures, and lease assumptions." },
+    { type: "ul", items: [
+      "Same plot — identical land cost & building code",
+      "Different formats — ambient vs. cold storage",
+      "One winner — the IRR and equity story decides"
+    ]},
+    { type: "h2", text: "Run Your Own Scenario in 30 Minutes" },
+    { type: "p", text: "FeasiBuild automates the highest and best use work that institutional developers and lenders need — from construction loan drawdowns to development IRR — without a spreadsheet in sight." },
+    { type: "ul", items: [
+      "Try the free Explorer tier — run your first scenario at no cost, and see how the math works before you commit",
+      "Lifetime access from $99 — full modeling power for a single investment; no subscription, no surprises"
+    ]}
+  ],
+},
   {
     slug: "go-no-go-in-hours-not-weeks",
     title: "Go / No-Go in Hours, Not Weeks",

@@ -3,6 +3,33 @@
 > **Source of truth** for product identity, architecture, AI integration, financial engine rules, and jurisdiction logic.  
 > Derived from the codebase (`finmodel-app-v2`) and established product conventions. Update this file when architecture or calculation rules change.
 
+## AI DEVELOPMENT STACK & PROMPT ROUTING (last updated: 2026-10-13)
+
+### Current stack — MacBook Air M1, Zed IDE (base_keymap: Cursor)
+| Engine | Model | Access point | Role |
+|---|---|---|---|
+| LOCAL MUSCLE | qwen2.5-coder:3b (Ollama) | Zed Inline Assist (highlight code → Cmd+Enter / Cmd+K) | Fast single-file edits, boilerplate, syntax, docstrings, regex. Unlimited, offline, zero quota |
+| LOCAL ALT | gemma3:4b (Ollama) | Same as above | Fallback for general-language/non-code tasks |
+| CLOUD BRAIN (PRIMARY for heavy work) | qwen/qwen3.8-flash via Puter API | Zed Chat / Agent Panel (Cmd+L) | Architecture, cross-file reasoning, debugging long logs, Web3 & financial logic, planning, reviews |
+| AGENT (BACKUP ONLY) | ClinePass rotating free model — **as of 2026-10-13: MiMo-V2.6-Flash** (previously DeepSeek v4.1 Flash) | Cline CLI via ACP in Zed (wrapper: ~/bin/cline-zed, args: --acp) | Autonomous multi-file + terminal tasks. BACKUP to Puter because ClinePass free allocation rotates without notice |
+
+### Routing rules — every prompt I generate must follow these
+1. Tag every prompt with exactly one engine: [LOCAL MUSCLE], [CLOUD BRAIN], or [AGENT].
+2. Use [LOCAL MUSCLE] when: single file, small-to-medium change, boilerplate, formatting, docstrings, quick fixes. Prompt must be narrow and self-contained (include the relevant code snippet and file path inside the prompt).
+3. Use [CLOUD BRAIN] when: multi-file reasoning, schema/architecture design, debugging complex errors, smart-contract or financial math, code review, test strategy. Plan-first-then-code is allowed.
+4. Use [AGENT] only when: the task genuinely needs autonomous file creation across folders + terminal execution + self-verification, AND the current ClinePass free model is capable. If the free allocation is weak or missing, downgrade: plan with [CLOUD BRAIN], execute file-by-file with [LOCAL MUSCLE].
+5. Handoff pattern for big features: [CLOUD BRAIN] blueprint → [LOCAL MUSCLE] implements per file → [AGENT] (optional) runs tests and fixes failures.
+6. Quota discipline: local = unlimited; Puter free tier = throttled; ClinePass = rotating. Prefer LOCAL for repetition, CLOUD for thinking, AGENT sparingly.
+
+### Prompt format I must use
+- First line: engine tag + exact Zed trigger, e.g. "[LOCAL MUSCLE] → highlight the function, Cmd+Enter, paste this prompt".
+- Body: self-contained — file path, current behaviour, desired behaviour, constraints, expected output format.
+- For [AGENT]: include acceptance criteria and warn that file-write/terminal approval prompts will appear.
+
+### Maintenance rules for future sessions
+- Read this section FIRST before generating any coding prompt.
+- Update this section whenever: the ClinePass free model changes, local models are added/removed, endpoints or the IDE change.
+- Known endpoints: Puter base URL `https://api.puter.com/puterai/openai/v1` · Ollama `http://localhost:11434` · Cline wrapper `~/bin/cline-zed`.
 ---
 
 ## 1. Project Identity & User Profile
