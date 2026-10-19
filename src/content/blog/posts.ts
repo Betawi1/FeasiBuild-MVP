@@ -301,8 +301,8 @@ export const posts: BlogPost[] = [
   date: "2026-10-19",
   readTime: "2 min read",
   author: "Rashdan",
-  poster: "/blog/why-standard-template-fail-in-australia/poster.png",
-  deckPdf: "/blog/why-standard-template-fail-in-australia/deck.pdf",
+  poster: "/blog/why-standard-templates-fail-in-australia/poster.png",
+  deckPdf: "/blog/why-standard-templates-fail-in-australia/deck.pdf",
   slides: [],
   body: [
     { type: "p", text: "Most feasibility models are built for standard progress payment structures. In Australia, off-the-plan sales work differently — and that difference can quietly destroy your project's cashflow." },
