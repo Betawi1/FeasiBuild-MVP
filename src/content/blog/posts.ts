@@ -290,7 +290,7 @@ export const posts: BlogPost[] = [
   ],
 },
 {
-  slug: "why-standard-template-fail-in-australia",
+  slug: "why-standard-templates-fail-in-australia",
   title: "Why Standard Templates Fail in Australia",
   excerpt: "Most feasibility models assume standard progress payments. In Australia, off-the-plan sales run on 10/90 — and that difference can quietly destroy your project's cashflow.",
   category: "Jurisdiction",
