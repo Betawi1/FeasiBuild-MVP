@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Analytics } from '@vercel/analytics/react';
 import { ToastProvider } from "@/components/ui/Toast";
 import PuterErrorSuppressor from "@/components/PuterErrorSuppressor";
 import WizardDocumentTitle from "@/components/WizardDocumentTitle";
@@ -47,6 +48,7 @@ export default function RootLayout({
           <SecureKvUserBinder />
           <PuterKvMigrationTrigger />
           <ToastProvider>{children}</ToastProvider>
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>
