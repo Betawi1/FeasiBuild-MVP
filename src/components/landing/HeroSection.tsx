@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { trackCtaClick } from "@/lib/analytics";
 
 export default function HeroSection() {
   return (
@@ -28,6 +29,7 @@ export default function HeroSection() {
           <Link
             href="/sign-up"
             className="w-full rounded-xl bg-emerald-500 px-8 py-4 text-lg font-bold text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-600 sm:w-auto"
+            onClick={() => trackCtaClick("hero")}
           >
             Launch App
           </Link>

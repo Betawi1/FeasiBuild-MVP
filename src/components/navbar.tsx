@@ -10,6 +10,7 @@ import {
   ClerkLoading,
 } from "@clerk/react";
 import { UpgradeModalTrigger } from "@/components/ui/UpgradeModal";
+import { trackSignupStart } from "@/lib/analytics";
 
 const clerkAppearance = { variables: { colorPrimary: "#10b981" } };
 
@@ -101,6 +102,7 @@ export default function Navbar() {
                 <SignUpButton mode="modal">
                   <button
                     type="button"
+                    onClick={() => trackSignupStart()}
                     className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 shadow-lg shadow-emerald-500/20 transition-colors hover:bg-emerald-400"
                   >
                     Get Started
@@ -258,7 +260,7 @@ export default function Navbar() {
                   <button
                     type="button"
                     className="block w-full rounded-lg bg-emerald-500 px-4 py-2 text-center font-medium text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                    onClick={() => { setIsMobileMenuOpen(false); trackSignupStart(); }}
                   >
                     Get Started
                   </button>

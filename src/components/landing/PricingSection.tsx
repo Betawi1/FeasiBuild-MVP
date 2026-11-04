@@ -1,9 +1,12 @@
+"use client";
+
 import { Fragment } from "react";
 import Link from "next/link";
 import {
   CREDIT_PRODUCT_KEYS,
   ONE_TIME_PRODUCTS,
 } from "@/lib/pricing";
+import { trackCtaClick } from "@/lib/analytics";
 
 const Check = () => (
   <svg
@@ -262,6 +265,7 @@ export default function PricingSection() {
               </ul>
               <Link
                 href="/sign-up"
+                onClick={() => trackCtaClick("pricing")}
                 className={`mt-8 block rounded-lg py-3 text-center text-sm font-semibold ${
                   t.highlight
                     ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400"

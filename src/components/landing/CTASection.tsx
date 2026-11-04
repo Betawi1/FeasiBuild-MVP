@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { trackCtaClick } from "@/lib/analytics";
 
 export default function CTASection() {
   return (
@@ -15,9 +16,11 @@ export default function CTASection() {
           </p>
 
           <div className="flex flex-col justify-center gap-4 sm:flex-row">
+
             <Link
               href="/sign-up"
               className="rounded-xl bg-emerald-500 px-8 py-4 text-lg font-bold text-slate-950 shadow-xl shadow-emerald-500/20 transition hover:bg-emerald-600"
+              onClick={() => trackCtaClick("cta-section")}
             >
               Start Modeling
             </Link>

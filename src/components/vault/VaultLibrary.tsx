@@ -7,6 +7,7 @@ import {
   VAULT_STUDIES,
   type VaultStudy,
 } from "@/content/vault/studies";
+import { trackVaultSubmit } from "@/lib/analytics";
 
 const UNLOCKED_KEY = "feasibuild.vault.unlocked";
 const KEPT_STUDY_KEY = "feasibuild.vault.keptStudy";
@@ -169,9 +170,11 @@ export default function VaultLibrary() {
       return;
     }
 
+
+
     setError(null);
     setSubmitting(true);
-
+    trackVaultSubmit();
     try {
       const res = await postVaultLead(trimmedName, trimmedEmail, hp);
       if (res.status === 400) {
